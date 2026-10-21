@@ -21,6 +21,32 @@ chrome.runtime.onInstalled.addListener(() => {
   });
 });
 
+// Helper: Post bookmark to Keepsake server
+async function postBookmarkToServer(serverUrl: string, bookmark: Bookmark) {
+  const cleanUrl = serverUrl.replace(/\/+$/, '');
+  try {
+    await fetch(`${cleanUrl}/api/bookmarks`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(bookmark)
+    });
+  } catch (err) {
+    console.warn('[Keepsake Background] Failed to POST bookmark to server:', err);
+  }
+}
+
+// Helper: Notify Keepsake tabs to sync
+async function notifyKeepsakeTabs() {
+  try {
+    const tabs = await chrome.tabs.query({});
+    for (const tab of tabs) {
+      if (tab.id && tab.url && (tab.url.includes(':3000') || tab.url.includes(':5173') || tab.url.includes('keepsake'))) {
+        chrome.tabs.sendMessage(tab.id, { action: 'KEEPSAKE_SYNC' }).catch(() => {});
+      }
+    }
+  } catch {}
+}
+
 // Handle Context Menu Clicks
 chrome.contextMenus.onClicked.addListener(async (info, tab) => {
   if (!tab || !tab.id) return;
@@ -68,11 +94,11 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
     // Show visual badge checkmark
     showSuccessBadge(tab.id!);
 
-    // If server URL is configured, also scrape and save on server
-    if (res.serverUrl) {
-      try {
-        await fetch(`${res.serverUrl}/api/scrape?url=${encodeURIComponent(targetUrl)}`);
-      } catch {}
+    // If server URL is configured, save bookmark on server
+    const serverUrl = res.serverUrl || 'http://localhost:3000';
+    if (serverUrl) {
+      await postBookmarkToServer(serverUrl, bookmark);
+      await notifyKeepsakeTabs();
     }
   });
 });
@@ -103,20 +129,27 @@ chrome.commands.onCommand.addListener(async (command) => {
       updatedAt: now
     };
 
-    chrome.storage.local.get(['bookmarks'], (res) => {
+    chrome.storage.local.get(['bookmarks', 'serverUrl'], async (res) => {
       const list: Bookmark[] = res.bookmarks || [];
       chrome.storage.local.set({ bookmarks: [bookmark, ...list.filter((b) => b.url !== url)] });
       showSuccessBadge(tab.id!);
+
+      const serverUrl = res.serverUrl || 'http://localhost:3000';
+      if (serverUrl) {
+        await postBookmarkToServer(serverUrl, bookmark);
+        await notifyKeepsakeTabs();
+      }
     });
   }
 });
 
 // Message listener from popup
 chrome.runtime.onMessage.addListener((message, sender) => {
-  if (message.action === 'BOOKMARK_SAVED') {
+  if (message.action === 'BOOKMARK_SAVED' || message.action === 'BOOKMARK_DELETED') {
     chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
       if (tabs[0]?.id) showSuccessBadge(tabs[0].id);
     });
+    notifyKeepsakeTabs();
   }
 });
 

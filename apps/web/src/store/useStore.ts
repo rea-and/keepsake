@@ -136,6 +136,75 @@ export function useKeepsakeStore() {
   // Sync drive file ID cache
   const [driveFileId, setDriveFileId] = useState<string | null>(null);
 
+  // Server Sync Engine (Keepsake Backend Persistence)
+  const syncWithServer = useCallback(async (options?: { silent?: boolean }) => {
+    try {
+      const currentStoreRaw = localStorage.getItem(LOCAL_STORAGE_KEY);
+      const storeToSend = currentStoreRaw ? JSON.parse(currentStoreRaw) : store;
+
+      const res = await fetch('/api/sync', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ store: storeToSend })
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        if (data.store) {
+          setStore((prev) => {
+            if (
+              data.store.lastModified !== prev.lastModified ||
+              data.store.bookmarks.length !== prev.bookmarks.length ||
+              data.store.collections.length !== prev.collections.length ||
+              JSON.stringify(data.store.bookmarks) !== JSON.stringify(prev.bookmarks) ||
+              JSON.stringify(data.store.collections) !== JSON.stringify(prev.collections)
+            ) {
+              return data.store;
+            }
+            return prev;
+          });
+        }
+      }
+    } catch (err) {
+      if (!options?.silent) {
+        console.warn('[Keepsake Web] Server sync offline or unavailable:', err);
+      }
+    }
+  }, [store]);
+
+  // Initial sync with server on mount
+  useEffect(() => {
+    syncWithServer({ silent: true });
+  }, []);
+
+  // Sync with server on window focus
+  useEffect(() => {
+    const handleFocus = () => {
+      syncWithServer({ silent: true });
+    };
+    window.addEventListener('focus', handleFocus);
+    return () => window.removeEventListener('focus', handleFocus);
+  }, [syncWithServer]);
+
+  // Fast periodic sync with server (every 5 seconds) to catch extension/mobile saves instantly
+  useEffect(() => {
+    const interval = setInterval(() => {
+      syncWithServer({ silent: true });
+    }, 5000);
+    return () => clearInterval(interval);
+  }, [syncWithServer]);
+
+  // Listen for sync notifications from extension content script or BroadcastChannel
+  useEffect(() => {
+    const handleMsg = (event: MessageEvent) => {
+      if (event.data?.type === 'KEEPSAKE_SYNC_TRIGGER') {
+        syncWithServer({ silent: true });
+      }
+    };
+    window.addEventListener('message', handleMsg);
+    return () => window.removeEventListener('message', handleMsg);
+  }, [syncWithServer]);
+
   // Persist store to LocalStorage whenever it changes
   useEffect(() => {
     try {
@@ -282,6 +351,13 @@ export function useKeepsakeStore() {
         bookmarks: [newBm, ...prev.bookmarks]
       }));
 
+      // Persist to server
+      fetch('/api/bookmarks', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(newBm)
+      }).catch((e) => console.warn('[Keepsake Web] addBookmark server persist error:', e));
+
       return newBm;
     },
     []
@@ -294,17 +370,35 @@ export function useKeepsakeStore() {
       lastModified: now,
       bookmarks: prev.bookmarks.map((bm) => (bm.id === id ? { ...bm, ...updates, updatedAt: now } : bm))
     }));
+
+    // Persist to server
+    fetch(`/api/bookmarks/${id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(updates)
+    }).catch((e) => console.warn('[Keepsake Web] updateBookmark server persist error:', e));
   }, []);
 
   const toggleFavorite = useCallback((id: string) => {
     const now = new Date().toISOString();
-    setStore((prev) => ({
-      ...prev,
-      lastModified: now,
-      bookmarks: prev.bookmarks.map((bm) =>
-        bm.id === id ? { ...bm, isFavorite: !bm.isFavorite, updatedAt: now } : bm
-      )
-    }));
+    let nextFavorite = false;
+    setStore((prev) => {
+      const bm = prev.bookmarks.find((b) => b.id === id);
+      nextFavorite = bm ? !bm.isFavorite : false;
+      return {
+        ...prev,
+        lastModified: now,
+        bookmarks: prev.bookmarks.map((b) =>
+          b.id === id ? { ...b, isFavorite: nextFavorite, updatedAt: now } : b
+        )
+      };
+    });
+
+    fetch(`/api/bookmarks/${id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ isFavorite: nextFavorite })
+    }).catch((e) => console.warn('[Keepsake Web] toggleFavorite server persist error:', e));
   }, []);
 
   const moveToTrash = useCallback((id: string) => {
@@ -319,6 +413,10 @@ export function useKeepsakeStore() {
       next.delete(id);
       return next;
     });
+
+    fetch(`/api/bookmarks/${id}`, {
+      method: 'DELETE'
+    }).catch((e) => console.warn('[Keepsake Web] moveToTrash server persist error:', e));
   }, []);
 
   const restoreFromTrash = useCallback((id: string) => {
@@ -328,6 +426,12 @@ export function useKeepsakeStore() {
       lastModified: now,
       bookmarks: prev.bookmarks.map((bm) => (bm.id === id ? { ...bm, isTrash: false, updatedAt: now } : bm))
     }));
+
+    fetch(`/api/bookmarks/${id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ isTrash: false })
+    }).catch((e) => console.warn('[Keepsake Web] restoreFromTrash server persist error:', e));
   }, []);
 
   const permanentlyDeleteBookmark = useCallback((id: string) => {
@@ -344,6 +448,10 @@ export function useKeepsakeStore() {
       next.delete(id);
       return next;
     });
+
+    fetch(`/api/bookmarks/${id}?permanent=true`, {
+      method: 'DELETE'
+    }).catch((e) => console.warn('[Keepsake Web] permanentlyDelete server persist error:', e));
   }, []);
 
   const emptyTrash = useCallback(() => {
@@ -355,12 +463,19 @@ export function useKeepsakeStore() {
         type: 'bookmark',
         deletedAt: now
       }));
-      return {
+      const nextStore = {
         ...prev,
         lastModified: now,
         bookmarks: prev.bookmarks.filter((bm) => !bm.isTrash),
         tombstones: [...(prev.tombstones || []), ...newTombstones]
       };
+      // Full sync to server
+      fetch('/api/sync', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ store: nextStore })
+      }).catch(() => {});
+      return nextStore;
     });
   }, []);
 
@@ -454,6 +569,13 @@ export function useKeepsakeStore() {
         lastModified: now,
         collections: [...prev.collections, newCol]
       }));
+
+      fetch('/api/collections', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(newCol)
+      }).catch((e) => console.warn('[Keepsake Web] addCollection server persist error:', e));
+
       return newCol;
     },
     [store.collections.length]
@@ -466,6 +588,12 @@ export function useKeepsakeStore() {
       lastModified: now,
       collections: prev.collections.map((col) => (col.id === id ? { ...col, ...updates, updatedAt: now } : col))
     }));
+
+    fetch(`/api/collections/${id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(updates)
+    }).catch((e) => console.warn('[Keepsake Web] updateCollection server persist error:', e));
   }, []);
 
   const deleteCollection = useCallback(
@@ -484,6 +612,10 @@ export function useKeepsakeStore() {
         collections: prev.collections.filter((col) => col.id !== id),
         tombstones: [...(prev.tombstones || []), tombstone]
       }));
+
+      fetch(`/api/collections/${id}`, {
+        method: 'DELETE'
+      }).catch((e) => console.warn('[Keepsake Web] deleteCollection server persist error:', e));
 
       if (activeCollectionId === id) {
         setActiveCollectionId('all');
@@ -691,6 +823,7 @@ export function useKeepsakeStore() {
     setAuthSession,
     syncStatus,
     syncWithGoogleDrive,
+    syncWithServer,
     addBookmark,
     updateBookmark,
     toggleFavorite,

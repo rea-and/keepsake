@@ -16,6 +16,7 @@ let currentCover = '';
 let currentTags: string[] = [];
 let isStarred = false;
 let collections: Collection[] = [];
+let activeServerUrl = 'http://localhost:3000';
 
 // DOM Elements
 const statusBadge = document.getElementById('statusBadge') as HTMLSpanElement;
@@ -60,6 +61,48 @@ function addTag(rawTag: string) {
   tagInput.value = '';
 }
 
+function renderCollectionOptions(cols: Collection[]) {
+  collectionSelect.innerHTML = '<option value="unsorted">📥 Unsorted</option>';
+  cols
+    .filter((c) => !c.isSystem)
+    .forEach((col) => {
+      const opt = document.createElement('option');
+      opt.value = col.id;
+      opt.textContent = `📁 ${col.title}`;
+      collectionSelect.appendChild(opt);
+    });
+}
+
+function populateBookmarkUI(bm: Bookmark) {
+  statusBadge.textContent = 'Saved ✓';
+  statusBadge.classList.add('saved');
+  saveBtn.textContent = 'Update Bookmark';
+  deleteBtn.style.display = 'block';
+
+  if (bm.title) {
+    pageTitle.textContent = bm.title;
+  }
+  if (bm.collectionId) {
+    collectionSelect.value = bm.collectionId;
+  }
+  if (bm.tags) {
+    currentTags = [...bm.tags];
+    renderTags();
+  }
+  if (bm.note) {
+    noteInput.value = bm.note;
+  }
+  if (bm.isFavorite) {
+    isStarred = true;
+    starBtn.classList.add('active');
+  }
+  if (bm.cover) {
+    currentCover = bm.cover;
+    coverImg.src = currentCover;
+    coverImg.style.display = 'block';
+  }
+}
+
 // Initialize Popup
 async function init() {
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
@@ -94,53 +137,60 @@ async function init() {
   }
 
   // Load storage
-  chrome.storage.local.get(['serverUrl', 'bookmarks', 'collections'], (res: ExtensionStorage) => {
+  chrome.storage.local.get(['serverUrl', 'bookmarks', 'collections'], async (res: ExtensionStorage) => {
     if (res.serverUrl) {
-      serverUrlInput.value = res.serverUrl;
+      activeServerUrl = res.serverUrl.replace(/\/+$/, '');
     }
+    serverUrlInput.value = activeServerUrl;
 
     if (res.collections && res.collections.length > 0) {
       collections = res.collections;
-      collectionSelect.innerHTML = '<option value="unsorted">📥 Unsorted</option>';
-      collections
-        .filter((c) => !c.isSystem)
-        .forEach((col) => {
-          const opt = document.createElement('option');
-          opt.value = col.id;
-          opt.textContent = `📁 ${col.title}`;
-          collectionSelect.appendChild(opt);
-        });
+      renderCollectionOptions(collections);
     }
 
-    // Check if current URL is already saved
-    const savedList: Bookmark[] = res.bookmarks || [];
-    currentBookmark = savedList.find((b) => b.url === currentUrl && !b.isTrash) || null;
+    // Try to fetch latest collections from server
+    if (activeServerUrl) {
+      try {
+        const colRes = await fetch(`${activeServerUrl}/api/collections`);
+        if (colRes.ok) {
+          const colData = await colRes.json();
+          if (colData.collections && colData.collections.length > 0) {
+            collections = colData.collections;
+            chrome.storage.local.set({ collections });
+            renderCollectionOptions(collections);
+          }
+        }
+      } catch (err) {
+        console.warn('[Keepsake Extension] Server collections fetch failed:', err);
+      }
+    }
+
+    // Check if current URL is already saved (try server first, then local fallback)
+    let foundBm: Bookmark | null = null;
+
+    if (activeServerUrl) {
+      try {
+        const checkRes = await fetch(`${activeServerUrl}/api/bookmarks?url=${encodeURIComponent(currentUrl)}`);
+        if (checkRes.ok) {
+          const checkData = await checkRes.json();
+          if (checkData.bookmarks && checkData.bookmarks.length > 0) {
+            foundBm = checkData.bookmarks[0];
+          }
+        }
+      } catch (err) {
+        console.warn('[Keepsake Extension] Server check failed:', err);
+      }
+    }
+
+    if (!foundBm) {
+      const savedList: Bookmark[] = res.bookmarks || [];
+      foundBm = savedList.find((b) => b.url === currentUrl && !b.isTrash) || null;
+    }
+
+    currentBookmark = foundBm;
 
     if (currentBookmark) {
-      statusBadge.textContent = 'Saved ✓';
-      statusBadge.classList.add('saved');
-      saveBtn.textContent = 'Update Bookmark';
-      deleteBtn.style.display = 'block';
-
-      if (currentBookmark.collectionId) {
-        collectionSelect.value = currentBookmark.collectionId;
-      }
-      if (currentBookmark.tags) {
-        currentTags = [...currentBookmark.tags];
-        renderTags();
-      }
-      if (currentBookmark.note) {
-        noteInput.value = currentBookmark.note;
-      }
-      if (currentBookmark.isFavorite) {
-        isStarred = true;
-        starBtn.classList.add('active');
-      }
-      if (currentBookmark.cover) {
-        currentCover = currentBookmark.cover;
-        coverImg.src = currentCover;
-        coverImg.style.display = 'block';
-      }
+      populateBookmarkUI(currentBookmark);
     } else {
       statusBadge.textContent = 'New Link';
       statusBadge.classList.remove('saved');
@@ -168,47 +218,74 @@ toggleSettings.addEventListener('click', () => {
 });
 
 saveSettingsBtn.addEventListener('click', () => {
-  const url = serverUrlInput.value.trim();
-  chrome.storage.local.set({ serverUrl: url }, () => {
-    alert('Server URL saved!');
-    settingsPanel.style.display = 'none';
+  const url = serverUrlInput.value.trim().replace(/\/+$/, '');
+  activeServerUrl = url || 'http://localhost:3000';
+  chrome.storage.local.set({ serverUrl: activeServerUrl }, () => {
+    saveSettingsBtn.textContent = 'Saved!';
+    setTimeout(() => {
+      saveSettingsBtn.textContent = 'Save Settings';
+      settingsPanel.style.display = 'none';
+    }, 800);
   });
 });
 
 // Save / Update Bookmark
-saveBtn.addEventListener('click', () => {
+saveBtn.addEventListener('click', async () => {
+  saveBtn.disabled = true;
+  saveBtn.textContent = 'Saving...';
   const now = new Date().toISOString();
-  chrome.storage.local.get(['bookmarks', 'serverUrl'], (res) => {
+
+  let newBm: Bookmark = {
+    id: currentBookmark ? currentBookmark.id : 'bm_' + Math.random().toString(36).substring(2, 9) + Date.now().toString(36),
+    url: currentUrl,
+    title: currentTitle || currentDomain,
+    description: currentBookmark?.description || '',
+    note: noteInput.value.trim(),
+    domain: currentDomain,
+    favicon: currentFavicon,
+    cover: currentCover || undefined,
+    collectionId: collectionSelect.value || 'unsorted',
+    tags: currentTags,
+    isFavorite: isStarred,
+    isTrash: false,
+    type: 'link',
+    createdAt: currentBookmark ? currentBookmark.createdAt : now,
+    updatedAt: now
+  };
+
+  // 1. Post to Server if activeServerUrl is configured
+  if (activeServerUrl) {
+    try {
+      const serverRes = await fetch(`${activeServerUrl}/api/bookmarks`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(newBm)
+      });
+
+      if (serverRes.ok) {
+        const data = await serverRes.json();
+        if (data.bookmark) {
+          newBm = data.bookmark;
+        }
+      }
+    } catch (err) {
+      console.error('[Keepsake Extension] Could not reach server, saving locally:', err);
+    }
+  }
+
+  // 2. Also save to chrome.storage.local
+  chrome.storage.local.get(['bookmarks'], (res) => {
     const bookmarks: Bookmark[] = res.bookmarks || [];
-
-    const newBm: Bookmark = {
-      id: currentBookmark ? currentBookmark.id : 'bm_' + Math.random().toString(36).substring(2, 9) + Date.now().toString(36),
-      url: currentUrl,
-      title: currentTitle || currentDomain,
-      description: currentBookmark?.description || '',
-      note: noteInput.value.trim(),
-      domain: currentDomain,
-      favicon: currentFavicon,
-      cover: currentCover || undefined,
-      collectionId: collectionSelect.value || 'unsorted',
-      tags: currentTags,
-      isFavorite: isStarred,
-      isTrash: false,
-      type: 'link',
-      createdAt: currentBookmark ? currentBookmark.createdAt : now,
-      updatedAt: now
-    };
-
     const updatedList = currentBookmark
       ? bookmarks.map((b) => (b.id === newBm.id ? newBm : b))
-      : [newBm, ...bookmarks];
+      : [newBm, ...bookmarks.filter((b) => b.url !== currentUrl)];
 
     chrome.storage.local.set({ bookmarks: updatedList }, () => {
-      saveBtn.textContent = 'Saved!';
+      saveBtn.textContent = 'Saved ✓';
       statusBadge.textContent = 'Saved ✓';
       statusBadge.classList.add('saved');
 
-      // Forward to background script for server sync & badge update
+      // Forward to background script for badge update & tab broadcast
       chrome.runtime.sendMessage({ action: 'BOOKMARK_SAVED', bookmark: newBm });
 
       setTimeout(() => window.close(), 600);
@@ -217,14 +294,29 @@ saveBtn.addEventListener('click', () => {
 });
 
 // Delete Bookmark
-deleteBtn.addEventListener('click', () => {
+deleteBtn.addEventListener('click', async () => {
   if (!currentBookmark) return;
+  deleteBtn.disabled = true;
+  deleteBtn.textContent = 'Deleting...';
+
+  // 1. Delete on server if configured
+  if (activeServerUrl) {
+    try {
+      await fetch(`${activeServerUrl}/api/bookmarks/${currentBookmark.id}`, {
+        method: 'DELETE'
+      });
+    } catch (err) {
+      console.error('[Keepsake Extension] Server delete failed:', err);
+    }
+  }
+
+  // 2. Delete in chrome.storage.local
   chrome.storage.local.get(['bookmarks'], (res) => {
     const bookmarks: Bookmark[] = res.bookmarks || [];
     const updated = bookmarks.filter((b) => b.id !== currentBookmark!.id);
     chrome.storage.local.set({ bookmarks: updated }, () => {
       chrome.runtime.sendMessage({ action: 'BOOKMARK_DELETED', id: currentBookmark!.id });
-      window.close();
+      setTimeout(() => window.close(), 300);
     });
   });
 });

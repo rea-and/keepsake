@@ -32,7 +32,7 @@ class MainActivity : AppCompatActivity() {
 
         // Setup container layout programmatically
         val root = FrameLayout(this)
-        root.setBackgroundColor(0xFF0F172A.toInt())
+        root.setBackgroundColor(0xFF0C0C0E.toInt())
 
         webView = WebView(this)
         progressBar = ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal).apply {

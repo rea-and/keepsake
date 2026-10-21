@@ -6,6 +6,7 @@ import { fileURLToPath } from 'url';
 import fs from 'fs';
 import { authRouter } from './auth.js';
 import { scrapeUrl } from './scraper.js';
+import { serverStore } from './store.js';
 import { exportToNetscapeHtml, parseNetscapeHtml, extractDomain, getFaviconUrl } from '@keepsake/shared';
 dotenv.config();
 const __filename = fileURLToPath(import.meta.url);
@@ -48,6 +49,177 @@ app.get('/api/scrape', async (req, res) => {
         });
     }
 });
+// ==========================================
+// Full Store Sync Endpoints (CRDT LWW)
+// ==========================================
+app.get('/api/sync', (req, res) => {
+    res.json({
+        success: true,
+        store: serverStore.getStore()
+    });
+});
+app.post('/api/sync', (req, res) => {
+    const incomingStore = req.body.store || req.body;
+    if (!incomingStore || !Array.isArray(incomingStore.bookmarks)) {
+        return res.status(400).json({ error: 'Invalid store payload for sync' });
+    }
+    const merged = serverStore.merge(incomingStore);
+    return res.json({
+        success: true,
+        store: merged
+    });
+});
+// ==========================================
+// Bookmarks REST API
+// ==========================================
+app.get('/api/bookmarks', (req, res) => {
+    const { collectionId, isTrash, search, url } = req.query;
+    const bookmarks = serverStore.listBookmarks({
+        collectionId: collectionId,
+        isTrash: isTrash,
+        search: search,
+        url: url
+    });
+    res.json({
+        bookmarks,
+        total: bookmarks.length
+    });
+});
+app.get('/api/bookmarks/:id', (req, res) => {
+    const bookmark = serverStore.getBookmark(req.params.id);
+    if (!bookmark) {
+        return res.status(404).json({ error: 'Bookmark not found' });
+    }
+    return res.json({ bookmark });
+});
+app.post('/api/bookmarks', async (req, res) => {
+    const { id, url, title, description, excerpt, note, domain, favicon, cover, collectionId, tags, isFavorite, isTrash, type, createdAt, readerContent } = req.body;
+    if (!url) {
+        return res.status(400).json({ error: 'Missing required field: "url"' });
+    }
+    const saved = serverStore.addOrUpdateBookmark({
+        id,
+        url,
+        title,
+        description,
+        excerpt,
+        note,
+        domain,
+        favicon,
+        cover,
+        collectionId,
+        tags,
+        isFavorite,
+        isTrash,
+        type,
+        createdAt,
+        readerContent
+    });
+    // Background auto-enrichment if metadata is sparse
+    if ((!saved.cover || !saved.description) && saved.url.startsWith('http')) {
+        scrapeUrl(saved.url)
+            .then((meta) => {
+            if (meta && (meta.cover || meta.description || meta.title)) {
+                serverStore.addOrUpdateBookmark({
+                    id: saved.id,
+                    url: saved.url,
+                    title: saved.title || meta.title,
+                    description: saved.description || meta.description,
+                    cover: saved.cover || meta.cover,
+                    favicon: saved.favicon || meta.favicon,
+                    type: saved.type === 'link' ? meta.type : saved.type,
+                    readerContent: meta.readerContent
+                });
+            }
+        })
+            .catch(() => { });
+    }
+    return res.status(201).json({
+        success: true,
+        bookmark: saved
+    });
+});
+app.put('/api/bookmarks/:id', (req, res) => {
+    const existing = serverStore.getBookmark(req.params.id);
+    if (!existing) {
+        return res.status(404).json({ error: 'Bookmark not found' });
+    }
+    const updated = serverStore.addOrUpdateBookmark({
+        ...req.body,
+        id: req.params.id,
+        url: req.body.url || existing.url
+    });
+    return res.json({
+        success: true,
+        bookmark: updated
+    });
+});
+app.delete('/api/bookmarks/:id', (req, res) => {
+    const isPermanent = req.query.permanent === 'true';
+    const success = serverStore.deleteBookmark(req.params.id, isPermanent);
+    if (!success) {
+        return res.status(404).json({ error: 'Bookmark not found' });
+    }
+    return res.json({ success: true, permanent: isPermanent });
+});
+// ==========================================
+// Collections REST API
+// ==========================================
+app.get('/api/collections', (req, res) => {
+    const collections = serverStore.listCollections();
+    res.json({
+        collections
+    });
+});
+app.get('/api/collections/:id', (req, res) => {
+    const collection = serverStore.getCollection(req.params.id);
+    if (!collection) {
+        return res.status(404).json({ error: 'Collection not found' });
+    }
+    return res.json({ collection });
+});
+app.post('/api/collections', (req, res) => {
+    const { title, description, icon, color, defaultViewMode, sortOrder, isSystem, id } = req.body;
+    if (!title) {
+        return res.status(400).json({ error: 'Missing required field: "title"' });
+    }
+    const collection = serverStore.addOrUpdateCollection({
+        id,
+        title,
+        description,
+        icon,
+        color,
+        defaultViewMode,
+        sortOrder,
+        isSystem
+    });
+    return res.status(201).json({
+        success: true,
+        collection
+    });
+});
+app.put('/api/collections/:id', (req, res) => {
+    const existing = serverStore.getCollection(req.params.id);
+    if (!existing) {
+        return res.status(404).json({ error: 'Collection not found' });
+    }
+    const updated = serverStore.addOrUpdateCollection({
+        ...req.body,
+        id: req.params.id,
+        title: req.body.title || existing.title
+    });
+    return res.json({
+        success: true,
+        collection: updated
+    });
+});
+app.delete('/api/collections/:id', (req, res) => {
+    const success = serverStore.deleteCollection(req.params.id);
+    if (!success) {
+        return res.status(400).json({ error: 'Cannot delete collection (or not found)' });
+    }
+    return res.json({ success: true });
+});
 // Bookmark Import from Netscape HTML / JSON
 app.post('/api/import', (req, res) => {
     const { content, format } = req.body;
@@ -57,53 +229,61 @@ app.post('/api/import', (req, res) => {
     try {
         if (format === 'json') {
             const parsed = typeof content === 'string' ? JSON.parse(content) : content;
-            return res.json({
-                success: true,
-                bookmarks: parsed.bookmarks || [],
-                collections: parsed.collections || []
-            });
+            if (parsed.bookmarks || parsed.collections) {
+                const merged = serverStore.merge(parsed);
+                return res.json({
+                    success: true,
+                    bookmarks: merged.bookmarks,
+                    collections: merged.collections,
+                    importedCount: parsed.bookmarks ? parsed.bookmarks.length : 0
+                });
+            }
+            return res.status(400).json({ error: 'Invalid JSON backup format' });
         }
         // Default to Netscape HTML format
         const parsedItems = parseNetscapeHtml(content);
         const collectionsMap = new Map();
+        const existingCols = serverStore.listCollections();
+        existingCols.forEach((c) => collectionsMap.set(c.title.toLowerCase(), c));
         const bookmarks = [];
         const now = new Date().toISOString();
         for (const item of parsedItems) {
             const colName = item.collectionName || 'Unsorted';
-            let colId = colName.toLowerCase().replace(/[^a-z0-9]/g, '-');
-            if (colName === 'Unsorted')
-                colId = 'unsorted';
-            if (!collectionsMap.has(colId)) {
-                collectionsMap.set(colId, {
-                    id: colId,
-                    title: colName,
-                    sortOrder: collectionsMap.size,
-                    isSystem: colId === 'unsorted',
-                    createdAt: now,
-                    updatedAt: now
-                });
+            const lower = colName.toLowerCase();
+            let targetColId = 'unsorted';
+            if (colName !== 'Unsorted') {
+                if (collectionsMap.has(lower)) {
+                    targetColId = collectionsMap.get(lower).id;
+                }
+                else {
+                    const newCol = serverStore.addOrUpdateCollection({
+                        title: colName,
+                        isSystem: false
+                    });
+                    collectionsMap.set(lower, newCol);
+                    targetColId = newCol.id;
+                }
             }
             const domain = extractDomain(item.url);
-            bookmarks.push({
-                id: 'bm_' + Math.random().toString(36).substring(2, 11) + Date.now().toString(36),
+            const savedBm = serverStore.addOrUpdateBookmark({
                 url: item.url,
                 title: item.title || domain,
                 description: item.description || '',
                 domain,
                 favicon: getFaviconUrl(domain),
-                collectionId: colId,
+                collectionId: targetColId,
                 tags: item.tags || [],
                 isFavorite: false,
                 isTrash: false,
                 type: 'link',
-                createdAt: item.createdAt || now,
-                updatedAt: item.createdAt || now
+                createdAt: item.createdAt || now
             });
+            bookmarks.push(savedBm);
         }
         return res.json({
             success: true,
             bookmarks,
-            collections: Array.from(collectionsMap.values()),
+            collections: serverStore.listCollections(),
             importedCount: bookmarks.length
         });
     }
@@ -114,23 +294,23 @@ app.post('/api/import', (req, res) => {
 // Bookmark Export to HTML / JSON
 app.post('/api/export/html', (req, res) => {
     const { bookmarks, collections } = req.body;
-    if (!bookmarks || !Array.isArray(bookmarks)) {
-        return res.status(400).json({ error: 'Invalid bookmarks array' });
-    }
-    const html = exportToNetscapeHtml(bookmarks, collections || []);
+    const list = bookmarks && Array.isArray(bookmarks) ? bookmarks : serverStore.listBookmarks({ isTrash: false });
+    const cols = collections && Array.isArray(collections) ? collections : serverStore.listCollections();
+    const html = exportToNetscapeHtml(list, cols);
     res.setHeader('Content-Type', 'text/html; charset=utf-8');
     res.setHeader('Content-Disposition', 'attachment; filename="keepsake-bookmarks.html"');
     return res.send(html);
 });
 app.post('/api/export/json', (req, res) => {
-    const { bookmarks, collections, tombstones } = req.body;
+    const store = serverStore.getStore();
     const data = {
         app: 'Keepsake',
-        version: 1,
+        version: store.version,
+        schemaVersion: store.schemaVersion,
         exportedAt: new Date().toISOString(),
-        collections: collections || [],
-        bookmarks: bookmarks || [],
-        tombstones: tombstones || []
+        collections: store.collections,
+        bookmarks: store.bookmarks,
+        tombstones: store.tombstones
     };
     res.setHeader('Content-Type', 'application/json');
     res.setHeader('Content-Disposition', 'attachment; filename="keepsake-backup.json"');

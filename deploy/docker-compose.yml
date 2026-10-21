@@ -12,10 +12,13 @@ services:
     environment:
       - PORT=3000
       - NODE_ENV=production
+      - DATA_DIR=/app/data
       - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID}
       - GOOGLE_CLIENT_SECRET=${GOOGLE_CLIENT_SECRET}
       - GOOGLE_REDIRECT_URI=${GOOGLE_REDIRECT_URI}
       - CORS_ORIGIN=*
+    volumes:
+      - keepsake_data:/app/data
     healthcheck:
       test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3000/api/health"]
       interval: 30s
@@ -38,6 +41,7 @@ services:
   #   depends_on:
   #     - keepsake
 
-# volumes:
-#   caddy_data:
-#   caddy_config:
+volumes:
+  keepsake_data:
+  # caddy_data:
+  # caddy_config:
