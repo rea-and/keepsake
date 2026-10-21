@@ -5,6 +5,19 @@
 
 ---
 
+## 📖 Complete Setup & Deployment Guide
+
+For end-to-end instructions covering **all targets**, **Google configuration**, **Ubuntu deployment**, and **clean uninstallation**, see:
+
+👉 **[SETUP.md](SETUP.md)**
+- **[Building All Targets](SETUP.md#1-building-all-targets)** (Web, Server, Extensions, Android APK)
+- **[Google OAuth 2.0 & Google Drive Configuration](SETUP.md#2-configuring-google-oauth-20--google-drive)**
+- **[Ubuntu Server Setup (Docker & Systemd)](SETUP.md#3-setting-up-on-an-ubuntu-server)**
+- **[Uninstalling from Ubuntu Server](SETUP.md#4-uninstalling-from-ubuntu-server)**
+- **[Client Connection Quick Reference](SETUP.md#5-client-connection-quick-reference)**
+
+---
+
 ## ✨ Features
 
 - **Raindrop.io-Style Visual Hierarchy & Views:**
@@ -28,8 +41,8 @@
   - Zero lock-in: All data is saved and synced directly to the user's private Google Drive `appDataFolder` using CRDT Last-Write-Wins conflict resolution with tombstone tracking.
   - Optional visible backup exports to a `Keepsake/` Google Drive folder.
 - **Cross-Platform Clients:**
-  - 🌐 **Web App**: Production React SPA with instant 0ms offline-first caching and dark/light themes.
-  - 🐧 **Ubuntu Server Deployable**: Ready-to-go Docker Compose and Caddy/Nginx reverse proxy setups.
+  - 🌐 **Web App**: Production React SPA with instant 0ms offline-first caching and neutral dark/light themes.
+  - 🐧 **Ubuntu Server Deployable**: Ready-to-go Docker Compose and Caddy/Nginx reverse proxy setups with automated SSL.
   - 📱 **Android Client**: Native Android application with system Share Target (`ACTION_SEND`) to ingest links from any app (Chrome, Twitter/X, Reddit, YouTube).
   - 🧩 **Chrome Extension**: Manifest V3 extension with live card previews, tag autocomplete, notes, and context menus.
   - 🦊 **Firefox Extension**: Firefox WebExtension with full feature parity.
@@ -52,6 +65,7 @@ flowchart TD
 
     subgraph Server["Keepsake Ubuntu Server (:3000)"]
         Express["Express API Server"]
+        ServerStore["Persistent JSON Store (data/store.json)"]
         Scraper["OpenGraph & Readability Scraper"]
         AuthRouter["Google OAuth 2.0 Service"]
         StaticServe["SPA Static Delivery"]
@@ -62,15 +76,15 @@ flowchart TD
         GoogleDrive["User's Google Drive (appDataFolder)"]
     end
 
-    Web -->|HTTP / API| Express
+    Web -->|HTTP REST & Sync| Express
     Android -->|System Share Target / API| Express
-    ChromeExt -->|Scrape & Sync| Express
-    FirefoxExt -->|Scrape & Sync| Express
+    ChromeExt -->|Ingest & Sync| Express
+    FirefoxExt -->|Ingest & Sync| Express
 
+    Express --> ServerStore
     Express -->|Link Scraping| Scraper
     Express -->|Token Exchange| GoogleOAuth
-    Clients -->|Direct Sync| GoogleDrive
-    Express -->|OAuth Proxy| GoogleDrive
+    Clients -->|Direct Cloud Sync| GoogleDrive
 ```
 
 ---
@@ -79,19 +93,20 @@ flowchart TD
 
 ```
 keepsake/
+├── SETUP.md                  # Comprehensive setup, build, deploy & uninstall guide
 ├── packages/
-│   └── shared/               # Shared TypeScript models, sync algorithms, search parser, utils
+│   └── shared/               # Shared TypeScript models, CRDT sync, search parser, utils
 ├── apps/
-│   ├── server/               # Node.js/Express backend (scraping, OAuth, import/export, static host)
+│   ├── server/               # Node.js/Express backend (scraping, OAuth, persistent store, static host)
 │   ├── web/                  # Raindrop-clone React SPA (4 views, reader mode, tags, instant search)
 │   ├── android/              # Native Android project with Share Target intent filter
 │   └── extension/            # Cross-browser extensions (dist/chrome and dist/firefox)
 ├── deploy/                   # Ubuntu deployment assets (Dockerfile, docker-compose.yml, Caddyfile, systemd)
-├── docs/                     # Comprehensive guides
-│   ├── GOOGLE_OAUTH_SETUP.md # Google Cloud OAuth setup guide
-│   ├── UBUNTU_DEPLOYMENT_GUIDE.md # Ubuntu deployment guide (Docker & systemd)
-│   ├── ANDROID_SETUP_GUIDE.md # Android client installation & share sheet guide
-│   └── EXTENSIONS_GUIDE.md   # Chrome and Firefox extensions installation guide
+├── docs/                     # Additional reference guides
+│   ├── GOOGLE_OAUTH_SETUP.md # Google Cloud OAuth reference
+│   ├── UBUNTU_DEPLOYMENT_GUIDE.md # Ubuntu deployment reference
+│   ├── ANDROID_SETUP_GUIDE.md # Android client installation reference
+│   └── EXTENSIONS_GUIDE.md   # Chrome and Firefox extensions installation reference
 └── package.json              # Monorepo configuration
 ```
 
@@ -99,26 +114,14 @@ keepsake/
 
 ## 🚀 Quick Start (Local Development)
 
-### Prerequisites
-- Node.js 18+ (tested with Node 20 & 25)
-- npm 9+
-
-### 1. Install & Build
+### 1. Build All Packages
 ```bash
 git clone https://github.com/your-username/keepsake.git
 cd keepsake
 
-# Build shared library
-npm --workspace=@keepsake/shared run build
-
-# Install and build web app
-cd apps/web && npm install && npm run build && cd ../..
-
-# Install and build server
-cd apps/server && npm install && npm run build && cd ../..
-
-# Build browser extensions
-cd apps/extension && npm install && npm run build && cd ../..
+# Install and build all workspaces in one command
+npm install
+npm run build
 ```
 
 ### 2. Configure Environment
@@ -126,7 +129,7 @@ cd apps/extension && npm install && npm run build && cd ../..
 cp .env.example .env
 nano .env
 ```
-*(See [Google OAuth Setup Guide](docs/GOOGLE_OAUTH_SETUP.md) for details on generating credentials).*
+*(See [SETUP.md - Section 2](SETUP.md#2-configuring-google-oauth-20--google-drive) for details on generating credentials).*
 
 ### 3. Run Server
 ```bash
@@ -136,11 +139,11 @@ Open [http://localhost:3000](http://localhost:3000) in your browser!
 
 ---
 
-## 🐧 Ubuntu Server Deployment
+## 🐧 Ubuntu Server Deployment (Quick Summary)
 
-See [Ubuntu Deployment Guide](docs/UBUNTU_DEPLOYMENT_GUIDE.md) for full instructions.
+See **[SETUP.md](SETUP.md#3-setting-up-on-an-ubuntu-server)** for complete instructions.
 
-Quick Docker Compose launch:
+Quick launch with Docker Compose:
 ```bash
 cd deploy
 docker compose up -d --build
@@ -148,22 +151,21 @@ docker compose up -d --build
 
 ---
 
-## 📱 Android Client
+## 📱 Android Client (Quick Summary)
 
-See [Android Setup Guide](docs/ANDROID_SETUP_GUIDE.md).
+See **[SETUP.md](SETUP.md#13-target-6-mobile-client-android-apk)** for prerequisites and build instructions.
 
 ```bash
 cd apps/android
 ./gradlew assembleDebug
 ```
-The APK is built at `apps/android/app/build/outputs/apk/debug/app-debug.apk`.  
-Install and share any link from your phone directly to Keepsake!
+The APK is generated at `apps/android/app/build/outputs/apk/debug/app-debug.apk`. Install on your phone to share links directly from any app to Keepsake!
 
 ---
 
 ## 🧩 Browser Extensions (Chrome & Firefox)
 
-See [Browser Extensions Guide](docs/EXTENSIONS_GUIDE.md).
+See **[SETUP.md](SETUP.md#target-4-google-chrome-extension-manifest-v3)**.
 
 - **Chrome / Brave / Edge**: Open `chrome://extensions`, enable *Developer Mode*, and click *Load unpacked* pointing to `apps/extension/dist/chrome`.
 - **Firefox**: Open `about:debugging#/runtime/this-firefox`, click *Load Temporary Add-on*, and select `apps/extension/dist/firefox/manifest.json`.
