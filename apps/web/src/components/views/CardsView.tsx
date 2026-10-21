@@ -67,7 +67,13 @@ export const CardsView: React.FC<CardsViewProps> = ({
         return (
           <div
             key={bm.id}
-            className={`group relative bg-white dark:bg-[#151518] rounded-xl border overflow-hidden shadow-sm hover:shadow-md transition-all flex flex-col ${
+            draggable
+            onDragStart={(e) => {
+              e.dataTransfer.setData('text/plain', bm.id);
+              e.dataTransfer.setData('keepsake/bookmark-id', bm.id);
+              e.dataTransfer.effectAllowed = 'copyMove';
+            }}
+            className={`group relative bg-white dark:bg-[#151518] rounded-xl border overflow-hidden shadow-sm hover:shadow-md transition-all flex flex-col cursor-grab active:cursor-grabbing ${
               isSelected
                 ? 'border-sky-500 ring-2 ring-sky-500/20'
                 : 'border-neutral-200 dark:border-neutral-800/80 hover:border-neutral-300 dark:hover:border-neutral-700'
@@ -79,6 +85,7 @@ export const CardsView: React.FC<CardsViewProps> = ({
                 <img
                   src={bm.cover}
                   alt={bm.title}
+                  draggable={false}
                   className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
                   loading="lazy"
                   onError={(e) => {

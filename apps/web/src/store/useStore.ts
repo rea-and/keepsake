@@ -625,6 +625,77 @@ export function useKeepsakeStore() {
     [selectedBookmarkIds]
   );
 
+  const moveBookmarkToCollection = useCallback(
+    (bookmarkId: string, targetCollectionId: string) => {
+      const ids = selectedBookmarkIds.has(bookmarkId)
+        ? Array.from(selectedBookmarkIds)
+        : [bookmarkId];
+
+      const now = new Date().toISOString();
+
+      setStore((prev) => ({
+        ...prev,
+        lastModified: now,
+        bookmarks: prev.bookmarks.map((bm) => {
+          if (!ids.includes(bm.id)) return bm;
+          if (targetCollectionId === 'trash') {
+            return { ...bm, isTrash: true, updatedAt: now };
+          }
+          if (targetCollectionId === 'favorites') {
+            return { ...bm, isFavorite: true, updatedAt: now };
+          }
+          return { ...bm, collectionId: targetCollectionId, isTrash: false, updatedAt: now };
+        })
+      }));
+
+      ids.forEach((id) => {
+        const updates =
+          targetCollectionId === 'trash'
+            ? { isTrash: true }
+            : targetCollectionId === 'favorites'
+            ? { isFavorite: true }
+            : { collectionId: targetCollectionId, isTrash: false };
+
+        fetch(`/api/bookmarks/${id}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(updates)
+        }).catch((e) => console.warn('[Keepsake Web] moveBookmarkToCollection persist error:', e));
+      });
+    },
+    [selectedBookmarkIds]
+  );
+
+  const addTagToBookmark = useCallback(
+    (bookmarkId: string, tagName: string) => {
+      if (!tagName.trim()) return;
+      const cleanTag = tagName.trim().toLowerCase();
+      const ids = selectedBookmarkIds.has(bookmarkId)
+        ? Array.from(selectedBookmarkIds)
+        : [bookmarkId];
+
+      const now = new Date().toISOString();
+
+      setStore((prev) => ({
+        ...prev,
+        lastModified: now,
+        bookmarks: prev.bookmarks.map((bm) => {
+          if (ids.includes(bm.id) && !bm.tags.includes(cleanTag)) {
+            const nextTags = [...bm.tags, cleanTag];
+            fetch(`/api/bookmarks/${bm.id}`, {
+              method: 'PUT',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ tags: nextTags })
+            }).catch((e) => console.warn('[Keepsake Web] addTagToBookmark persist error:', e));
+            return { ...bm, tags: nextTags, updatedAt: now };
+          }
+          return bm;
+        })
+      }));
+    },
+    [selectedBookmarkIds]
+  );
+
   // Collection Actions
   const addCollection = useCallback(
     (data: Omit<Collection, 'id' | 'createdAt' | 'updatedAt' | 'sortOrder'>) => {
@@ -912,6 +983,8 @@ export function useKeepsakeStore() {
     bulkMove,
     bulkAddTag,
     bulkFavorite,
+    moveBookmarkToCollection,
+    addTagToBookmark,
     addCollection,
     updateCollection,
     deleteCollection,

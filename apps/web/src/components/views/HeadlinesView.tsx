@@ -22,7 +22,13 @@ export const HeadlinesView: React.FC<HeadlinesViewProps> = ({
       {bookmarks.map((bm) => (
         <div
           key={bm.id}
-          className="group flex items-center justify-between gap-4 px-4 py-2 hover:bg-neutral-50 dark:hover:bg-neutral-800/50 transition-colors text-sm"
+          draggable
+          onDragStart={(e) => {
+            e.dataTransfer.setData('text/plain', bm.id);
+            e.dataTransfer.setData('keepsake/bookmark-id', bm.id);
+            e.dataTransfer.effectAllowed = 'copyMove';
+          }}
+          className="group flex items-center justify-between gap-4 px-4 py-2 hover:bg-neutral-50 dark:hover:bg-neutral-800/50 transition-colors text-sm cursor-grab active:cursor-grabbing"
         >
           <div className="flex items-center gap-3 min-w-0 flex-1">
             <button

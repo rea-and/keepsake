@@ -29,7 +29,13 @@ export const ListView: React.FC<ListViewProps> = ({
         return (
           <div
             key={bm.id}
-            className={`group flex items-center justify-between gap-3 px-4 py-3 hover:bg-neutral-50 dark:hover:bg-neutral-800/50 transition-colors ${
+            draggable
+            onDragStart={(e) => {
+              e.dataTransfer.setData('text/plain', bm.id);
+              e.dataTransfer.setData('keepsake/bookmark-id', bm.id);
+              e.dataTransfer.effectAllowed = 'copyMove';
+            }}
+            className={`group flex items-center justify-between gap-3 px-4 py-3 hover:bg-neutral-50 dark:hover:bg-neutral-800/50 transition-colors cursor-grab active:cursor-grabbing ${
               isSelected ? 'bg-sky-50/60 dark:bg-sky-950/20' : ''
             }`}
           >

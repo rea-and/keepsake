@@ -62,6 +62,8 @@ interface SidebarProps {
   isOpenMobile: boolean;
   onCloseMobile: () => void;
   onLogout?: () => void;
+  onDropOnCollection?: (bookmarkId: string, collectionId: string) => void;
+  onDropOnTag?: (bookmarkId: string, tag: string) => void;
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({
@@ -86,9 +88,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onDeleteCollection,
   isOpenMobile,
   onCloseMobile,
-  onLogout
+  onLogout,
+  onDropOnCollection,
+  onDropOnTag
 }) => {
   const [collectionMenuId, setCollectionMenuId] = useState<string | null>(null);
+  const [dragOverTarget, setDragOverTarget] = useState<string | null>(null);
 
   return (
     <>
@@ -156,8 +161,26 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 onSelectTag(null);
                 onCloseMobile();
               }}
-              className={`w-full flex items-center justify-between px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
-                activeCollectionId === 'unsorted' && !activeTag
+              onDragOver={(e) => {
+                e.preventDefault();
+                e.dataTransfer.dropEffect = 'move';
+                if (dragOverTarget !== 'col:unsorted') setDragOverTarget('col:unsorted');
+              }}
+              onDragLeave={() => {
+                if (dragOverTarget === 'col:unsorted') setDragOverTarget(null);
+              }}
+              onDrop={(e) => {
+                e.preventDefault();
+                setDragOverTarget(null);
+                const id = e.dataTransfer.getData('keepsake/bookmark-id') || e.dataTransfer.getData('text/plain');
+                if (id && onDropOnCollection) {
+                  onDropOnCollection(id, 'unsorted');
+                }
+              }}
+              className={`w-full flex items-center justify-between px-3 py-2 rounded-lg text-sm font-medium transition-all ${
+                dragOverTarget === 'col:unsorted'
+                  ? 'bg-amber-100 dark:bg-amber-950/60 ring-2 ring-amber-500 text-amber-700 dark:text-amber-300 scale-[1.02] shadow-sm font-semibold'
+                  : activeCollectionId === 'unsorted' && !activeTag
                   ? 'bg-sky-50 dark:bg-sky-950/40 text-sky-600 dark:text-sky-400 font-semibold'
                   : 'text-neutral-700 dark:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-800/60'
               }`}
@@ -177,8 +200,26 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 onSelectTag(null);
                 onCloseMobile();
               }}
-              className={`w-full flex items-center justify-between px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
-                activeCollectionId === 'favorites' && !activeTag
+              onDragOver={(e) => {
+                e.preventDefault();
+                e.dataTransfer.dropEffect = 'move';
+                if (dragOverTarget !== 'col:favorites') setDragOverTarget('col:favorites');
+              }}
+              onDragLeave={() => {
+                if (dragOverTarget === 'col:favorites') setDragOverTarget(null);
+              }}
+              onDrop={(e) => {
+                e.preventDefault();
+                setDragOverTarget(null);
+                const id = e.dataTransfer.getData('keepsake/bookmark-id') || e.dataTransfer.getData('text/plain');
+                if (id && onDropOnCollection) {
+                  onDropOnCollection(id, 'favorites');
+                }
+              }}
+              className={`w-full flex items-center justify-between px-3 py-2 rounded-lg text-sm font-medium transition-all ${
+                dragOverTarget === 'col:favorites'
+                  ? 'bg-yellow-100 dark:bg-yellow-950/60 ring-2 ring-yellow-400 text-yellow-700 dark:text-yellow-300 scale-[1.02] shadow-sm font-semibold'
+                  : activeCollectionId === 'favorites' && !activeTag
                   ? 'bg-sky-50 dark:bg-sky-950/40 text-sky-600 dark:text-sky-400 font-semibold'
                   : 'text-neutral-700 dark:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-800/60'
               }`}
@@ -198,8 +239,26 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 onSelectTag(null);
                 onCloseMobile();
               }}
-              className={`w-full flex items-center justify-between px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
-                activeCollectionId === 'trash' && !activeTag
+              onDragOver={(e) => {
+                e.preventDefault();
+                e.dataTransfer.dropEffect = 'move';
+                if (dragOverTarget !== 'col:trash') setDragOverTarget('col:trash');
+              }}
+              onDragLeave={() => {
+                if (dragOverTarget === 'col:trash') setDragOverTarget(null);
+              }}
+              onDrop={(e) => {
+                e.preventDefault();
+                setDragOverTarget(null);
+                const id = e.dataTransfer.getData('keepsake/bookmark-id') || e.dataTransfer.getData('text/plain');
+                if (id && onDropOnCollection) {
+                  onDropOnCollection(id, 'trash');
+                }
+              }}
+              className={`w-full flex items-center justify-between px-3 py-2 rounded-lg text-sm font-medium transition-all ${
+                dragOverTarget === 'col:trash'
+                  ? 'bg-rose-100 dark:bg-rose-950/60 ring-2 ring-rose-500 text-rose-700 dark:text-rose-300 scale-[1.02] shadow-sm font-semibold'
+                  : activeCollectionId === 'trash' && !activeTag
                   ? 'bg-rose-50 dark:bg-rose-950/30 text-rose-600 dark:text-rose-400 font-semibold'
                   : 'text-neutral-700 dark:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-800/60'
               }`}
@@ -242,8 +301,26 @@ export const Sidebar: React.FC<SidebarProps> = ({
                           onSelectTag(null);
                           onCloseMobile();
                         }}
-                        className={`w-full flex items-center justify-between px-3 py-2 rounded-lg text-sm transition-colors text-left ${
-                          isActive
+                        onDragOver={(e) => {
+                          e.preventDefault();
+                          e.dataTransfer.dropEffect = 'move';
+                          if (dragOverTarget !== `col:${col.id}`) setDragOverTarget(`col:${col.id}`);
+                        }}
+                        onDragLeave={() => {
+                          if (dragOverTarget === `col:${col.id}`) setDragOverTarget(null);
+                        }}
+                        onDrop={(e) => {
+                          e.preventDefault();
+                          setDragOverTarget(null);
+                          const id = e.dataTransfer.getData('keepsake/bookmark-id') || e.dataTransfer.getData('text/plain');
+                          if (id && onDropOnCollection) {
+                            onDropOnCollection(id, col.id);
+                          }
+                        }}
+                        className={`w-full flex items-center justify-between px-3 py-2 rounded-lg text-sm transition-all text-left ${
+                          dragOverTarget === `col:${col.id}`
+                            ? 'bg-sky-100 dark:bg-sky-950/70 ring-2 ring-sky-500 text-sky-700 dark:text-sky-300 scale-[1.02] shadow-sm font-semibold'
+                            : isActive
                             ? 'bg-sky-50 dark:bg-sky-950/40 text-sky-600 dark:text-sky-400 font-semibold'
                             : 'text-neutral-700 dark:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-800/60'
                         }`}
@@ -334,8 +411,26 @@ export const Sidebar: React.FC<SidebarProps> = ({
                         onSelectTag(isTagActive ? null : tag.name);
                         onCloseMobile();
                       }}
-                      className={`px-2.5 py-1 rounded-md text-xs flex items-center gap-1.5 transition-colors ${
-                        isTagActive
+                      onDragOver={(e) => {
+                        e.preventDefault();
+                        e.dataTransfer.dropEffect = 'copy';
+                        if (dragOverTarget !== `tag:${tag.name}`) setDragOverTarget(`tag:${tag.name}`);
+                      }}
+                      onDragLeave={() => {
+                        if (dragOverTarget === `tag:${tag.name}`) setDragOverTarget(null);
+                      }}
+                      onDrop={(e) => {
+                        e.preventDefault();
+                        setDragOverTarget(null);
+                        const id = e.dataTransfer.getData('keepsake/bookmark-id') || e.dataTransfer.getData('text/plain');
+                        if (id && onDropOnTag) {
+                          onDropOnTag(id, tag.name);
+                        }
+                      }}
+                      className={`px-2.5 py-1 rounded-md text-xs flex items-center gap-1.5 transition-all ${
+                        dragOverTarget === `tag:${tag.name}`
+                          ? 'bg-sky-500 text-white font-bold ring-2 ring-sky-400 scale-105 shadow-md'
+                          : isTagActive
                           ? 'bg-sky-500 text-white font-medium shadow-sm'
                           : 'bg-neutral-100 dark:bg-neutral-800 text-neutral-600 dark:text-neutral-300 hover:bg-neutral-200 dark:hover:bg-neutral-700'
                       }`}

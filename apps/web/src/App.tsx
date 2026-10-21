@@ -144,6 +144,8 @@ function KeepsakeDashboard({ store }: KeepsakeDashboardProps) {
         isOpenMobile={isMobileSidebarOpen}
         onCloseMobile={() => setIsMobileSidebarOpen(false)}
         onLogout={store.logout}
+        onDropOnCollection={store.moveBookmarkToCollection}
+        onDropOnTag={store.addTagToBookmark}
       />
 
       {/* Main Content Area */}

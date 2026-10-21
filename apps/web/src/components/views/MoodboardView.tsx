@@ -22,7 +22,13 @@ export const MoodboardView: React.FC<MoodboardViewProps> = ({
       {bookmarks.map((bm) => (
         <div
           key={bm.id}
-          className="break-inside-avoid group relative bg-white dark:bg-[#151518] rounded-xl overflow-hidden border border-neutral-200 dark:border-neutral-800/80 shadow-sm hover:shadow-lg transition-all"
+          draggable
+          onDragStart={(e) => {
+            e.dataTransfer.setData('text/plain', bm.id);
+            e.dataTransfer.setData('keepsake/bookmark-id', bm.id);
+            e.dataTransfer.effectAllowed = 'copyMove';
+          }}
+          className="break-inside-avoid group relative bg-white dark:bg-[#151518] rounded-xl overflow-hidden border border-neutral-200 dark:border-neutral-800/80 shadow-sm hover:shadow-lg transition-all cursor-grab active:cursor-grabbing"
         >
           {/* Cover Image */}
           {bm.cover ? (
