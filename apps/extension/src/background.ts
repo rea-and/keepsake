@@ -157,13 +157,61 @@ chrome.commands.onCommand.addListener(async (command) => {
   }
 });
 
-// Message listener from popup
-chrome.runtime.onMessage.addListener((message, sender) => {
+// Message listener from popup and content scripts
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.action === 'BOOKMARK_SAVED' || message.action === 'BOOKMARK_DELETED') {
     chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
       if (tabs[0]?.id) showSuccessBadge(tabs[0].id);
     });
     notifyKeepsakeTabs();
+  } else if (message.action === 'SAVE_BOOKMARK_FROM_FEED') {
+    const data = message.bookmarkData;
+    if (!data || !data.url) {
+      sendResponse({ success: false, error: 'Missing bookmark data' });
+      return true;
+    }
+
+    const now = new Date().toISOString();
+    const cleanUrl = normalizeUrl(data.url);
+    const domain = extractDomain(cleanUrl);
+
+    const bookmark: Bookmark = {
+      id: 'bm_' + Math.random().toString(36).substring(2, 9) + Date.now().toString(36),
+      url: cleanUrl,
+      title: data.title || domain,
+      description: data.description || '',
+      note: data.note || '',
+      domain,
+      favicon: data.favicon || 'https://www.redditstatic.com/shreddit/assets/favicon/192x192.png',
+      cover: data.cover || undefined,
+      collectionId: data.collectionId || 'unsorted',
+      tags: data.tags || [],
+      isFavorite: false,
+      isTrash: false,
+      type: data.type || 'link',
+      createdAt: now,
+      updatedAt: now
+    };
+
+    chrome.storage.local.get(['bookmarks', 'serverUrl'], async (res) => {
+      const list: Bookmark[] = res.bookmarks || [];
+      const updated = [bookmark, ...list.filter((b) => b.url !== bookmark.url)];
+      chrome.storage.local.set({ bookmarks: updated });
+
+      if (sender.tab?.id) {
+        showSuccessBadge(sender.tab.id);
+      }
+
+      const serverUrl = res.serverUrl || 'http://localhost:3000';
+      if (serverUrl) {
+        await postBookmarkToServer(serverUrl, bookmark);
+        await notifyKeepsakeTabs();
+      }
+
+      sendResponse({ success: true, bookmark });
+    });
+
+    return true; // async sendResponse
   }
 });
 
