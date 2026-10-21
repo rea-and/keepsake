@@ -24,7 +24,8 @@ import {
   Sparkles,
   Music,
   Video,
-  FileText
+  FileText,
+  LogOut
 } from 'lucide-react';
 import { Collection, AuthSession, SyncStatus } from '@keepsake/shared';
 
@@ -60,6 +61,7 @@ interface SidebarProps {
   onDeleteCollection: (id: string) => void;
   isOpenMobile: boolean;
   onCloseMobile: () => void;
+  onLogout?: () => void;
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({
@@ -83,7 +85,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onEditCollection,
   onDeleteCollection,
   isOpenMobile,
-  onCloseMobile
+  onCloseMobile,
+  onLogout
 }) => {
   const [collectionMenuId, setCollectionMenuId] = useState<string | null>(null);
 
@@ -403,13 +406,25 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
           {/* Settings & Theme */}
           <div className="flex items-center justify-between pt-1 px-1">
-            <button
-              onClick={onOpenSettings}
-              className="flex items-center gap-1.5 text-xs text-neutral-500 hover:text-neutral-800 dark:text-neutral-400 dark:hover:text-neutral-200 font-medium transition-colors"
-            >
-              <Settings className="w-3.5 h-3.5" />
-              <span>Settings</span>
-            </button>
+            <div className="flex items-center gap-3">
+              <button
+                onClick={onOpenSettings}
+                className="flex items-center gap-1.5 text-xs text-neutral-500 hover:text-neutral-800 dark:text-neutral-400 dark:hover:text-neutral-200 font-medium transition-colors"
+              >
+                <Settings className="w-3.5 h-3.5" />
+                <span>Settings</span>
+              </button>
+              {onLogout && (
+                <button
+                  onClick={onLogout}
+                  title="Sign out of Keepsake"
+                  className="flex items-center gap-1 text-xs text-neutral-400 hover:text-rose-500 transition-colors"
+                >
+                  <LogOut className="w-3 h-3" />
+                  <span>Logout</span>
+                </button>
+              )}
+            </div>
 
             <button
               onClick={onCycleTheme}

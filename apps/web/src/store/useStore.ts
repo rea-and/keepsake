@@ -66,7 +66,12 @@ export function useKeepsakeStore() {
   const [authSession, setAuthSession] = useState<AuthSession | null>(() => {
     try {
       const raw = localStorage.getItem(AUTH_STORAGE_KEY);
-      if (raw) return JSON.parse(raw);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (parsed?.user?.email && parsed?.tokens?.accessToken) {
+          return parsed;
+        }
+      }
     } catch {}
     return null;
   });

@@ -153,6 +153,7 @@ export function App() {
         onDeleteCollection={store.deleteCollection}
         isOpenMobile={isMobileSidebarOpen}
         onCloseMobile={() => setIsMobileSidebarOpen(false)}
+        onLogout={store.logout}
       />
 
       {/* Main Content Area */}
