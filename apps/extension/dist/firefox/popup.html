@@ -1,0 +1,266 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Save to Keepsake</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      width: 360px;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      background: #0f172a;
+      color: #f8fafc;
+      font-size: 13px;
+    }
+    .header {
+      padding: 12px 16px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      border-bottom: 1px solid #1e293b;
+    }
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-weight: 700;
+      font-size: 14px;
+      color: #38bdf8;
+    }
+    .brand svg { width: 16px; height: 16px; fill: currentColor; }
+    .status-badge {
+      font-size: 10px;
+      padding: 2px 6px;
+      border-radius: 999px;
+      background: #1e293b;
+      color: #94a3b8;
+    }
+    .status-badge.saved {
+      background: #064e3b;
+      color: #34d399;
+    }
+    .content {
+      padding: 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+    .card-preview {
+      background: #1e293b;
+      border-radius: 10px;
+      padding: 10px;
+      display: flex;
+      gap: 10px;
+      align-items: flex-start;
+      border: 1px solid #334155;
+    }
+    .cover-thumb {
+      width: 60px;
+      height: 60px;
+      border-radius: 6px;
+      object-fit: cover;
+      background: #334155;
+      flex-shrink: 0;
+      display: none;
+    }
+    .meta-box {
+      flex: 1;
+      overflow: hidden;
+    }
+    .domain-row {
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      font-size: 11px;
+      color: #94a3b8;
+      margin-bottom: 4px;
+    }
+    .domain-favicon {
+      width: 14px;
+      height: 14px;
+      border-radius: 2px;
+    }
+    .page-title {
+      font-size: 12px;
+      font-weight: 600;
+      line-height: 1.3;
+      display: -webkit-box;
+      -webkit-line-clamp: 2;
+      -webkit-box-orient: vertical;
+      overflow: hidden;
+    }
+    label {
+      font-size: 11px;
+      font-weight: 600;
+      color: #94a3b8;
+      margin-bottom: 4px;
+      display: block;
+    }
+    input, select, textarea {
+      width: 100%;
+      background: #1e293b;
+      border: 1px solid #334155;
+      border-radius: 8px;
+      padding: 8px 10px;
+      color: #f8fafc;
+      font-size: 12px;
+      outline: none;
+      font-family: inherit;
+    }
+    input:focus, select:focus, textarea:focus {
+      border-color: #38bdf8;
+    }
+    .tags-container {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 4px;
+      margin-top: 6px;
+    }
+    .tag-chip {
+      background: #0284c7;
+      color: #fff;
+      font-size: 10px;
+      padding: 2px 6px;
+      border-radius: 4px;
+      display: flex;
+      align-items: center;
+      gap: 4px;
+    }
+    .tag-chip span { cursor: pointer; }
+    .row-split {
+      display: flex;
+      gap: 10px;
+      align-items: center;
+    }
+    .row-split > div { flex: 1; }
+    .star-btn {
+      background: #1e293b;
+      border: 1px solid #334155;
+      padding: 7px 12px;
+      border-radius: 8px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 12px;
+      color: #94a3b8;
+      margin-top: 18px;
+    }
+    .star-btn.active {
+      color: #facc15;
+      border-color: #facc15;
+      background: rgba(250, 204, 21, 0.1);
+    }
+    .footer {
+      padding: 12px 16px;
+      border-top: 1px solid #1e293b;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .btn {
+      padding: 8px 16px;
+      border-radius: 8px;
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+      border: none;
+      transition: all 0.2s;
+    }
+    .btn-primary {
+      background: #0284c7;
+      color: #fff;
+      box-shadow: 0 2px 10px rgba(2, 132, 199, 0.3);
+    }
+    .btn-primary:hover {
+      background: #0369a1;
+    }
+    .btn-danger {
+      background: transparent;
+      color: #f87171;
+    }
+    .btn-danger:hover {
+      background: rgba(248, 113, 113, 0.1);
+    }
+    .settings-link {
+      font-size: 11px;
+      color: #64748b;
+      text-decoration: none;
+      cursor: pointer;
+    }
+    .settings-link:hover { color: #94a3b8; }
+    #settingsPanel {
+      display: none;
+      padding: 16px;
+      border-top: 1px solid #1e293b;
+    }
+  </style>
+  <script type="module" crossorigin src="/popup.js"></script>
+  <link rel="modulepreload" crossorigin href="/chunks/utils.js">
+</head>
+<body>
+  <div class="header">
+    <div class="brand">
+      <svg viewBox="0 0 24 24"><path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"></path></svg>
+      <span>Keepsake</span>
+    </div>
+    <span id="statusBadge" class="status-badge">Checking...</span>
+  </div>
+
+  <div class="content">
+    <!-- Preview Box -->
+    <div class="card-preview">
+      <img id="coverImg" class="cover-thumb" alt="" />
+      <div class="meta-box">
+        <div class="domain-row">
+          <img id="faviconImg" class="domain-favicon" alt="" />
+          <span id="domainLabel">domain.com</span>
+        </div>
+        <div id="pageTitle" class="page-title">Loading current tab...</div>
+      </div>
+    </div>
+
+    <!-- Collection & Star -->
+    <div class="row-split">
+      <div>
+        <label for="collectionSelect">Collection</label>
+        <select id="collectionSelect">
+          <option value="unsorted">📥 Unsorted</option>
+        </select>
+      </div>
+      <div>
+        <button type="button" id="starBtn" class="star-btn">
+          ★ <span>Favorite</span>
+        </button>
+      </div>
+    </div>
+
+    <!-- Tags -->
+    <div>
+      <label for="tagInput">Tags (Press Enter or Comma)</label>
+      <input type="text" id="tagInput" placeholder="reading, dev, design" />
+      <div id="tagsContainer" class="tags-container"></div>
+    </div>
+
+    <!-- Note -->
+    <div>
+      <label for="noteInput">Personal Note (Markdown)</label>
+      <textarea id="noteInput" rows="2" placeholder="Notes, highlights, or quotes..."></textarea>
+    </div>
+  </div>
+
+  <div class="footer">
+    <button type="button" id="deleteBtn" class="btn btn-danger" style="display:none;">Remove</button>
+    <a id="toggleSettings" class="settings-link">⚙ Server Settings</a>
+    <button type="button" id="saveBtn" class="btn btn-primary">Save to Keepsake</button>
+  </div>
+
+  <!-- Settings Expandable -->
+  <div id="settingsPanel">
+    <label for="serverUrlInput">Keepsake Server API URL</label>
+    <input type="text" id="serverUrlInput" placeholder="http://your-ubuntu-server:3000" style="margin-bottom: 8px;" />
+    <button type="button" id="saveSettingsBtn" class="btn btn-primary" style="width:100%;">Save Settings</button>
+  </div>
+
+</body>
+</html>

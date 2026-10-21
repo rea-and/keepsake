@@ -1,0 +1,11 @@
+<resources>
+    <string name="app_name">Keepsake</string>
+    <string name="save_to_keepsake">Save to Keepsake</string>
+    <string name="saving_bookmark">Saving bookmark…</string>
+    <string name="bookmark_saved">Bookmark saved to Keepsake</string>
+    <string name="invalid_link">No valid web link found</string>
+    <string name="cancel">Cancel</string>
+    <string name="save">Save</string>
+    <string name="collection">Collection</string>
+    <string name="tags">Tags</string>
+</resources>

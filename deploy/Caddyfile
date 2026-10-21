@@ -1,0 +1,5 @@
+# Replace with your actual domain or leave :80 for local network
+# example: keepsake.yourdomain.com {
+:80 {
+    reverse_proxy keepsake:3000
+}

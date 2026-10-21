@@ -1,0 +1,19 @@
+[Unit]
+Description=Keepsake Server (Raindrop.io clone with Google Drive sync)
+After=network.target
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=/home/ubuntu/keepsake
+ExecStart=/usr/bin/npm --workspace=@keepsake/server run start
+Restart=always
+RestartSec=10
+StandardOutput=syslog
+StandardError=syslog
+SyslogIdentifier=keepsake
+Environment=NODE_ENV=production
+EnvironmentFile=/home/ubuntu/keepsake/.env
+
+[Install]
+WantedBy=multi-user.target
