@@ -379,7 +379,7 @@ async function scrapeRedditPost(info: RedditPostInfo, canonicalUrl: string): Pro
           .replace(/&quot;/g, '"');
 
         const textOnly = rawContent.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
-        if (textOnly && textOnly.length > 20) {
+        if (textOnly && textOnly.length > 20 && !textOnly.includes('submitted by') && !textOnly.includes('[link]')) {
           selftext = textOnly;
         }
       }

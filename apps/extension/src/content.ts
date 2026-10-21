@@ -2,6 +2,7 @@
  * Keepsake Content Script
  * Extracts high-fidelity metadata and selected text directly from the active webpage DOM
  * Specialized scrapers for YouTube, Reddit, and standard OpenGraph sites
+ * Injects one-click "Book" bookmark button into Reddit feeds
  */
 import {
   getYouTubeThumbnail,
@@ -10,6 +11,16 @@ import {
   cleanRedditTitle
 } from '@keepsake/shared';
 
+function isGenericRedditMedia(url?: string | null): boolean {
+  if (!url) return true;
+  return (
+    url.includes('redditstatic.com') ||
+    url.includes('icon.png') ||
+    url.includes('favicon') ||
+    url.includes('default_to_')
+  );
+}
+
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   if (request.action === 'GET_PAGE_METADATA') {
     const canonicalUrl = document.querySelector('link[rel="canonical"]')?.getAttribute('href');
@@ -17,10 +28,12 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     const hostname = window.location.hostname.toLowerCase();
 
     let pageTitle = document.title;
-    let ogImage =
+    let rawOgImage =
       document.querySelector('meta[property="og:image"]')?.getAttribute('content') ||
       document.querySelector('meta[name="twitter:image"]')?.getAttribute('content') ||
       document.querySelector('link[itemprop="thumbnailUrl"]')?.getAttribute('href');
+
+    let ogImage: string | undefined = rawOgImage || undefined;
 
     let ogDesc =
       document.querySelector('meta[property="og:description"]')?.getAttribute('content') ||
@@ -43,6 +56,11 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     if (hostname.includes('reddit.com') || hostname === 'redd.it') {
       const redditInfo = parseRedditUrl(pageUrl) || parseRedditUrl(window.location.href);
 
+      // Discard generic Reddit favicon from ogImage
+      if (isGenericRedditMedia(ogImage)) {
+        ogImage = undefined;
+      }
+
       // Clean post title from shreddit-post or document.title
       const shredditPost = document.querySelector('shreddit-post');
       const shredditTitle = shredditPost?.getAttribute('post-title');
@@ -61,7 +79,6 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
       }
 
       // Extract high-resolution media cover
-      const ogMeta = document.querySelector('meta[property="og:image"]')?.getAttribute('content');
       const redditMedia =
         shredditPost?.getAttribute('content-href') ||
         shredditPost?.getAttribute('thumbnail-src') ||
@@ -69,16 +86,14 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         document.querySelector('img[src*="preview.redd.it"]')?.getAttribute('src') ||
         document.querySelector('img[src*="i.redd.it"]')?.getAttribute('src') ||
         document.querySelector('img[src*="external-preview.redd.it"]')?.getAttribute('src') ||
-        (ogMeta && !ogMeta.includes('redditstatic.com') ? ogMeta : null) ||
         document.querySelector('shreddit-player')?.getAttribute('poster') ||
         document.querySelector('img[alt="Post image"]')?.getAttribute('src') ||
         document.querySelector('div[data-click-id="media"] img')?.getAttribute('src') ||
         document.querySelector('figure img')?.getAttribute('src');
 
-      if (redditMedia && (redditMedia.startsWith('http') || redditMedia.startsWith('//'))) {
+      if (redditMedia && (redditMedia.startsWith('http') || redditMedia.startsWith('//')) && !isGenericRedditMedia(redditMedia)) {
         ogImage = (redditMedia.startsWith('//') ? `https:${redditMedia}` : redditMedia).replace(/&amp;/g, '&');
       } else if (ogImage) {
-        // Decode HTML entities in Reddit preview images
         ogImage = ogImage.replace(/&amp;/g, '&');
       }
 
@@ -118,83 +133,59 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 // ==========================================
 // Reddit Feed "Book" Quick-Action Injection
 // ==========================================
-function injectRedditFeedButtons() {
-  if (!window.location.hostname.includes('reddit.com') && window.location.hostname !== 'redd.it') {
-    return;
-  }
 
-  // Ensure Keepsake button styles exist in head
-  if (!document.getElementById('keepsake-reddit-styles')) {
-    const styleEl = document.createElement('style');
-    styleEl.id = 'keepsake-reddit-styles';
-    styleEl.textContent = `
-      .keepsake-reddit-book-btn {
-        display: inline-flex !important;
-        align-items: center !important;
-        gap: 5px !important;
-        height: 32px !important;
-        padding: 0 10px !important;
-        border-radius: 9999px !important;
-        border: 1px solid transparent !important;
-        background: transparent !important;
-        color: var(--color-neutral-content-weak, #878a8c) !important;
-        font-family: inherit !important;
-        font-size: 12px !important;
-        font-weight: 600 !important;
-        cursor: pointer !important;
-        transition: all 0.15s ease !important;
-        margin: 0 2px !important;
-        user-select: none !important;
-        line-height: 1 !important;
-        vertical-align: middle !important;
-      }
-      .keepsake-reddit-book-btn:hover {
-        background: rgba(128, 128, 128, 0.15) !important;
-        color: var(--color-neutral-content, #d7dadc) !important;
-      }
-      .keepsake-reddit-book-btn.is-saving {
-        opacity: 0.65 !important;
-        cursor: wait !important;
-      }
-      .keepsake-reddit-book-btn.is-booked {
-        color: #38bdf8 !important;
-        background: rgba(56, 189, 248, 0.12) !important;
-        border-color: rgba(56, 189, 248, 0.3) !important;
-      }
-      .keepsake-reddit-book-btn svg {
-        width: 14px !important;
-        height: 14px !important;
-        flex-shrink: 0 !important;
-      }
-    `;
-    (document.head || document.documentElement).appendChild(styleEl);
-  }
+function ensureStyles() {
+  if (document.getElementById('keepsake-reddit-styles')) return;
 
-  // 1. Modern Reddit (shreddit-post)
-  const shredditPosts = document.querySelectorAll('shreddit-post:not([data-keepsake-injected])');
-  shredditPosts.forEach((post) => {
-    post.setAttribute('data-keepsake-injected', 'true');
-    attachBookButtonToPost(post);
-  });
-
-  // 2. 2018 Redesign posts
-  const redesignPosts = document.querySelectorAll('div[data-testid="post-container"]:not([data-keepsake-injected])');
-  redesignPosts.forEach((post) => {
-    post.setAttribute('data-keepsake-injected', 'true');
-    attachBookButtonToPost(post);
-  });
-
-  // 3. Old Reddit posts
-  const oldPosts = document.querySelectorAll('div.thing.entry:not([data-keepsake-injected])');
-  oldPosts.forEach((post) => {
-    post.setAttribute('data-keepsake-injected', 'true');
-    attachBookButtonToPost(post);
-  });
+  const styleEl = document.createElement('style');
+  styleEl.id = 'keepsake-reddit-styles';
+  styleEl.textContent = `
+    .keepsake-reddit-book-btn {
+      display: inline-flex !important;
+      align-items: center !important;
+      justify-content: center !important;
+      gap: 5px !important;
+      height: 32px !important;
+      padding: 0 10px !important;
+      border-radius: 9999px !important;
+      border: 1px solid transparent !important;
+      background: var(--color-neutral-background-weak, rgba(128, 128, 128, 0.12)) !important;
+      color: var(--color-neutral-content-weak, #878a8c) !important;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif !important;
+      font-size: 12px !important;
+      font-weight: 600 !important;
+      cursor: pointer !important;
+      transition: all 0.15s ease !important;
+      margin: 0 4px !important;
+      user-select: none !important;
+      line-height: 1 !important;
+      vertical-align: middle !important;
+      box-sizing: border-box !important;
+      z-index: 10 !important;
+    }
+    .keepsake-reddit-book-btn:hover {
+      background: var(--color-neutral-background-hover, rgba(128, 128, 128, 0.22)) !important;
+      color: var(--color-neutral-content, #1c1c1c) !important;
+    }
+    .keepsake-reddit-book-btn.is-saving {
+      opacity: 0.7 !important;
+      cursor: wait !important;
+    }
+    .keepsake-reddit-book-btn.is-booked {
+      color: #0284c7 !important;
+      background: rgba(2, 132, 199, 0.15) !important;
+      border-color: rgba(2, 132, 199, 0.3) !important;
+    }
+    .keepsake-reddit-book-btn svg {
+      width: 14px !important;
+      height: 14px !important;
+      flex-shrink: 0 !important;
+    }
+  `;
+  (document.head || document.documentElement).appendChild(styleEl);
 }
 
-function attachBookButtonToPost(post: Element) {
-  if (post.querySelector('.keepsake-reddit-book-btn')) return;
-
+function createBookButton(post: Element): HTMLButtonElement {
   const bookBtn = document.createElement('button');
   bookBtn.type = 'button';
   bookBtn.className = 'keepsake-reddit-book-btn';
@@ -209,6 +200,7 @@ function attachBookButtonToPost(post: Element) {
   bookBtn.addEventListener('click', (e) => {
     e.preventDefault();
     e.stopPropagation();
+    e.stopImmediatePropagation();
 
     if (bookBtn.classList.contains('is-booked') || bookBtn.classList.contains('is-saving')) {
       return;
@@ -227,7 +219,9 @@ function attachBookButtonToPost(post: Element) {
 
     let postUrl = '';
     if (permalink) {
-      postUrl = permalink.startsWith('http') ? permalink : `https://www.reddit.com${permalink}`;
+      postUrl = permalink.startsWith('http')
+        ? permalink
+        : `https://www.reddit.com${permalink.startsWith('/') ? '' : '/'}${permalink}`;
     } else {
       postUrl = window.location.href;
     }
@@ -246,27 +240,46 @@ function attachBookButtonToPost(post: Element) {
       post.querySelector('a[href*="/r/"]')?.textContent?.replace(/^r\//i, '')?.trim();
 
     // 4. Extract preview/media cover image
-    const ogMeta = document.querySelector('meta[property="og:image"]')?.getAttribute('content');
-    const rawCover =
-      post.getAttribute('content-href') ||
-      post.getAttribute('thumbnail-src') ||
-      post.querySelector('shreddit-aspect-ratio img')?.getAttribute('src') ||
-      post.querySelector('img[src*="preview.redd.it"]')?.getAttribute('src') ||
-      post.querySelector('img[src*="i.redd.it"]')?.getAttribute('src') ||
-      post.querySelector('img[src*="external-preview.redd.it"]')?.getAttribute('src') ||
-      post.querySelector('shreddit-player')?.getAttribute('poster') ||
-      post.querySelector('div[data-click-id="media"] img')?.getAttribute('src') ||
-      post.querySelector('figure img')?.getAttribute('src') ||
-      (ogMeta && !ogMeta.includes('redditstatic.com') ? ogMeta : null);
-
     let cover: string | undefined = undefined;
-    if (rawCover && (rawCover.startsWith('http') || rawCover.startsWith('//'))) {
-      cover = (rawCover.startsWith('//') ? `https:${rawCover}` : rawCover).replace(/&amp;/g, '&');
+    const contentHref = post.getAttribute('content-href');
+    const thumbSrc = post.getAttribute('thumbnail-src');
+
+    if (contentHref && (/\.(jpe?g|png|gif|webp)/i.test(contentHref) || contentHref.includes('redd.it') || contentHref.includes('imgur'))) {
+      cover = contentHref;
+    } else if (thumbSrc && thumbSrc.startsWith('http') && !isGenericRedditMedia(thumbSrc)) {
+      cover = thumbSrc;
+    }
+
+    if (!cover) {
+      const img = post.querySelector<HTMLImageElement>(
+        'img[src*="preview.redd.it"], img[src*="i.redd.it"], img[src*="external-preview.redd.it"], shreddit-aspect-ratio img, div[data-click-id="media"] img, figure img'
+      );
+      if (img?.src && !isGenericRedditMedia(img.src)) {
+        cover = img.src;
+      }
+    }
+
+    if (!cover) {
+      const player = post.querySelector('shreddit-player');
+      const poster = player?.getAttribute('poster');
+      if (poster && poster.startsWith('http')) {
+        cover = poster;
+      }
+    }
+
+    if (cover) {
+      cover = cover.replace(/&amp;/g, '&');
+      if (cover.startsWith('//')) {
+        cover = `https:${cover}`;
+      }
     }
 
     // 5. Post type
     const isVideo = post.getAttribute('post-type') === 'video' || !!post.querySelector('shreddit-player, video');
-    const isImage = !isVideo && (post.getAttribute('post-type') === 'image' || (cover && (cover.includes('i.redd.it') || cover.includes('preview.redd.it'))));
+    const isImage = !isVideo && (
+      post.getAttribute('post-type') === 'image' ||
+      (cover ? (cover.includes('redd.it') || /\.(jpe?g|png|gif|webp)/i.test(cover)) : false)
+    );
     const postType = isVideo ? 'video' : (isImage ? 'image' : 'link');
 
     // Send to background service worker
@@ -276,7 +289,7 @@ function attachBookButtonToPost(post: Element) {
         bookmarkData: {
           url: postUrl,
           title: title || 'Reddit Post',
-          cover,
+          cover: (cover && !isGenericRedditMedia(cover)) ? cover : undefined,
           tags: subreddit ? [subreddit.toLowerCase()] : [],
           type: postType
         }
@@ -299,14 +312,32 @@ function attachBookButtonToPost(post: Element) {
     );
   });
 
-  // Insertion strategy:
-  // Find action buttons (Save, Share, Hide, Overflow)
-  const buttons = Array.from(post.querySelectorAll('button, a'));
-  const saveBtn = buttons.find((b) => {
-    const text = b.textContent?.trim().toLowerCase();
-    const aria = b.getAttribute('aria-label')?.toLowerCase() || '';
-    return text === 'save' || aria.includes('save post') || aria === 'save';
-  });
+  return bookBtn;
+}
+
+function attachBookButtonToPost(post: Element): boolean {
+  if (post.querySelector('.keepsake-reddit-book-btn')) return true;
+  if (post.shadowRoot?.querySelector('.keepsake-reddit-book-btn')) return true;
+
+  const bookBtn = createBookButton(post);
+
+  // 1. Try finding native share element (custom elements in shreddit)
+  const shareElement =
+    post.querySelector('share-button') ||
+    post.querySelector('shreddit-post-share-button') ||
+    post.shadowRoot?.querySelector('share-button') ||
+    post.shadowRoot?.querySelector('shreddit-post-share-button');
+
+  if (shareElement && shareElement.parentElement) {
+    shareElement.parentElement.insertBefore(bookBtn, shareElement.nextSibling);
+    return true;
+  }
+
+  // 2. Query buttons for share or save
+  const buttons = [
+    ...Array.from(post.querySelectorAll('button, a')),
+    ...(post.shadowRoot ? Array.from(post.shadowRoot.querySelectorAll('button, a')) : [])
+  ];
 
   const shareBtn = buttons.find((b) => {
     const text = b.textContent?.trim().toLowerCase();
@@ -314,23 +345,111 @@ function attachBookButtonToPost(post: Element) {
     return text === 'share' || aria.includes('share');
   });
 
-  const overflow = post.querySelector('shreddit-post-overflow-menu, share-button');
-  const actionSlot = post.querySelector('[slot="actions"], [slot="credit-bar"], [slot="action-row"], shreddit-async-loader[bundlename*="action"]');
-  const oldButtonsList = post.querySelector('ul.flat-list.buttons');
+  if (shareBtn && shareBtn.parentElement) {
+    shareBtn.parentElement.insertBefore(bookBtn, shareBtn.nextSibling);
+    return true;
+  }
+
+  const saveBtn = buttons.find((b) => {
+    const text = b.textContent?.trim().toLowerCase();
+    const aria = b.getAttribute('aria-label')?.toLowerCase() || '';
+    return text === 'save' || aria.includes('save post') || aria === 'save';
+  });
 
   if (saveBtn && saveBtn.parentElement) {
     saveBtn.parentElement.insertBefore(bookBtn, saveBtn.nextSibling);
-  } else if (shareBtn && shareBtn.parentElement) {
-    shareBtn.parentElement.insertBefore(bookBtn, shareBtn.nextSibling);
-  } else if (overflow && overflow.parentElement) {
+    return true;
+  }
+
+  // 3. Overflow menu
+  const overflow =
+    post.querySelector('shreddit-post-overflow-menu') ||
+    post.shadowRoot?.querySelector('shreddit-post-overflow-menu');
+
+  if (overflow && overflow.parentElement) {
     overflow.parentElement.insertBefore(bookBtn, overflow);
-  } else if (oldButtonsList) {
+    return true;
+  }
+
+  // 4. Action row container
+  const actionRow =
+    post.querySelector('[slot="action-row"]') ||
+    post.querySelector('[slot="actions"]') ||
+    post.querySelector('[slot="credit-bar"]') ||
+    post.querySelector('shreddit-async-loader[bundlename*="action"]') ||
+    post.shadowRoot?.querySelector('[slot="action-row"]') ||
+    post.shadowRoot?.querySelector('[slot="actions"]');
+
+  if (actionRow) {
+    actionRow.appendChild(bookBtn);
+    return true;
+  }
+
+  // 5. Old reddit buttons list
+  const oldButtonsList = post.querySelector('ul.flat-list.buttons');
+  if (oldButtonsList) {
     const li = document.createElement('li');
     li.appendChild(bookBtn);
     oldButtonsList.appendChild(li);
-  } else if (actionSlot) {
-    actionSlot.appendChild(bookBtn);
+    return true;
   }
+
+  // 6. 2018 redesign comments/action bar
+  const commentsBtn = post.querySelector('a[data-click-id="comments"], button[data-click-id="comments"]');
+  if (commentsBtn && commentsBtn.parentElement) {
+    commentsBtn.parentElement.appendChild(bookBtn);
+    return true;
+  }
+
+  // Not ready yet (post action row hasn't hydrated)
+  return false;
+}
+
+function injectRedditFeedButtons() {
+  if (!window.location.hostname.includes('reddit.com') && window.location.hostname !== 'redd.it') {
+    return;
+  }
+
+  ensureStyles();
+
+  // Modern Reddit (shreddit-post)
+  const shredditPosts = document.querySelectorAll('shreddit-post');
+  shredditPosts.forEach((post) => {
+    const hasBtn = !!post.querySelector('.keepsake-reddit-book-btn');
+    if (!hasBtn) {
+      post.removeAttribute('data-keepsake-injected');
+      const injected = attachBookButtonToPost(post);
+      if (injected) {
+        post.setAttribute('data-keepsake-injected', 'true');
+      }
+    }
+  });
+
+  // 2018 Redesign posts
+  const redesignPosts = document.querySelectorAll('div[data-testid="post-container"]');
+  redesignPosts.forEach((post) => {
+    const hasBtn = !!post.querySelector('.keepsake-reddit-book-btn');
+    if (!hasBtn) {
+      post.removeAttribute('data-keepsake-injected');
+      const injected = attachBookButtonToPost(post);
+      if (injected) {
+        post.setAttribute('data-keepsake-injected', 'true');
+      }
+    }
+  });
+
+  // Old Reddit posts
+  const oldPosts = document.querySelectorAll('div.thing.entry');
+  oldPosts.forEach((post) => {
+    const hasBtn = !!post.querySelector('.keepsake-reddit-book-btn');
+    if (!hasBtn) {
+      post.removeAttribute('data-keepsake-injected');
+      const injected = attachBookButtonToPost(post);
+      if (injected) {
+        post.setAttribute('data-keepsake-injected', 'true');
+      }
+    }
+  });
 }
 
 // Initialize feed observer on reddit.com

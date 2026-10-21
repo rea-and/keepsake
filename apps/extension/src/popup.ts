@@ -145,7 +145,13 @@ async function init() {
         currentTitle = cleanRedditTitle(currentTitle);
         pageTitle.textContent = currentTitle;
       }
-      if (meta.cover && !meta.cover.includes('yt_1200.png') && !meta.cover.includes('youtube.com/img/desktop')) {
+      if (
+        meta.cover &&
+        !meta.cover.includes('yt_1200.png') &&
+        !meta.cover.includes('youtube.com/img/desktop') &&
+        !meta.cover.includes('redditstatic.com') &&
+        !meta.cover.includes('icon.png')
+      ) {
         currentCover = meta.cover;
         coverImg.src = currentCover;
         coverImg.style.display = 'block';
@@ -268,6 +274,9 @@ saveBtn.addEventListener('click', async () => {
   // If YouTube video, ensure thumbnail is saved and type is video
   const ytThumb = getYouTubeThumbnail(currentUrl);
   let finalCover = currentCover || undefined;
+  if (finalCover && (finalCover.includes('redditstatic.com') || finalCover.includes('icon.png'))) {
+    finalCover = undefined;
+  }
   if (ytThumb && (!finalCover || finalCover.includes('yt_1200.png') || finalCover.includes('youtube.com/img/desktop'))) {
     finalCover = ytThumb;
   }

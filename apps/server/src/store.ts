@@ -173,6 +173,9 @@ class ServerStoreManager {
       if (!data.favicon || data.favicon.includes('google.com')) {
         favicon = 'https://www.redditstatic.com/shreddit/assets/favicon/192x192.png';
       }
+      if (cover && (cover.includes('redditstatic.com') || cover.includes('icon.png') || cover.includes('/favicon'))) {
+        cover = undefined;
+      }
     }
 
     const bookmarkType = isVideo ? 'video' : (data.type || 'link');

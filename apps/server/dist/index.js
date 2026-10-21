@@ -123,19 +123,23 @@ app.post('/api/bookmarks', async (req, res) => {
         createdAt,
         readerContent
     });
-    // Background auto-enrichment if metadata is sparse
-    if ((!saved.cover || !saved.description) && saved.url.startsWith('http')) {
+    // Background auto-enrichment if metadata is sparse or cover is missing/generic
+    const needsCover = !saved.cover || saved.cover.includes('redditstatic.com') || saved.cover.includes('icon.png');
+    if ((needsCover || !saved.description) && saved.url.startsWith('http')) {
         scrapeUrl(saved.url)
             .then((meta) => {
             if (meta && (meta.cover || meta.description || meta.title)) {
+                const resolvedCover = (meta.cover && !meta.cover.includes('redditstatic.com') && !meta.cover.includes('icon.png'))
+                    ? meta.cover
+                    : saved.cover;
                 serverStore.addOrUpdateBookmark({
                     id: saved.id,
                     url: saved.url,
-                    title: saved.title || meta.title,
+                    title: (saved.title && saved.title !== saved.url) ? saved.title : meta.title,
                     description: saved.description || meta.description,
-                    cover: saved.cover || meta.cover,
+                    cover: resolvedCover,
                     favicon: saved.favicon || meta.favicon,
-                    type: saved.type === 'link' ? meta.type : saved.type,
+                    type: (meta.type && meta.type !== 'link') ? meta.type : saved.type,
                     readerContent: meta.readerContent
                 });
             }
