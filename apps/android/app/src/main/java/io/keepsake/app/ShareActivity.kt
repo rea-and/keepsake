@@ -59,6 +59,18 @@ class ShareActivity : AppCompatActivity() {
     }
 
     private fun setupShareFlow(intent: Intent) {
+        val session = getSharedPreferences(MainActivity.PREFS_NAME, Context.MODE_PRIVATE)
+            .getString(MainActivity.KEY_AUTH_SESSION, null)
+        if (session.isNullOrEmpty()) {
+            Toast.makeText(this, "Please sign in to Keepsake first", Toast.LENGTH_SHORT).show()
+            val mainIntent = Intent(this, MainActivity::class.java).apply {
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+            }
+            startActivity(mainIntent)
+            finish()
+            return
+        }
+
         val sharedText = intent.getStringExtra(Intent.EXTRA_TEXT) ?: ""
         val sharedSubject = intent.getStringExtra(Intent.EXTRA_SUBJECT) ?: ""
 

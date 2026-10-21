@@ -264,6 +264,9 @@ export function useKeepsakeStore() {
     setAuthSession(null);
     localStorage.removeItem(AUTH_STORAGE_KEY);
     setSyncStatus({ isSyncing: false, lastSyncedAt: null, error: null });
+    try {
+      (window as any).KeepsakeAndroid?.onLogout();
+    } catch {}
   }, []);
 
   // Auto-switch viewMode if current collection has a defaultViewMode

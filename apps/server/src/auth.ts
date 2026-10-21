@@ -142,6 +142,42 @@ authRouter.get('/google/callback', async (req: Request, res: Response) => {
       }
     };
 
+    // If request comes from Android app, return deep-link response to keepsake://auth
+    if (state === 'android' || (typeof state === 'string' && state.includes('android'))) {
+      const encodedPayload = encodeURIComponent(JSON.stringify(authPayload));
+      const androidDeepLink = `keepsake://auth?session=${encodedPayload}`;
+
+      const androidHtml = `<!DOCTYPE html>
+<html>
+<head>
+  <title>Keepsake - Authentication Successful</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; display: flex; align-items: center; justify-content: center; height: 100vh; margin: 0; background: #0c0c0e; color: #f8fafc; }
+    .card { text-align: center; background: #151518; padding: 2rem 2.5rem; border-radius: 1.5rem; border: 1px solid #27272a; max-width: 360px; width: 90%; }
+    .spinner { border: 3px solid rgba(255,255,255,0.1); border-top: 3px solid #38bdf8; border-radius: 50%; width: 40px; height: 40px; animation: spin 1s linear infinite; margin: 0 auto 1.5rem; }
+    @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+    .btn { display: inline-block; margin-top: 1.5rem; padding: 0.75rem 1.5rem; background: #38bdf8; color: #000; font-weight: 600; text-decoration: none; border-radius: 0.75rem; font-size: 0.9rem; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="spinner"></div>
+    <h2 style="margin: 0 0 0.5rem; font-size: 1.25rem;">Signing in to Keepsake...</h2>
+    <p style="color: #a1a1aa; font-size: 0.85rem; margin: 0;">Authentication complete. Returning to the Keepsake app.</p>
+    <a href="${androidDeepLink}" class="btn" id="openAppBtn">Open Keepsake App</a>
+  </div>
+  <script>
+    try {
+      localStorage.setItem('keepsake_auth_session', JSON.stringify(${JSON.stringify(authPayload)}));
+    } catch(e) {}
+    window.location.href = "${androidDeepLink}";
+  </script>
+</body>
+</html>`;
+      return res.send(androidHtml);
+    }
+
     // Render a clean HTML page that passes auth payload back to opener window via postMessage or stores in localStorage and redirects to /
     const html = `<!DOCTYPE html>
 <html>
