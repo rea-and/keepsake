@@ -11,6 +11,7 @@ import { BookmarkModal } from './components/BookmarkModal';
 import { CollectionModal } from './components/CollectionModal';
 import { ReaderModal } from './components/ReaderModal';
 import { SettingsModal } from './components/SettingsModal';
+import { LoginScreen } from './components/LoginScreen';
 import { Bookmark, Collection } from '@keepsake/shared';
 import { BookmarkPlus, Inbox } from 'lucide-react';
 
@@ -27,6 +28,18 @@ export function App() {
   const [readerBookmark, setReaderBookmark] = useState<Bookmark | null>(null);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
+
+  // Require user to login before being able to use the app
+  if (!store.authSession) {
+    return (
+      <LoginScreen
+        onLoginSuccess={store.setAuthSession}
+        themeMode={store.themeMode}
+        effectiveTheme={store.effectiveTheme}
+        onCycleTheme={store.cycleThemeMode}
+      />
+    );
+  }
 
   // Ingest shared link from Android or Browser intent URL parameters
   useEffect(() => {
@@ -123,6 +136,7 @@ export function App() {
         authSession={store.authSession}
         syncStatus={store.syncStatus}
         onSync={store.syncWithGoogleDrive}
+        isDriveSyncEnabled={store.isDriveSyncEnabled}
         themeMode={store.themeMode}
         effectiveTheme={store.effectiveTheme}
         onCycleTheme={store.cycleThemeMode}
@@ -295,6 +309,9 @@ export function App() {
         onSelectThemeMode={store.setThemeMode}
         cardSize={store.cardSize}
         onSelectCardSize={store.setCardSize}
+        isDriveSyncEnabled={store.isDriveSyncEnabled}
+        onToggleDriveSync={store.setDriveSyncEnabled}
+        onLogout={store.logout}
       />
     </div>
   );

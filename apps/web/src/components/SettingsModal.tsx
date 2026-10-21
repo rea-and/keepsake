@@ -35,6 +35,9 @@ interface SettingsModalProps {
   onSelectThemeMode: (mode: 'system' | 'light' | 'dark') => void;
   cardSize?: 'small' | 'medium' | 'large';
   onSelectCardSize?: (size: 'small' | 'medium' | 'large') => void;
+  isDriveSyncEnabled?: boolean;
+  onToggleDriveSync?: (enabled: boolean) => void;
+  onLogout?: () => void;
 }
 
 export const SettingsModal: React.FC<SettingsModalProps> = ({
@@ -51,7 +54,10 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   effectiveTheme,
   onSelectThemeMode,
   cardSize = 'medium',
-  onSelectCardSize
+  onSelectCardSize,
+  isDriveSyncEnabled = false,
+  onToggleDriveSync,
+  onLogout
 }) => {
   const [activeTab, setActiveTab] = useState<'appearance' | 'sync' | 'backup' | 'about'>('appearance');
   const [importStatus, setImportStatus] = useState<string | null>(null);
@@ -389,93 +395,135 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
           {activeTab === 'sync' && (
             <div className="space-y-5">
-              {/* Google Drive Status Card */}
-              <div className="p-4 rounded-xl bg-neutral-50 dark:bg-[#1a1a1e] border border-neutral-200 dark:border-neutral-800 flex items-start justify-between">
-                <div className="flex items-start gap-3">
-                  {authSession ? (
-                    <div className="w-10 h-10 rounded-full bg-emerald-100 dark:bg-emerald-950/60 text-emerald-600 dark:text-emerald-400 flex items-center justify-center shrink-0">
-                      <Cloud className="w-5 h-5" />
-                    </div>
+              {/* Logged in User Profile Banner */}
+              <div className="p-4 rounded-xl bg-neutral-50 dark:bg-[#1a1a1e] border border-neutral-200 dark:border-neutral-800 flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  {authSession?.user?.picture ? (
+                    <img
+                      src={authSession.user.picture}
+                      alt=""
+                      className="w-10 h-10 rounded-full object-cover border border-neutral-200 dark:border-neutral-700"
+                    />
                   ) : (
-                    <div className="w-10 h-10 rounded-full bg-amber-100 dark:bg-amber-950/60 text-amber-600 dark:text-amber-400 flex items-center justify-center shrink-0">
-                      <CloudOff className="w-5 h-5" />
+                    <div className="w-10 h-10 rounded-full bg-sky-100 dark:bg-sky-950/60 text-sky-600 dark:text-sky-400 font-bold flex items-center justify-center shrink-0">
+                      {authSession?.user?.name ? authSession.user.name.charAt(0).toUpperCase() : 'U'}
                     </div>
                   )}
 
                   <div>
-                    <h3 className="font-semibold text-neutral-900 dark:text-white">
-                      {authSession ? authSession.user.name : 'Google Drive Disconnected'}
-                    </h3>
+                    <div className="flex items-center gap-2">
+                      <h3 className="font-semibold text-neutral-900 dark:text-white text-sm">
+                        {authSession ? authSession.user.name : 'Not Signed In'}
+                      </h3>
+                      <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-400">
+                        Active Account
+                      </span>
+                    </div>
                     <p className="text-xs text-neutral-500 dark:text-neutral-400 mt-0.5">
-                      {authSession
-                        ? authSession.user.email
-                        : 'Sign in to synchronize your bookmarks across Web, Android, Chrome & Firefox.'}
+                      {authSession?.user?.email || 'Logged in with Google'}
                     </p>
+                  </div>
+                </div>
 
-                    {authSession && (
-                      <div className="mt-3 flex items-center gap-3 text-xs text-neutral-500">
-                        <span>Storage: Google Drive AppData</span>
-                        <span>•</span>
-                        <span>
-                          {syncStatus.lastSyncedAt
-                            ? `Last sync: ${new Date(syncStatus.lastSyncedAt).toLocaleTimeString()}`
-                            : 'Never synced'}
-                        </span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    onLogout?.();
+                    onClose();
+                  }}
+                  title="Sign Out of Keepsake"
+                  className="px-3 py-1.5 rounded-lg border border-neutral-200 dark:border-neutral-700 hover:border-rose-300 dark:hover:border-rose-900 text-neutral-600 dark:text-neutral-300 hover:text-rose-600 dark:hover:text-rose-400 text-xs font-semibold flex items-center gap-1.5 transition-colors"
+                >
+                  <LogOut className="w-3.5 h-3.5" />
+                  <span>Sign Out</span>
+                </button>
+              </div>
+
+              {/* Optional Google Drive Sync Toggle */}
+              <div className="p-4 rounded-xl border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-[#161619] space-y-4">
+                <div className="flex items-start justify-between gap-4">
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <Cloud className="w-4 h-4 text-sky-500" />
+                      <h4 className="font-semibold text-sm text-neutral-900 dark:text-white">
+                        Google Drive Sync (Optional)
+                      </h4>
+                    </div>
+                    <p className="text-xs text-neutral-500 dark:text-neutral-400 mt-1 leading-relaxed">
+                      Enable automated background sync to your personal Google Drive AppData folder to keep your bookmarks backed up and synchronized across devices.
+                    </p>
+                  </div>
+
+                  {/* Toggle Switch */}
+                  <button
+                    type="button"
+                    role="switch"
+                    aria-checked={isDriveSyncEnabled}
+                    onClick={() => onToggleDriveSync?.(!isDriveSyncEnabled)}
+                    className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
+                      isDriveSyncEnabled ? 'bg-sky-500' : 'bg-neutral-300 dark:bg-neutral-700'
+                    }`}
+                  >
+                    <span
+                      className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow-lg ring-0 transition duration-200 ease-in-out ${
+                        isDriveSyncEnabled ? 'translate-x-5' : 'translate-x-0'
+                      }`}
+                    />
+                  </button>
+                </div>
+
+                {isDriveSyncEnabled ? (
+                  <div className="pt-3 border-t border-neutral-100 dark:border-neutral-800 space-y-3">
+                    <div className="flex items-center justify-between text-xs text-neutral-500 dark:text-neutral-400">
+                      <span>Status: <strong className="text-emerald-600 dark:text-emerald-400 font-semibold">Enabled (Syncing with Drive)</strong></span>
+                      <span>
+                        {syncStatus.lastSyncedAt
+                          ? `Last sync: ${new Date(syncStatus.lastSyncedAt).toLocaleTimeString()}`
+                          : 'Pending first sync'}
+                      </span>
+                    </div>
+
+                    <div className="flex items-center justify-between p-3 rounded-xl bg-neutral-50 dark:bg-[#1a1a1e] border border-neutral-200 dark:border-neutral-800">
+                      <div>
+                        <div className="font-medium text-xs text-neutral-800 dark:text-neutral-200">
+                          Synchronize Now
+                        </div>
+                        <div className="text-[11px] text-neutral-400">
+                          Bidirectional sync with Google Drive cloud storage
+                        </div>
+                      </div>
+                      <button
+                        onClick={onSync}
+                        disabled={syncStatus.isSyncing}
+                        className="px-3.5 py-1.5 rounded-lg bg-sky-500 hover:bg-sky-600 text-white text-xs font-semibold flex items-center gap-1.5 transition-colors shadow-sm disabled:opacity-60"
+                      >
+                        <RefreshCw
+                          className={`w-3.5 h-3.5 ${syncStatus.isSyncing ? 'animate-spin' : ''}`}
+                        />
+                        <span>{syncStatus.isSyncing ? 'Syncing...' : 'Sync Now'}</span>
+                      </button>
+                    </div>
+
+                    {syncStatus.error && (
+                      <div className="p-3 rounded-xl bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800 text-xs text-rose-600 dark:text-rose-400 flex items-center gap-2">
+                        <AlertCircle className="w-4 h-4 shrink-0" />
+                        <span>{syncStatus.error}</span>
                       </div>
                     )}
                   </div>
-                </div>
-
-                {authSession ? (
-                  <button
-                    onClick={() => onSetAuthSession(null)}
-                    title="Disconnect Google"
-                    className="p-2 rounded-lg text-neutral-400 hover:text-rose-500 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors"
-                  >
-                    <LogOut className="w-4 h-4" />
-                  </button>
                 ) : (
-                  <button
-                    onClick={handleGoogleLogin}
-                    className="px-4 py-2 rounded-xl text-xs font-semibold bg-sky-500 hover:bg-sky-600 text-white shadow-md shadow-sky-500/20 active:scale-95 transition-all"
-                  >
-                    Sign in with Google
-                  </button>
-                )}
-              </div>
-
-              {/* Sync Actions */}
-              {authSession && (
-                <div className="space-y-3">
-                  <div className="flex items-center justify-between p-3 rounded-xl border border-neutral-200 dark:border-neutral-800">
-                    <div>
-                      <div className="font-medium text-xs text-neutral-800 dark:text-neutral-200">
-                        Synchronize Now
-                      </div>
-                      <div className="text-[11px] text-neutral-400">
-                        Bidirectional sync with Google Drive cloud storage
-                      </div>
-                    </div>
+                  <div className="pt-3 border-t border-neutral-100 dark:border-neutral-800 text-xs text-neutral-500 dark:text-neutral-400 flex items-center justify-between">
+                    <span>Sync is currently turned off. All bookmarks stay on your local server.</span>
                     <button
-                      onClick={onSync}
-                      disabled={syncStatus.isSyncing}
-                      className="px-3.5 py-1.5 rounded-lg bg-neutral-100 dark:bg-neutral-800 hover:bg-neutral-200 dark:hover:bg-neutral-700 text-xs font-semibold flex items-center gap-1.5 transition-colors"
+                      type="button"
+                      onClick={() => onToggleDriveSync?.(true)}
+                      className="px-3 py-1 rounded-lg bg-neutral-100 dark:bg-neutral-800 hover:bg-neutral-200 dark:hover:bg-neutral-700 text-neutral-700 dark:text-neutral-200 font-semibold transition-colors shrink-0"
                     >
-                      <RefreshCw
-                        className={`w-3.5 h-3.5 ${syncStatus.isSyncing ? 'animate-spin text-sky-500' : ''}`}
-                      />
-                      <span>{syncStatus.isSyncing ? 'Syncing...' : 'Sync'}</span>
+                      Turn On
                     </button>
                   </div>
-
-                  {syncStatus.error && (
-                    <div className="p-3 rounded-xl bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800 text-xs text-rose-600 dark:text-rose-400 flex items-center gap-2">
-                      <AlertCircle className="w-4 h-4 shrink-0" />
-                      <span>{syncStatus.error}</span>
-                    </div>
-                  )}
-                </div>
-              )}
+                )}
+              </div>
             </div>
           )}
 

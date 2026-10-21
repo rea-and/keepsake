@@ -32,6 +32,7 @@ const AUTH_STORAGE_KEY = 'keepsake_auth_session';
 const DEVICE_ID_KEY = 'keepsake_device_id';
 const THEME_KEY = 'keepsake_theme_mode';
 const CARD_SIZE_KEY = 'keepsake_grid_card_size';
+const DRIVE_SYNC_KEY = 'keepsake_drive_sync_enabled';
 
 export type ThemeMode = 'system' | 'light' | 'dark';
 export type CardSize = 'small' | 'medium' | 'large';
@@ -92,6 +93,16 @@ export function useKeepsakeStore() {
   const setCardSize = useCallback((size: CardSize) => {
     setCardSizeState(size);
     localStorage.setItem(CARD_SIZE_KEY, size);
+  }, []);
+
+  // Optional Google Drive Sync setting (defaults to false until enabled in Settings)
+  const [isDriveSyncEnabled, setIsDriveSyncEnabledState] = useState<boolean>(() => {
+    return localStorage.getItem(DRIVE_SYNC_KEY) === 'true';
+  });
+
+  const setDriveSyncEnabled = useCallback((enabled: boolean) => {
+    setIsDriveSyncEnabledState(enabled);
+    localStorage.setItem(DRIVE_SYNC_KEY, String(enabled));
   }, []);
 
   // Theme: system (default), light, or dark
@@ -244,6 +255,12 @@ export function useKeepsakeStore() {
     }
   }, [authSession]);
 
+  const logout = useCallback(() => {
+    setAuthSession(null);
+    localStorage.removeItem(AUTH_STORAGE_KEY);
+    setSyncStatus({ isSyncing: false, lastSyncedAt: null, error: null });
+  }, []);
+
   // Auto-switch viewMode if current collection has a defaultViewMode
   useEffect(() => {
     if (activeCollectionId && activeCollectionId !== 'all' && activeCollectionId !== 'unsorted' && activeCollectionId !== 'trash') {
@@ -332,24 +349,24 @@ export function useKeepsakeStore() {
     }
   }, [authSession, store, deviceId, driveFileId]);
 
-  // Auto-sync on startup if logged in
+  // Auto-sync on startup if logged in and Google Drive sync is enabled
   useEffect(() => {
-    if (authSession?.tokens?.accessToken) {
+    if (authSession?.tokens?.accessToken && isDriveSyncEnabled) {
       const timer = setTimeout(() => {
         syncWithGoogleDrive();
       }, 1000);
       return () => clearTimeout(timer);
     }
-  }, [authSession?.tokens?.accessToken]);
+  }, [authSession?.tokens?.accessToken, isDriveSyncEnabled, syncWithGoogleDrive]);
 
-  // Periodic background sync every 3 minutes
+  // Periodic background sync every 3 minutes if Google Drive sync is enabled
   useEffect(() => {
-    if (!authSession?.tokens?.accessToken) return;
+    if (!authSession?.tokens?.accessToken || !isDriveSyncEnabled) return;
     const interval = setInterval(() => {
       syncWithGoogleDrive();
     }, 180000);
     return () => clearInterval(interval);
-  }, [authSession?.tokens?.accessToken, syncWithGoogleDrive]);
+  }, [authSession?.tokens?.accessToken, isDriveSyncEnabled, syncWithGoogleDrive]);
 
   // Bookmark Actions
   const addBookmark = useCallback(
@@ -870,6 +887,9 @@ export function useKeepsakeStore() {
     setCardSize,
     authSession,
     setAuthSession,
+    logout,
+    isDriveSyncEnabled,
+    setDriveSyncEnabled,
     syncStatus,
     syncWithGoogleDrive,
     syncWithServer,

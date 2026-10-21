@@ -49,6 +49,7 @@ interface SidebarProps {
   authSession: AuthSession | null;
   syncStatus: SyncStatus;
   onSync: () => void;
+  isDriveSyncEnabled?: boolean;
   themeMode: 'system' | 'light' | 'dark';
   effectiveTheme: 'light' | 'dark';
   onCycleTheme: () => void;
@@ -72,6 +73,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   authSession,
   syncStatus,
   onSync,
+  isDriveSyncEnabled = false,
   themeMode,
   effectiveTheme,
   onCycleTheme,
@@ -350,37 +352,53 @@ export const Sidebar: React.FC<SidebarProps> = ({
           {/* Sync status button */}
           <div className="flex items-center justify-between px-2 py-1.5 rounded-lg bg-white dark:bg-neutral-900 border border-neutral-200/80 dark:border-neutral-800 shadow-sm">
             <div className="flex items-center gap-2 truncate">
-              {authSession ? (
+              {authSession?.user?.picture ? (
+                <img
+                  src={authSession.user.picture}
+                  alt=""
+                  className="w-5 h-5 rounded-full object-cover shrink-0"
+                />
+              ) : isDriveSyncEnabled ? (
                 <Cloud className="w-4 h-4 text-emerald-500 shrink-0" />
               ) : (
-                <CloudOff className="w-4 h-4 text-amber-500 shrink-0" />
+                <CloudOff className="w-4 h-4 text-neutral-400 shrink-0" />
               )}
               <div className="text-xs truncate">
                 <span className="font-medium text-neutral-700 dark:text-neutral-200 block truncate">
-                  {authSession ? authSession.user.name : 'Not Synced'}
+                  {authSession ? authSession.user.name : 'Keepsake User'}
                 </span>
                 <span className="text-[10px] text-neutral-400 block truncate">
-                  {syncStatus.isSyncing
+                  {!isDriveSyncEnabled
+                    ? 'Drive Sync: Off'
+                    : syncStatus.isSyncing
                     ? 'Syncing to Drive...'
                     : syncStatus.lastSyncedAt
                     ? `Synced ${new Date(syncStatus.lastSyncedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
-                    : authSession
-                    ? 'Connected to Drive'
-                    : 'Connect Google'}
+                    : 'Drive Sync Active'}
                 </span>
               </div>
             </div>
 
-            <button
-              onClick={onSync}
-              disabled={syncStatus.isSyncing}
-              title="Sync now"
-              className="p-1.5 rounded-md hover:bg-neutral-100 dark:hover:bg-neutral-800 text-neutral-500 dark:text-neutral-400 transition-colors"
-            >
-              <RefreshCw
-                className={`w-3.5 h-3.5 ${syncStatus.isSyncing ? 'animate-spin text-sky-500' : ''}`}
-              />
-            </button>
+            {isDriveSyncEnabled ? (
+              <button
+                onClick={onSync}
+                disabled={syncStatus.isSyncing}
+                title="Sync now"
+                className="p-1.5 rounded-md hover:bg-neutral-100 dark:hover:bg-neutral-800 text-neutral-500 dark:text-neutral-400 transition-colors"
+              >
+                <RefreshCw
+                  className={`w-3.5 h-3.5 ${syncStatus.isSyncing ? 'animate-spin text-sky-500' : ''}`}
+                />
+              </button>
+            ) : (
+              <button
+                onClick={onOpenSettings}
+                title="Google Drive sync is optional (Click to configure)"
+                className="px-1.5 py-0.5 rounded text-[10px] text-neutral-400 hover:text-sky-500 font-medium transition-colors"
+              >
+                Off
+              </button>
+            )}
           </div>
 
           {/* Settings & Theme */}
