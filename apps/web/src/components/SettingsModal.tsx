@@ -413,7 +413,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   <div>
                     <div className="flex items-center gap-2">
                       <h3 className="font-semibold text-neutral-900 dark:text-white text-sm">
-                        {authSession ? authSession.user.name : 'Not Signed In'}
+                        {authSession?.user?.name || 'Not Signed In'}
                       </h3>
                       <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-400">
                         Active Account

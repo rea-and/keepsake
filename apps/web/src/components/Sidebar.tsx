@@ -368,7 +368,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
               )}
               <div className="text-xs truncate">
                 <span className="font-medium text-neutral-700 dark:text-neutral-200 block truncate">
-                  {authSession ? authSession.user.name : 'Keepsake User'}
+                  {authSession?.user?.name || 'Keepsake User'}
                 </span>
                 <span className="text-[10px] text-neutral-400 block truncate">
                   {!isDriveSyncEnabled

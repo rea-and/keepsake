@@ -15,9 +15,11 @@ import { LoginScreen } from './components/LoginScreen';
 import { Bookmark, Collection } from '@keepsake/shared';
 import { BookmarkPlus, Inbox } from 'lucide-react';
 
-export function App() {
-  const store = useKeepsakeStore();
+interface KeepsakeDashboardProps {
+  store: ReturnType<typeof useKeepsakeStore>;
+}
 
+function KeepsakeDashboard({ store }: KeepsakeDashboardProps) {
   // Modals state
   const [isBookmarkModalOpen, setIsBookmarkModalOpen] = useState(false);
   const [bookmarkToEdit, setBookmarkToEdit] = useState<Bookmark | null>(null);
@@ -28,18 +30,6 @@ export function App() {
   const [readerBookmark, setReaderBookmark] = useState<Bookmark | null>(null);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
-
-  // Require user to login before being able to use the app
-  if (!store.authSession) {
-    return (
-      <LoginScreen
-        onLoginSuccess={store.setAuthSession}
-        themeMode={store.themeMode}
-        effectiveTheme={store.effectiveTheme}
-        onCycleTheme={store.cycleThemeMode}
-      />
-    );
-  }
 
   // Ingest shared link from Android or Browser intent URL parameters
   useEffect(() => {
@@ -316,4 +306,23 @@ export function App() {
       />
     </div>
   );
+}
+
+export function App() {
+  const store = useKeepsakeStore();
+
+  // If user is not authenticated, render LoginScreen gate
+  if (!store.authSession) {
+    return (
+      <LoginScreen
+        onLoginSuccess={store.setAuthSession}
+        themeMode={store.themeMode}
+        effectiveTheme={store.effectiveTheme}
+        onCycleTheme={store.cycleThemeMode}
+      />
+    );
+  }
+
+  // Once authenticated, mount the full Keepsake application cleanly
+  return <KeepsakeDashboard store={store} />;
 }

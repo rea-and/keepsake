@@ -163,15 +163,17 @@ authRouter.get('/google/callback', async (req: Request, res: Response) => {
   <script>
     const payload = ${JSON.stringify(authPayload)};
     try {
+      localStorage.setItem('keepsake_auth_session', JSON.stringify(payload));
       if (window.opener && window.opener !== window) {
         window.opener.postMessage({ type: 'KEEPSAKE_AUTH_SUCCESS', payload }, window.location.origin);
         setTimeout(() => window.close(), 600);
       } else {
-        localStorage.setItem('keepsake_auth_session', JSON.stringify(payload));
         window.location.href = '/';
       }
     } catch(e) {
-      localStorage.setItem('keepsake_auth_session', JSON.stringify(payload));
+      try {
+        localStorage.setItem('keepsake_auth_session', JSON.stringify(payload));
+      } catch(_) {}
       window.location.href = '/';
     }
   </script>

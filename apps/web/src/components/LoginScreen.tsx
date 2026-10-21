@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { AuthSession } from '@keepsake/shared';
 import {
   Bookmark,
@@ -32,19 +32,19 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
   const [authError, setAuthError] = useState<string | null>(null);
 
   // Check if session was already stored via redirect flow or popup storage event
-  useEffect(() => {
-    const checkStored = () => {
-      try {
-        const raw = localStorage.getItem('keepsake_auth_session');
-        if (raw) {
-          const parsed = JSON.parse(raw);
-          if (parsed?.user && parsed?.tokens) {
-            onLoginSuccess(parsed);
-          }
+  const checkStored = useCallback(() => {
+    try {
+      const raw = localStorage.getItem('keepsake_auth_session');
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (parsed?.user && parsed?.tokens) {
+          onLoginSuccess(parsed);
         }
-      } catch {}
-    };
+      }
+    } catch {}
+  }, [onLoginSuccess]);
 
+  useEffect(() => {
     checkStored();
 
     const handleMessage = (event: MessageEvent) => {
@@ -62,7 +62,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
       window.removeEventListener('message', handleMessage);
       window.removeEventListener('storage', checkStored);
     };
-  }, [onLoginSuccess]);
+  }, [onLoginSuccess, checkStored]);
 
   const handleGoogleLogin = () => {
     setIsAuthenticating(true);
@@ -85,13 +85,14 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
       return;
     }
 
-    // Monitor if popup closed without completing
+    // Monitor if popup closed without completing or completed via storage
     const timer = setInterval(() => {
       if (popup.closed) {
         clearInterval(timer);
         setTimeout(() => {
+          checkStored();
           setIsAuthenticating(false);
-        }, 1000);
+        }, 500);
       }
     }, 500);
   };
