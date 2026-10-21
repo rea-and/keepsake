@@ -3,9 +3,10 @@ package io.keepsake.app
 import android.annotation.SuppressLint
 import android.content.Context
 import android.content.Intent
-import android.graphics.Bitmap
 import android.net.Uri
 import android.os.Bundle
+import android.view.Menu
+import android.view.MenuItem
 import android.view.View
 import android.webkit.*
 import android.widget.FrameLayout
@@ -14,25 +15,28 @@ import android.widget.Toast
 import androidx.activity.OnBackPressedCallback
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
+import androidx.swiperefreshlayout.widget.SwipeRefreshLayout
 import java.net.URLEncoder
 
 class MainActivity : AppCompatActivity() {
 
     private lateinit var webView: WebView
     private lateinit var progressBar: ProgressBar
+    private lateinit var swipeRefreshLayout: SwipeRefreshLayout
 
     companion object {
         const val PREFS_NAME = "keepsake_prefs"
         const val KEY_SERVER_URL = "server_url"
-        const val DEFAULT_SERVER_URL = "http://10.0.2.2:3000" // Default for Android emulator to host machine
+        const val DEFAULT_SERVER_URL = "http://10.0.2.2:3000"
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        // Setup container layout programmatically
-        val root = FrameLayout(this)
-        root.setBackgroundColor(0xFF0C0C0E.toInt())
+        // Root container
+        val root = FrameLayout(this).apply {
+            setBackgroundColor(0xFF0C0C0E.toInt())
+        }
 
         webView = WebView(this)
         progressBar = ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal).apply {
@@ -40,7 +44,17 @@ class MainActivity : AppCompatActivity() {
             visibility = View.GONE
         }
 
-        root.addView(webView, FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT)
+        // Pull-to-refresh wrapper
+        swipeRefreshLayout = SwipeRefreshLayout(this).apply {
+            setColorSchemeColors(0xFF38BDF8.toInt())
+            setProgressBackgroundColorSchemeColor(0xFF18181B.toInt())
+            setOnRefreshListener {
+                webView.reload()
+            }
+            addView(webView, FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT)
+        }
+
+        root.addView(swipeRefreshLayout, FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT)
         root.addView(progressBar, FrameLayout.LayoutParams.MATCH_PARENT, 8)
         setContentView(root)
 
@@ -88,8 +102,19 @@ class MainActivity : AppCompatActivity() {
         settings.loadWithOverviewMode = true
         settings.setSupportZoom(false)
 
-        // Custom User Agent to identify as Keepsake Android App
-        settings.userAgentString = "${settings.userAgentString} KeepsakeAndroidApp/1.0"
+        // CRITICAL FOR GOOGLE OAUTH:
+        // Google blocks OAuth logins from WebViews containing the '; wv' or 'Version/4.0' string.
+        // Stripping these tokens ensures Google recognizes this as standard mobile Chrome and permits the OAuth login.
+        val defaultUa = settings.userAgentString
+        val cleanUa = defaultUa
+            .replace("; wv", "")
+            .replace("Version/4.0 ", "")
+        settings.userAgentString = cleanUa
+
+        // Enable cookies and third-party cookies for OAuth session persistence
+        val cookieManager = CookieManager.getInstance()
+        cookieManager.setAcceptCookie(true)
+        cookieManager.setAcceptThirdPartyCookies(webView, true)
 
         webView.webChromeClient = object : WebChromeClient() {
             override fun onProgressChanged(view: WebView?, newProgress: Int) {
@@ -98,6 +123,7 @@ class MainActivity : AppCompatActivity() {
                     progressBar.progress = newProgress
                 } else {
                     progressBar.visibility = View.GONE
+                    swipeRefreshLayout.isRefreshing = false
                 }
             }
         }
@@ -105,14 +131,19 @@ class MainActivity : AppCompatActivity() {
         webView.webViewClient = object : WebViewClient() {
             override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
                 val url = request?.url?.toString() ?: return false
-
-                // Internal app navigation
                 val currentServer = getServerUrl()
-                if (url.startsWith(currentServer) || url.startsWith("https://accounts.google.com")) {
+
+                // Keep internal app navigation and Google OAuth within the app
+                val isInternal = url.startsWith(currentServer) ||
+                        url.contains("accounts.google.com") ||
+                        url.contains("google.com/o/oauth2") ||
+                        url.contains("googleapis.com")
+
+                if (isInternal) {
                     return false
                 }
 
-                // If user clicks a bookmark to read original site, open in default external browser
+                // If clicking an external bookmark link, open in default external browser
                 return try {
                     val browserIntent = Intent(Intent.ACTION_VIEW, Uri.parse(url))
                     startActivity(browserIntent)
@@ -122,28 +153,46 @@ class MainActivity : AppCompatActivity() {
                 }
             }
 
+            override fun onPageFinished(view: WebView?, url: String?) {
+                super.onPageFinished(view, url)
+                swipeRefreshLayout.isRefreshing = false
+            }
+
             override fun onReceivedError(view: WebView?, request: WebResourceRequest?, error: WebResourceError?) {
                 if (request?.isForMainFrame == true) {
-                    // Show friendly server configuration dialog if connection fails
+                    swipeRefreshLayout.isRefreshing = false
                     showServerConfigDialog()
                 }
             }
         }
     }
 
-    private fun showServerConfigDialog() {
+    override fun onCreateOptionsMenu(menu: Menu?): Boolean {
+        menu?.add(0, 1, 0, "Server Settings")
+        return true
+    }
+
+    override fun onOptionsItemSelected(item: MenuItem): Boolean {
+        if (item.itemId == 1) {
+            showServerConfigDialog()
+            return true
+        }
+        return super.onOptionsItemSelected(item)
+    }
+
+    fun showServerConfigDialog() {
         val current = getServerUrl()
         val input = android.widget.EditText(this).apply {
             setText(current)
-            hint = "http://your-ubuntu-server-ip:3000"
+            hint = "http://10.0.2.2:3000"
         }
 
         AlertDialog.Builder(this)
             .setTitle("Keepsake Server URL")
-            .setMessage("Could not connect to $current.\nPlease enter your Keepsake server address:")
+            .setMessage("Configure your Keepsake server address:")
             .setView(input)
             .setPositiveButton("Connect") { _, _ ->
-                val newUrl = input.text.toString().trim()
+                val newUrl = input.text.toString().trim().removeSuffix("/")
                 if (newUrl.isNotEmpty()) {
                     getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
                         .edit()
