@@ -29,28 +29,27 @@ export const CardsView: React.FC<CardsViewProps> = ({
         return (
           <div
             key={bm.id}
-            className={`group relative bg-white dark:bg-slate-900 rounded-xl border overflow-hidden shadow-sm hover:shadow-md transition-all flex flex-col ${
+            className={`group relative bg-white dark:bg-[#151518] rounded-xl border overflow-hidden shadow-sm hover:shadow-md transition-all flex flex-col ${
               isSelected
                 ? 'border-sky-500 ring-2 ring-sky-500/20'
-                : 'border-slate-200 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700'
+                : 'border-neutral-200 dark:border-neutral-800/80 hover:border-neutral-300 dark:hover:border-neutral-700'
             }`}
           >
             {/* Cover Image Thumbnail */}
             {bm.cover ? (
-              <div className="relative h-44 w-full bg-slate-100 dark:bg-slate-800 overflow-hidden">
+              <div className="relative h-44 w-full bg-neutral-100 dark:bg-neutral-900 overflow-hidden">
                 <img
                   src={bm.cover}
                   alt={bm.title}
                   className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
                   loading="lazy"
                   onError={(e) => {
-                    // Hide cover on broken image
                     (e.target as HTMLElement).style.display = 'none';
                   }}
                 />
               </div>
             ) : (
-              <div className="h-20 w-full bg-gradient-to-br from-slate-100 to-slate-200 dark:from-slate-800 dark:to-slate-900 flex items-center justify-center">
+              <div className="h-20 w-full bg-gradient-to-br from-neutral-100 to-neutral-200 dark:from-neutral-900 dark:to-[#1c1c20] flex items-center justify-center">
                 <img
                   src={bm.favicon}
                   alt={bm.domain}
@@ -63,8 +62,8 @@ export const CardsView: React.FC<CardsViewProps> = ({
             {/* Selection Checkbox */}
             <button
               onClick={() => onToggleSelect(bm.id)}
-              className={`absolute top-2.5 left-2.5 p-1 rounded-md bg-white/90 dark:bg-slate-900/90 backdrop-blur shadow transition-all ${
-                isSelected ? 'opacity-100 text-sky-500' : 'opacity-0 group-hover:opacity-100 text-slate-400 hover:text-slate-700'
+              className={`absolute top-2.5 left-2.5 p-1 rounded-md bg-white/90 dark:bg-[#1a1a1e]/90 backdrop-blur shadow transition-all ${
+                isSelected ? 'opacity-100 text-sky-500' : 'opacity-0 group-hover:opacity-100 text-neutral-400 hover:text-neutral-700 dark:hover:text-neutral-200'
               }`}
             >
               {isSelected ? <CheckSquare className="w-4 h-4 fill-sky-500 text-white" /> : <Square className="w-4 h-4" />}
@@ -73,8 +72,8 @@ export const CardsView: React.FC<CardsViewProps> = ({
             {/* Favorite Star */}
             <button
               onClick={() => onToggleFavorite(bm.id)}
-              className={`absolute top-2.5 right-2.5 p-1.5 rounded-full bg-white/90 dark:bg-slate-900/90 backdrop-blur shadow transition-all ${
-                bm.isFavorite ? 'opacity-100 text-yellow-400' : 'opacity-0 group-hover:opacity-100 text-slate-400 hover:text-yellow-400'
+              className={`absolute top-2.5 right-2.5 p-1.5 rounded-full bg-white/90 dark:bg-[#1a1a1e]/90 backdrop-blur shadow transition-all ${
+                bm.isFavorite ? 'opacity-100 text-yellow-400' : 'opacity-0 group-hover:opacity-100 text-neutral-400 hover:text-yellow-400'
               }`}
             >
               <Star className={`w-4 h-4 ${bm.isFavorite ? 'fill-yellow-400' : ''}`} />
@@ -91,7 +90,7 @@ export const CardsView: React.FC<CardsViewProps> = ({
                     className="w-3.5 h-3.5 rounded shrink-0"
                     onError={(e) => ((e.target as HTMLElement).style.display = 'none')}
                   />
-                  <span className="text-xs font-medium text-slate-500 dark:text-slate-400 truncate">
+                  <span className="text-xs font-medium text-neutral-500 dark:text-neutral-400 truncate">
                     {bm.domain}
                   </span>
                 </div>
@@ -101,21 +100,21 @@ export const CardsView: React.FC<CardsViewProps> = ({
                   href={bm.url}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="block text-sm font-semibold text-slate-900 dark:text-slate-100 hover:text-sky-600 dark:hover:text-sky-400 line-clamp-2 leading-snug mb-2"
+                  className="block text-sm font-semibold text-neutral-900 dark:text-neutral-100 hover:text-sky-600 dark:hover:text-sky-400 line-clamp-2 leading-snug mb-2"
                 >
                   {bm.title || bm.url}
                 </a>
 
                 {/* Excerpt / Description */}
                 {bm.description && (
-                  <p className="text-xs text-slate-600 dark:text-slate-400 line-clamp-2 mb-3 leading-relaxed">
+                  <p className="text-xs text-neutral-600 dark:text-neutral-400 line-clamp-2 mb-3 leading-relaxed">
                     {bm.description}
                   </p>
                 )}
 
                 {/* Personal Note */}
                 {bm.note && (
-                  <div className="p-2 mb-3 rounded bg-amber-50 dark:bg-amber-950/30 border border-amber-200/60 dark:border-amber-800/40 text-[11px] text-amber-900 dark:text-amber-200 line-clamp-2">
+                  <div className="p-2 mb-3 rounded bg-amber-50 dark:bg-amber-950/20 border border-amber-200/60 dark:border-amber-800/30 text-[11px] text-amber-900 dark:text-amber-200 line-clamp-2">
                     <span className="font-semibold">Note:</span> {bm.note}
                   </div>
                 )}
@@ -128,7 +127,7 @@ export const CardsView: React.FC<CardsViewProps> = ({
                     {bm.tags.map((t) => (
                       <span
                         key={t}
-                        className="px-2 py-0.5 rounded text-[10px] bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 font-medium"
+                        className="px-2 py-0.5 rounded text-[10px] bg-neutral-100 dark:bg-neutral-800/80 text-neutral-600 dark:text-neutral-300 font-medium"
                       >
                         #{t}
                       </span>
@@ -137,7 +136,7 @@ export const CardsView: React.FC<CardsViewProps> = ({
                 )}
 
                 {/* Card Footer Actions */}
-                <div className="pt-2 border-t border-slate-100 dark:border-slate-800/60 flex items-center justify-between text-xs text-slate-400">
+                <div className="pt-2 border-t border-neutral-100 dark:border-neutral-800/60 flex items-center justify-between text-xs text-neutral-400">
                   <span>{new Date(bm.createdAt).toLocaleDateString([], { month: 'short', day: 'numeric' })}</span>
 
                   <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
@@ -145,7 +144,7 @@ export const CardsView: React.FC<CardsViewProps> = ({
                       <button
                         onClick={() => onOpenReader(bm)}
                         title="Reader Mode"
-                        className="p-1 rounded hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-500 hover:text-sky-500"
+                        className="p-1 rounded hover:bg-neutral-100 dark:hover:bg-neutral-800 text-neutral-500 hover:text-sky-500"
                       >
                         <BookOpen className="w-3.5 h-3.5" />
                       </button>
@@ -153,7 +152,7 @@ export const CardsView: React.FC<CardsViewProps> = ({
                     <button
                       onClick={() => onEdit(bm)}
                       title="Edit"
-                      className="p-1 rounded hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-500 hover:text-slate-800 dark:hover:text-slate-200"
+                      className="p-1 rounded hover:bg-neutral-100 dark:hover:bg-neutral-800 text-neutral-500 hover:text-neutral-800 dark:hover:text-neutral-200"
                     >
                       <Edit2 className="w-3.5 h-3.5" />
                     </button>
@@ -162,14 +161,14 @@ export const CardsView: React.FC<CardsViewProps> = ({
                       target="_blank"
                       rel="noopener noreferrer"
                       title="Open Original"
-                      className="p-1 rounded hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-500 hover:text-slate-800 dark:hover:text-slate-200"
+                      className="p-1 rounded hover:bg-neutral-100 dark:hover:bg-neutral-800 text-neutral-500 hover:text-neutral-800 dark:hover:text-neutral-200"
                     >
                       <ExternalLink className="w-3.5 h-3.5" />
                     </a>
                     <button
                       onClick={() => onDelete(bm.id)}
                       title="Delete"
-                      className="p-1 rounded hover:bg-rose-50 dark:hover:bg-rose-950/40 text-slate-500 hover:text-rose-500"
+                      className="p-1 rounded hover:bg-rose-50 dark:hover:bg-rose-950/40 text-neutral-500 hover:text-rose-500"
                     >
                       <Trash2 className="w-3.5 h-3.5" />
                     </button>

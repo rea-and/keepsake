@@ -126,29 +126,29 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-200">
-      <div className="w-full max-w-xl bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-800 overflow-hidden flex flex-col max-h-[90vh]">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm animate-in fade-in duration-200">
+      <div className="w-full max-w-xl bg-white dark:bg-[#151518] rounded-2xl shadow-2xl border border-neutral-200 dark:border-neutral-800 overflow-hidden flex flex-col max-h-[90vh]">
         {/* Header */}
-        <div className="px-6 py-4 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between">
+        <div className="px-6 py-4 border-b border-neutral-100 dark:border-neutral-800 flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <h2 className="font-bold text-base text-slate-900 dark:text-white">Settings</h2>
+            <h2 className="font-bold text-base text-neutral-900 dark:text-white">Settings</h2>
           </div>
           <button
             onClick={onClose}
-            className="p-1 rounded-lg text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
+            className="p-1 rounded-lg text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-200"
           >
             <X className="w-5 h-5" />
           </button>
         </div>
 
         {/* Tab Switcher */}
-        <div className="px-6 border-b border-slate-100 dark:border-slate-800 flex gap-6 text-xs font-semibold">
+        <div className="px-6 border-b border-neutral-100 dark:border-neutral-800 flex gap-6 text-xs font-semibold">
           <button
             onClick={() => setActiveTab('appearance')}
             className={`py-3 border-b-2 transition-colors ${
               activeTab === 'appearance'
                 ? 'border-sky-500 text-sky-500'
-                : 'border-transparent text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
+                : 'border-transparent text-neutral-500 hover:text-neutral-800 dark:hover:text-neutral-200'
             }`}
           >
             Appearance
@@ -158,7 +158,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             className={`py-3 border-b-2 transition-colors ${
               activeTab === 'sync'
                 ? 'border-sky-500 text-sky-500'
-                : 'border-transparent text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
+                : 'border-transparent text-neutral-500 hover:text-neutral-800 dark:hover:text-neutral-200'
             }`}
           >
             Google Drive Sync
@@ -168,7 +168,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             className={`py-3 border-b-2 transition-colors ${
               activeTab === 'backup'
                 ? 'border-sky-500 text-sky-500'
-                : 'border-transparent text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
+                : 'border-transparent text-neutral-500 hover:text-neutral-800 dark:hover:text-neutral-200'
             }`}
           >
             Import & Export
@@ -178,7 +178,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             className={`py-3 border-b-2 transition-colors ${
               activeTab === 'about'
                 ? 'border-sky-500 text-sky-500'
-                : 'border-transparent text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
+                : 'border-transparent text-neutral-500 hover:text-neutral-800 dark:hover:text-neutral-200'
             }`}
           >
             Server & Integrations
@@ -190,10 +190,10 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
           {activeTab === 'appearance' && (
             <div className="space-y-5">
               <div>
-                <h3 className="font-semibold text-slate-900 dark:text-white text-sm">
+                <h3 className="font-semibold text-neutral-900 dark:text-white text-sm">
                   Theme & Visual Style
                 </h3>
-                <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+                <p className="text-xs text-neutral-500 dark:text-neutral-400 mt-1">
                   Choose your interface appearance. By default, Keepsake is system-driven and automatically adapts to your operating system's light or dark mode.
                 </p>
               </div>
@@ -205,23 +205,23 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   onClick={() => onSelectThemeMode('system')}
                   className={`p-4 rounded-xl border text-left flex flex-col justify-between transition-all relative ${
                     themeMode === 'system'
-                      ? 'border-sky-500 bg-sky-50/50 dark:bg-sky-950/30 ring-2 ring-sky-500/20'
-                      : 'border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-800/40 hover:border-slate-300 dark:hover:border-slate-700'
+                      ? 'border-sky-500 bg-sky-50/50 dark:bg-sky-950/20 ring-2 ring-sky-500/20'
+                      : 'border-neutral-200 dark:border-neutral-800 bg-white dark:bg-[#1a1a1e] hover:border-neutral-300 dark:hover:border-neutral-700'
                   }`}
                 >
                   <div>
                     <div className="flex items-center justify-between mb-3">
-                      <div className="p-2 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200">
+                      <div className="p-2 rounded-lg bg-neutral-100 dark:bg-neutral-800 text-neutral-700 dark:text-neutral-200">
                         <Monitor className="w-5 h-5" />
                       </div>
-                      <span className="text-[10px] uppercase font-bold tracking-wider px-1.5 py-0.5 rounded bg-sky-100 dark:bg-sky-900/60 text-sky-700 dark:text-sky-300">
+                      <span className="text-[10px] uppercase font-bold tracking-wider px-1.5 py-0.5 rounded bg-sky-100 dark:bg-sky-900/40 text-sky-700 dark:text-sky-300">
                         Default
                       </span>
                     </div>
-                    <div className="font-semibold text-xs text-slate-900 dark:text-white">
+                    <div className="font-semibold text-xs text-neutral-900 dark:text-white">
                       System
                     </div>
-                    <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-1 leading-snug">
+                    <div className="text-[11px] text-neutral-500 dark:text-neutral-400 mt-1 leading-snug">
                       Matches your device preference ({effectiveTheme})
                     </div>
                   </div>
@@ -240,8 +240,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   onClick={() => onSelectThemeMode('light')}
                   className={`p-4 rounded-xl border text-left flex flex-col justify-between transition-all relative ${
                     themeMode === 'light'
-                      ? 'border-sky-500 bg-sky-50/50 dark:bg-sky-950/30 ring-2 ring-sky-500/20'
-                      : 'border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-800/40 hover:border-slate-300 dark:hover:border-slate-700'
+                      ? 'border-sky-500 bg-sky-50/50 dark:bg-sky-950/20 ring-2 ring-sky-500/20'
+                      : 'border-neutral-200 dark:border-neutral-800 bg-white dark:bg-[#1a1a1e] hover:border-neutral-300 dark:hover:border-neutral-700'
                   }`}
                 >
                   <div>
@@ -250,10 +250,10 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                         <Sun className="w-5 h-5" />
                       </div>
                     </div>
-                    <div className="font-semibold text-xs text-slate-900 dark:text-white">
+                    <div className="font-semibold text-xs text-neutral-900 dark:text-white">
                       Light
                     </div>
-                    <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-1 leading-snug">
+                    <div className="text-[11px] text-neutral-500 dark:text-neutral-400 mt-1 leading-snug">
                       Crisp, bright look with soft gray surfaces
                     </div>
                   </div>
@@ -272,21 +272,21 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   onClick={() => onSelectThemeMode('dark')}
                   className={`p-4 rounded-xl border text-left flex flex-col justify-between transition-all relative ${
                     themeMode === 'dark'
-                      ? 'border-sky-500 bg-sky-50/50 dark:bg-sky-950/30 ring-2 ring-sky-500/20'
-                      : 'border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-800/40 hover:border-slate-300 dark:hover:border-slate-700'
+                      ? 'border-sky-500 bg-sky-50/50 dark:bg-sky-950/20 ring-2 ring-sky-500/20'
+                      : 'border-neutral-200 dark:border-neutral-800 bg-white dark:bg-[#1a1a1e] hover:border-neutral-300 dark:hover:border-neutral-700'
                   }`}
                 >
                   <div>
                     <div className="flex items-center justify-between mb-3">
-                      <div className="p-2 rounded-lg bg-indigo-50 dark:bg-indigo-950/40 text-indigo-400">
+                      <div className="p-2 rounded-lg bg-neutral-100 dark:bg-neutral-800 text-neutral-300">
                         <Moon className="w-5 h-5" />
                       </div>
                     </div>
-                    <div className="font-semibold text-xs text-slate-900 dark:text-white">
+                    <div className="font-semibold text-xs text-neutral-900 dark:text-white">
                       Dark
                     </div>
-                    <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-1 leading-snug">
-                      Deep slate styling, comfortable for your eyes
+                    <div className="text-[11px] text-neutral-500 dark:text-neutral-400 mt-1 leading-snug">
+                      Deep black/dark grey styling, comfortable for your eyes
                     </div>
                   </div>
 
@@ -304,7 +304,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
           {activeTab === 'sync' && (
             <div className="space-y-5">
               {/* Google Drive Status Card */}
-              <div className="p-4 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700/60 flex items-start justify-between">
+              <div className="p-4 rounded-xl bg-neutral-50 dark:bg-[#1a1a1e] border border-neutral-200 dark:border-neutral-800 flex items-start justify-between">
                 <div className="flex items-start gap-3">
                   {authSession ? (
                     <div className="w-10 h-10 rounded-full bg-emerald-100 dark:bg-emerald-950/60 text-emerald-600 dark:text-emerald-400 flex items-center justify-center shrink-0">
@@ -317,17 +317,17 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   )}
 
                   <div>
-                    <h3 className="font-semibold text-slate-900 dark:text-white">
+                    <h3 className="font-semibold text-neutral-900 dark:text-white">
                       {authSession ? authSession.user.name : 'Google Drive Disconnected'}
                     </h3>
-                    <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                    <p className="text-xs text-neutral-500 dark:text-neutral-400 mt-0.5">
                       {authSession
                         ? authSession.user.email
                         : 'Sign in to synchronize your bookmarks across Web, Android, Chrome & Firefox.'}
                     </p>
 
                     {authSession && (
-                      <div className="mt-3 flex items-center gap-3 text-xs text-slate-500">
+                      <div className="mt-3 flex items-center gap-3 text-xs text-neutral-500">
                         <span>Storage: Google Drive AppData</span>
                         <span>•</span>
                         <span>
@@ -344,7 +344,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   <button
                     onClick={() => onSetAuthSession(null)}
                     title="Disconnect Google"
-                    className="p-2 rounded-lg text-slate-400 hover:text-rose-500 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors"
+                    className="p-2 rounded-lg text-neutral-400 hover:text-rose-500 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors"
                   >
                     <LogOut className="w-4 h-4" />
                   </button>
@@ -361,19 +361,19 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               {/* Sync Actions */}
               {authSession && (
                 <div className="space-y-3">
-                  <div className="flex items-center justify-between p-3 rounded-xl border border-slate-200 dark:border-slate-800">
+                  <div className="flex items-center justify-between p-3 rounded-xl border border-neutral-200 dark:border-neutral-800">
                     <div>
-                      <div className="font-medium text-xs text-slate-800 dark:text-slate-200">
+                      <div className="font-medium text-xs text-neutral-800 dark:text-neutral-200">
                         Synchronize Now
                       </div>
-                      <div className="text-[11px] text-slate-400">
+                      <div className="text-[11px] text-neutral-400">
                         Bidirectional sync with Google Drive cloud storage
                       </div>
                     </div>
                     <button
                       onClick={onSync}
                       disabled={syncStatus.isSyncing}
-                      className="px-3.5 py-1.5 rounded-lg bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-xs font-semibold flex items-center gap-1.5 transition-colors"
+                      className="px-3.5 py-1.5 rounded-lg bg-neutral-100 dark:bg-neutral-800 hover:bg-neutral-200 dark:hover:bg-neutral-700 text-xs font-semibold flex items-center gap-1.5 transition-colors"
                     >
                       <RefreshCw
                         className={`w-3.5 h-3.5 ${syncStatus.isSyncing ? 'animate-spin text-sky-500' : ''}`}
@@ -396,12 +396,12 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
           {activeTab === 'backup' && (
             <div className="space-y-5">
               {/* Import Section */}
-              <div className="p-4 rounded-xl border border-slate-200 dark:border-slate-800 space-y-3">
-                <div className="flex items-center gap-2 font-semibold text-slate-800 dark:text-slate-200">
+              <div className="p-4 rounded-xl border border-neutral-200 dark:border-neutral-800 space-y-3">
+                <div className="flex items-center gap-2 font-semibold text-neutral-800 dark:text-neutral-200">
                   <Upload className="w-4 h-4 text-sky-500" />
                   <span>Import Bookmarks</span>
                 </div>
-                <p className="text-xs text-slate-500 dark:text-slate-400">
+                <p className="text-xs text-neutral-500 dark:text-neutral-400">
                   Import bookmarks from Google Chrome, Firefox, Safari, Raindrop.io, or Pocket
                   HTML export file.
                 </p>
@@ -416,7 +416,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
                 <button
                   onClick={() => fileInputRef.current?.click()}
-                  className="px-4 py-2 rounded-xl text-xs font-semibold bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 flex items-center gap-2 transition-colors"
+                  className="px-4 py-2 rounded-xl text-xs font-semibold bg-neutral-100 dark:bg-neutral-800 hover:bg-neutral-200 dark:hover:bg-neutral-700 text-neutral-800 dark:text-neutral-200 flex items-center gap-2 transition-colors"
                 >
                   <FileText className="w-4 h-4" />
                   <span>Choose HTML or JSON File</span>
@@ -428,25 +428,25 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               </div>
 
               {/* Export Section */}
-              <div className="p-4 rounded-xl border border-slate-200 dark:border-slate-800 space-y-3">
-                <div className="flex items-center gap-2 font-semibold text-slate-800 dark:text-slate-200">
+              <div className="p-4 rounded-xl border border-neutral-200 dark:border-neutral-800 space-y-3">
+                <div className="flex items-center gap-2 font-semibold text-neutral-800 dark:text-neutral-200">
                   <Download className="w-4 h-4 text-emerald-500" />
                   <span>Export Bookmarks</span>
                 </div>
-                <p className="text-xs text-slate-500 dark:text-slate-400">
+                <p className="text-xs text-neutral-500 dark:text-neutral-400">
                   Download a full backup of your collections and bookmarks.
                 </p>
 
                 <div className="flex items-center gap-2">
                   <button
                     onClick={handleExportHtml}
-                    className="px-4 py-2 rounded-xl text-xs font-semibold bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 transition-colors"
+                    className="px-4 py-2 rounded-xl text-xs font-semibold bg-neutral-100 dark:bg-neutral-800 hover:bg-neutral-200 dark:hover:bg-neutral-700 text-neutral-800 dark:text-neutral-200 transition-colors"
                   >
                     Export Netscape HTML
                   </button>
                   <button
                     onClick={handleExportJson}
-                    className="px-4 py-2 rounded-xl text-xs font-semibold bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 transition-colors"
+                    className="px-4 py-2 rounded-xl text-xs font-semibold bg-neutral-100 dark:bg-neutral-800 hover:bg-neutral-200 dark:hover:bg-neutral-700 text-neutral-800 dark:text-neutral-200 transition-colors"
                   >
                     Export JSON Backup
                   </button>
@@ -457,23 +457,23 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
           {activeTab === 'about' && (
             <div className="space-y-4">
-              <div className="p-4 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700/60 space-y-2">
-                <div className="flex items-center gap-2 font-semibold text-slate-900 dark:text-white">
+              <div className="p-4 rounded-xl bg-neutral-50 dark:bg-[#1a1a1e] border border-neutral-200 dark:border-neutral-800 space-y-2">
+                <div className="flex items-center gap-2 font-semibold text-neutral-900 dark:text-white">
                   <Server className="w-4 h-4 text-sky-500" />
                   <span>Keepsake Architecture</span>
                 </div>
-                <p className="text-xs text-slate-600 dark:text-slate-400 leading-relaxed">
+                <p className="text-xs text-neutral-600 dark:text-neutral-400 leading-relaxed">
                   Keepsake is an open, self-hosted, Google Drive-synchronized Raindrop.io clone.
                   Your bookmarks and collections are stored privately in your own Google Drive
                   account using CRDT conflict resolution.
                 </p>
               </div>
 
-              <div className="p-4 rounded-xl border border-slate-200 dark:border-slate-800 space-y-2 text-xs">
-                <div className="font-semibold text-slate-800 dark:text-slate-200">
+              <div className="p-4 rounded-xl border border-neutral-200 dark:border-neutral-800 space-y-2 text-xs">
+                <div className="font-semibold text-neutral-800 dark:text-neutral-200">
                   Clients & Extensions:
                 </div>
-                <ul className="list-disc pl-4 space-y-1 text-slate-500">
+                <ul className="list-disc pl-4 space-y-1 text-neutral-500 dark:text-neutral-400">
                   <li>Web Application (Deployed on Ubuntu server via Docker)</li>
                   <li>Android Client (Browse + Android System Share Sheet link ingestion)</li>
                   <li>Chrome Browser Extension (Manifest V3 popup & context menus)</li>

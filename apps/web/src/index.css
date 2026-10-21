@@ -4,7 +4,7 @@
 
 @layer base {
   body {
-    @apply antialiased text-slate-800 dark:text-slate-100 bg-slate-50 dark:bg-[#0b1120];
+    @apply antialiased text-neutral-800 dark:text-neutral-100 bg-neutral-50 dark:bg-[#0c0c0e];
     font-feature-settings: "cv02", "cv03", "cv04", "cv11";
   }
 }
@@ -18,11 +18,11 @@
   background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-  background: rgba(148, 163, 184, 0.3);
+  background: rgba(163, 163, 163, 0.25);
   border-radius: 9999px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: rgba(148, 163, 184, 0.5);
+  background: rgba(163, 163, 163, 0.45);
 }
 
 /* Reader mode typography */

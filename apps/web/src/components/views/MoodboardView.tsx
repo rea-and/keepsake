@@ -22,11 +22,11 @@ export const MoodboardView: React.FC<MoodboardViewProps> = ({
       {bookmarks.map((bm) => (
         <div
           key={bm.id}
-          className="break-inside-avoid group relative bg-white dark:bg-slate-900 rounded-xl overflow-hidden border border-slate-200 dark:border-slate-800 shadow-sm hover:shadow-lg transition-all"
+          className="break-inside-avoid group relative bg-white dark:bg-[#151518] rounded-xl overflow-hidden border border-neutral-200 dark:border-neutral-800/80 shadow-sm hover:shadow-lg transition-all"
         >
           {/* Cover Image */}
           {bm.cover ? (
-            <div className="relative overflow-hidden bg-slate-100 dark:bg-slate-800">
+            <div className="relative overflow-hidden bg-neutral-100 dark:bg-neutral-900">
               <img
                 src={bm.cover}
                 alt={bm.title}
@@ -34,18 +34,18 @@ export const MoodboardView: React.FC<MoodboardViewProps> = ({
                 loading="lazy"
                 onError={(e) => ((e.target as HTMLElement).style.display = 'none')}
               />
-              <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
+              <div className="absolute inset-0 bg-gradient-to-t from-black/75 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
             </div>
           ) : (
-            <div className="h-32 bg-gradient-to-br from-sky-400/20 to-indigo-500/20 flex items-center justify-center p-4">
-              <span className="font-bold text-slate-400 text-sm">{bm.domain}</span>
+            <div className="h-32 bg-gradient-to-br from-neutral-100 to-neutral-200 dark:from-neutral-900 dark:to-[#1c1c20] flex items-center justify-center p-4">
+              <span className="font-bold text-neutral-400 text-sm">{bm.domain}</span>
             </div>
           )}
 
           {/* Quick Favorite Star */}
           <button
             onClick={() => onToggleFavorite(bm.id)}
-            className={`absolute top-2.5 right-2.5 p-1.5 rounded-full bg-black/40 backdrop-blur shadow text-white transition-opacity ${
+            className={`absolute top-2.5 right-2.5 p-1.5 rounded-full bg-black/50 backdrop-blur shadow text-white transition-opacity ${
               bm.isFavorite ? 'opacity-100 text-yellow-400' : 'opacity-0 group-hover:opacity-100'
             }`}
           >
@@ -54,7 +54,7 @@ export const MoodboardView: React.FC<MoodboardViewProps> = ({
 
           {/* Body */}
           <div className="p-3">
-            <div className="flex items-center gap-1.5 mb-1 text-[11px] text-slate-400">
+            <div className="flex items-center gap-1.5 mb-1 text-[11px] text-neutral-400">
               <img
                 src={bm.favicon}
                 alt=""
@@ -68,13 +68,13 @@ export const MoodboardView: React.FC<MoodboardViewProps> = ({
               href={bm.url}
               target="_blank"
               rel="noopener noreferrer"
-              className="block text-xs font-semibold text-slate-900 dark:text-slate-100 hover:text-sky-500 line-clamp-2 mb-2 leading-tight"
+              className="block text-xs font-semibold text-neutral-900 dark:text-neutral-100 hover:text-sky-500 line-clamp-2 mb-2 leading-tight"
             >
               {bm.title || bm.url}
             </a>
 
             {/* Hover Action Bar */}
-            <div className="pt-2 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between text-xs text-slate-400">
+            <div className="pt-2 border-t border-neutral-100 dark:border-neutral-800 flex items-center justify-between text-xs text-neutral-400">
               <span>{new Date(bm.createdAt).toLocaleDateString([], { month: 'short', day: 'numeric' })}</span>
 
               <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
@@ -82,7 +82,7 @@ export const MoodboardView: React.FC<MoodboardViewProps> = ({
                   <button
                     onClick={() => onOpenReader(bm)}
                     title="Reader View"
-                    className="p-1 rounded hover:bg-slate-100 dark:hover:bg-slate-800 text-sky-500"
+                    className="p-1 rounded hover:bg-neutral-100 dark:hover:bg-neutral-800 text-sky-500"
                   >
                     <BookOpen className="w-3 h-3" />
                   </button>
@@ -90,7 +90,7 @@ export const MoodboardView: React.FC<MoodboardViewProps> = ({
                 <button
                   onClick={() => onEdit(bm)}
                   title="Edit"
-                  className="p-1 rounded hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-500"
+                  className="p-1 rounded hover:bg-neutral-100 dark:hover:bg-neutral-800 text-neutral-500 hover:text-neutral-200"
                 >
                   <Edit2 className="w-3 h-3" />
                 </button>
@@ -98,14 +98,14 @@ export const MoodboardView: React.FC<MoodboardViewProps> = ({
                   href={bm.url}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="p-1 rounded hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-500"
+                  className="p-1 rounded hover:bg-neutral-100 dark:hover:bg-neutral-800 text-neutral-500 hover:text-neutral-200"
                 >
                   <ExternalLink className="w-3 h-3" />
                 </a>
                 <button
                   onClick={() => onDelete(bm.id)}
                   title="Delete"
-                  className="p-1 rounded hover:bg-rose-50 dark:hover:bg-rose-950 text-rose-500"
+                  className="p-1 rounded hover:bg-rose-50 dark:hover:bg-rose-950/40 text-rose-500"
                 >
                   <Trash2 className="w-3 h-3" />
                 </button>

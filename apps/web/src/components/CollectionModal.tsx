@@ -19,7 +19,7 @@ const COLOR_PALETTE = [
   '#eab308', // Amber
   '#10b981', // Emerald
   '#06b6d4', // Cyan
-  '#64748b'  // Slate
+  '#737373'  // Neutral
 ];
 
 const AVAILABLE_ICONS = [
@@ -77,11 +77,11 @@ export const CollectionModal: React.FC<CollectionModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-200">
-      <div className="w-full max-w-md bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-800 overflow-hidden">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm animate-in fade-in duration-200">
+      <div className="w-full max-w-md bg-white dark:bg-[#151518] rounded-2xl shadow-2xl border border-neutral-200 dark:border-neutral-800 overflow-hidden">
         {/* Header */}
-        <div className="px-6 py-4 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between">
-          <h2 className="font-bold text-base text-slate-900 dark:text-white flex items-center gap-2">
+        <div className="px-6 py-4 border-b border-neutral-100 dark:border-neutral-800 flex items-center justify-between">
+          <h2 className="font-bold text-base text-neutral-900 dark:text-white flex items-center gap-2">
             <span
               className="w-3.5 h-3.5 rounded-full"
               style={{ backgroundColor: color }}
@@ -90,7 +90,7 @@ export const CollectionModal: React.FC<CollectionModalProps> = ({
           </h2>
           <button
             onClick={onClose}
-            className="p-1 rounded-lg text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
+            className="p-1 rounded-lg text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-200"
           >
             <X className="w-5 h-5" />
           </button>
@@ -99,7 +99,7 @@ export const CollectionModal: React.FC<CollectionModalProps> = ({
         {/* Form Body */}
         <form onSubmit={handleSubmit} className="p-6 space-y-4">
           <div>
-            <label className="block text-xs font-semibold text-slate-600 dark:text-slate-400 mb-1">
+            <label className="block text-xs font-semibold text-neutral-600 dark:text-neutral-400 mb-1">
               Collection Name *
             </label>
             <input
@@ -108,13 +108,13 @@ export const CollectionModal: React.FC<CollectionModalProps> = ({
               value={title}
               onChange={(e) => setTitle(e.target.value)}
               placeholder="e.g. Design Inspiration, Articles, Dev Tools"
-              className="w-full px-3.5 py-2 text-sm bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 rounded-xl focus:border-sky-500 focus:outline-none transition-colors"
+              className="w-full px-3.5 py-2 text-sm bg-neutral-50 dark:bg-[#1c1c20] border border-neutral-200 dark:border-neutral-800 rounded-xl focus:border-sky-500 focus:outline-none transition-colors"
               autoFocus
             />
           </div>
 
           <div>
-            <label className="block text-xs font-semibold text-slate-600 dark:text-slate-400 mb-1">
+            <label className="block text-xs font-semibold text-neutral-600 dark:text-neutral-400 mb-1">
               Description (Optional)
             </label>
             <input
@@ -122,13 +122,13 @@ export const CollectionModal: React.FC<CollectionModalProps> = ({
               value={description}
               onChange={(e) => setDescription(e.target.value)}
               placeholder="Short note about this collection"
-              className="w-full px-3.5 py-2 text-sm bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 rounded-xl focus:border-sky-500 focus:outline-none transition-colors"
+              className="w-full px-3.5 py-2 text-sm bg-neutral-50 dark:bg-[#1c1c20] border border-neutral-200 dark:border-neutral-800 rounded-xl focus:border-sky-500 focus:outline-none transition-colors"
             />
           </div>
 
           {/* Color Picker */}
           <div>
-            <label className="block text-xs font-semibold text-slate-600 dark:text-slate-400 mb-2">
+            <label className="block text-xs font-semibold text-neutral-600 dark:text-neutral-400 mb-2">
               Color Tag
             </label>
             <div className="flex items-center gap-2 flex-wrap">
@@ -138,7 +138,7 @@ export const CollectionModal: React.FC<CollectionModalProps> = ({
                   type="button"
                   onClick={() => setColor(c)}
                   className={`w-6 h-6 rounded-full transition-transform ${
-                    color === c ? 'scale-125 ring-2 ring-sky-500 ring-offset-2 dark:ring-offset-slate-900' : 'hover:scale-110'
+                    color === c ? 'scale-125 ring-2 ring-sky-500 ring-offset-2 dark:ring-offset-neutral-900' : 'hover:scale-110'
                   }`}
                   style={{ backgroundColor: c }}
                 />
@@ -148,7 +148,7 @@ export const CollectionModal: React.FC<CollectionModalProps> = ({
 
           {/* Icon Picker */}
           <div>
-            <label className="block text-xs font-semibold text-slate-600 dark:text-slate-400 mb-2">
+            <label className="block text-xs font-semibold text-neutral-600 dark:text-neutral-400 mb-2">
               Icon
             </label>
             <div className="flex items-center gap-2 flex-wrap">
@@ -160,7 +160,7 @@ export const CollectionModal: React.FC<CollectionModalProps> = ({
                   className={`p-2 rounded-lg border transition-colors ${
                     icon === item.name
                       ? 'border-sky-500 bg-sky-50 dark:bg-sky-950/40 text-sky-500'
-                      : 'border-slate-200 dark:border-slate-700 text-slate-500 hover:text-slate-800'
+                      : 'border-neutral-200 dark:border-neutral-800 text-neutral-500 hover:text-neutral-800 dark:hover:text-neutral-200'
                   }`}
                 >
                   {item.icon}
@@ -171,13 +171,13 @@ export const CollectionModal: React.FC<CollectionModalProps> = ({
 
           {/* Default View Mode */}
           <div>
-            <label className="block text-xs font-semibold text-slate-600 dark:text-slate-400 mb-1">
+            <label className="block text-xs font-semibold text-neutral-600 dark:text-neutral-400 mb-1">
               Default Layout
             </label>
             <select
               value={defaultViewMode}
               onChange={(e) => setDefaultViewMode(e.target.value as ViewMode)}
-              className="w-full px-3 py-2 text-sm bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 rounded-xl focus:border-sky-500 focus:outline-none transition-colors capitalize"
+              className="w-full px-3 py-2 text-sm bg-neutral-50 dark:bg-[#1c1c20] border border-neutral-200 dark:border-neutral-800 rounded-xl focus:border-sky-500 focus:outline-none transition-colors capitalize"
             >
               <option value="cards">Cards (Visual Grid)</option>
               <option value="list">List (Dense Rows)</option>
@@ -187,11 +187,11 @@ export const CollectionModal: React.FC<CollectionModalProps> = ({
           </div>
 
           {/* Footer */}
-          <div className="pt-3 border-t border-slate-100 dark:border-slate-800 flex items-center justify-end gap-2">
+          <div className="pt-3 border-t border-neutral-100 dark:border-neutral-800 flex items-center justify-end gap-2">
             <button
               type="button"
               onClick={onClose}
-              className="px-4 py-2 rounded-xl text-xs font-semibold text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+              className="px-4 py-2 rounded-xl text-xs font-semibold text-neutral-600 dark:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors"
             >
               Cancel
             </button>

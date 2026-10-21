@@ -110,7 +110,7 @@ export function App() {
   };
 
   return (
-    <div className="flex h-screen w-screen overflow-hidden bg-slate-50 dark:bg-[#0b1120]">
+    <div className="flex h-screen w-screen overflow-hidden bg-neutral-50 dark:bg-[#0c0c0e]">
       {/* Sidebar Navigation */}
       <Sidebar
         collections={store.collections}
@@ -172,14 +172,14 @@ export function App() {
         {/* Bookmarks Viewport */}
         <main className="flex-1 overflow-y-auto">
           {store.bookmarks.length === 0 ? (
-            <div className="h-full flex flex-col items-center justify-center p-8 text-center text-slate-400">
-              <div className="w-16 h-16 rounded-2xl bg-slate-100 dark:bg-slate-800/80 flex items-center justify-center mb-4 text-slate-400">
+            <div className="h-full flex flex-col items-center justify-center p-8 text-center text-neutral-400">
+              <div className="w-16 h-16 rounded-2xl bg-neutral-100 dark:bg-neutral-900 border border-transparent dark:border-neutral-800 flex items-center justify-center mb-4 text-neutral-400">
                 <Inbox className="w-8 h-8" />
               </div>
-              <h3 className="text-base font-semibold text-slate-700 dark:text-slate-200 mb-1">
+              <h3 className="text-base font-semibold text-neutral-700 dark:text-neutral-200 mb-1">
                 No bookmarks found
               </h3>
-              <p className="text-xs text-slate-500 max-w-sm mb-4">
+              <p className="text-xs text-neutral-500 max-w-sm mb-4">
                 {store.searchQuery
                   ? 'No results matched your search criteria.'
                   : 'Your collection is empty. Save websites, articles, and videos to Keepsake.'}

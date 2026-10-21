@@ -114,7 +114,7 @@ export function useKeepsakeStore() {
 
     const metaThemeColor = document.querySelector('meta[name="theme-color"]');
     if (metaThemeColor) {
-      metaThemeColor.setAttribute('content', effectiveTheme === 'dark' ? '#0b1120' : '#f8fafc');
+      metaThemeColor.setAttribute('content', effectiveTheme === 'dark' ? '#0c0c0e' : '#fafafa');
     }
   }, [themeMode, effectiveTheme]);
 

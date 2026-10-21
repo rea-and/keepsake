@@ -28,12 +28,12 @@ export const SelectionBar: React.FC<SelectionBarProps> = ({
   if (selectedCount === 0) return null;
 
   return (
-    <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-40 bg-slate-900 dark:bg-slate-800 text-white px-4 py-2.5 rounded-2xl shadow-2xl border border-slate-700/80 flex items-center gap-3 animate-in fade-in slide-in-from-bottom-4 duration-200">
-      <div className="flex items-center gap-2 border-r border-slate-700 pr-3">
+    <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-40 bg-neutral-900 dark:bg-[#18181b] text-white px-4 py-2.5 rounded-2xl shadow-2xl border border-neutral-700/80 dark:border-neutral-700 flex items-center gap-3 animate-in fade-in slide-in-from-bottom-4 duration-200">
+      <div className="flex items-center gap-2 border-r border-neutral-700 pr-3">
         <span className="text-xs font-semibold bg-sky-500 px-2 py-0.5 rounded-full">
           {selectedCount}
         </span>
-        <span className="text-xs font-medium text-slate-300">Selected</span>
+        <span className="text-xs font-medium text-neutral-300">Selected</span>
       </div>
 
       <div className="flex items-center gap-1.5 relative">
@@ -41,7 +41,7 @@ export const SelectionBar: React.FC<SelectionBarProps> = ({
         <div className="relative">
           <button
             onClick={() => setShowMoveMenu(!showMoveMenu)}
-            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg hover:bg-slate-800 dark:hover:bg-slate-700 text-xs font-medium transition-colors"
+            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg hover:bg-neutral-800 dark:hover:bg-neutral-800 text-xs font-medium transition-colors"
           >
             <FolderInput className="w-3.5 h-3.5 text-sky-400" />
             <span>Move</span>
@@ -49,10 +49,10 @@ export const SelectionBar: React.FC<SelectionBarProps> = ({
 
           {showMoveMenu && (
             <div
-              className="absolute bottom-10 left-0 w-48 py-1 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 rounded-xl shadow-2xl border border-slate-200 dark:border-slate-700 text-xs max-h-60 overflow-y-auto"
+              className="absolute bottom-10 left-0 w-48 py-1 bg-white dark:bg-[#1c1c20] text-neutral-800 dark:text-neutral-100 rounded-xl shadow-2xl border border-neutral-200 dark:border-neutral-800 text-xs max-h-60 overflow-y-auto"
               onMouseLeave={() => setShowMoveMenu(false)}
             >
-              <div className="px-3 py-1 font-semibold text-slate-400 uppercase text-[10px]">
+              <div className="px-3 py-1 font-semibold text-neutral-400 uppercase text-[10px]">
                 Move to Collection
               </div>
               <button
@@ -60,7 +60,7 @@ export const SelectionBar: React.FC<SelectionBarProps> = ({
                   onBulkMove('unsorted');
                   setShowMoveMenu(false);
                 }}
-                className="w-full px-3 py-1.5 text-left hover:bg-slate-100 dark:hover:bg-slate-700"
+                className="w-full px-3 py-1.5 text-left hover:bg-neutral-100 dark:hover:bg-neutral-800"
               >
                 📥 Unsorted
               </button>
@@ -73,7 +73,7 @@ export const SelectionBar: React.FC<SelectionBarProps> = ({
                       onBulkMove(col.id);
                       setShowMoveMenu(false);
                     }}
-                    className="w-full px-3 py-1.5 text-left hover:bg-slate-100 dark:hover:bg-slate-700 truncate"
+                    className="w-full px-3 py-1.5 text-left hover:bg-neutral-100 dark:hover:bg-neutral-800 truncate"
                   >
                     📁 {col.title}
                   </button>
@@ -86,7 +86,7 @@ export const SelectionBar: React.FC<SelectionBarProps> = ({
         <div className="relative">
           <button
             onClick={() => setShowTagInput(!showTagInput)}
-            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg hover:bg-slate-800 dark:hover:bg-slate-700 text-xs font-medium transition-colors"
+            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg hover:bg-neutral-800 dark:hover:bg-neutral-800 text-xs font-medium transition-colors"
           >
             <Tag className="w-3.5 h-3.5 text-emerald-400" />
             <span>Tag</span>
@@ -94,7 +94,7 @@ export const SelectionBar: React.FC<SelectionBarProps> = ({
 
           {showTagInput && (
             <div
-              className="absolute bottom-10 left-0 w-48 p-2 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 rounded-xl shadow-2xl border border-slate-200 dark:border-slate-700 text-xs"
+              className="absolute bottom-10 left-0 w-48 p-2 bg-white dark:bg-[#1c1c20] text-neutral-800 dark:text-neutral-100 rounded-xl shadow-2xl border border-neutral-200 dark:border-neutral-800 text-xs"
               onMouseLeave={() => setShowTagInput(false)}
             >
               <form
@@ -114,7 +114,7 @@ export const SelectionBar: React.FC<SelectionBarProps> = ({
                   onChange={(e) => setTagText(e.target.value)}
                   placeholder="tag-name"
                   autoFocus
-                  className="w-full px-2 py-1 bg-slate-100 dark:bg-slate-700 rounded text-xs focus:outline-none"
+                  className="w-full px-2 py-1 bg-neutral-100 dark:bg-neutral-800 rounded text-xs focus:outline-none"
                 />
                 <button
                   type="submit"
@@ -130,7 +130,7 @@ export const SelectionBar: React.FC<SelectionBarProps> = ({
         {/* Favorite */}
         <button
           onClick={() => onBulkFavorite(true)}
-          className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg hover:bg-slate-800 dark:hover:bg-slate-700 text-xs font-medium transition-colors"
+          className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg hover:bg-neutral-800 dark:hover:bg-neutral-800 text-xs font-medium transition-colors"
         >
           <Star className="w-3.5 h-3.5 text-yellow-400 fill-yellow-400" />
           <span>Star</span>
@@ -148,7 +148,7 @@ export const SelectionBar: React.FC<SelectionBarProps> = ({
 
       <button
         onClick={onDeselectAll}
-        className="p-1 rounded-md text-slate-400 hover:text-white border-l border-slate-700 pl-2 ml-1"
+        className="p-1 rounded-md text-neutral-400 hover:text-white border-l border-neutral-700 pl-2 ml-1"
       >
         <X className="w-4 h-4" />
       </button>
