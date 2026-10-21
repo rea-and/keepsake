@@ -9,7 +9,11 @@ import {
   getFaviconUrl,
   normalizeUrl,
   getYouTubeThumbnail,
-  getYouTubeVideoId
+  getYouTubeVideoId,
+  parseRedditUrl,
+  isRedditUrl,
+  cleanRedditTitle,
+  RedditPostInfo
 } from '@keepsake/shared';
 
 const USER_AGENT = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36';
@@ -17,6 +21,17 @@ const USER_AGENT = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/
 export async function scrapeUrl(rawUrl: string): Promise<ScrapedMetadata> {
   const url = normalizeUrl(rawUrl);
   const domain = extractDomain(url);
+
+  // 1. Specialized Reddit Ingestion (Direct JSON API)
+  if (isRedditUrl(url)) {
+    const redditInfo = parseRedditUrl(url);
+    if (redditInfo?.postId) {
+      const redditMeta = await scrapeRedditPost(redditInfo, url);
+      if (redditMeta) {
+        return redditMeta;
+      }
+    }
+  }
 
   try {
     const controller = new AbortController();
@@ -59,7 +74,10 @@ export async function scrapeUrl(rawUrl: string): Promise<ScrapedMetadata> {
     const twitterTitle = $('meta[name="twitter:title"]').attr('content');
     const pageTitle = $('title').text().trim();
     const h1 = $('h1').first().text().trim();
-    const title = (ogTitle || twitterTitle || pageTitle || h1 || domain).trim();
+    let title = (ogTitle || twitterTitle || pageTitle || h1 || domain).trim();
+    if (domain.includes('reddit.com') || domain === 'redd.it') {
+      title = cleanRedditTitle(title) || title;
+    }
 
     // 2. Description
     const ogDesc = $('meta[property="og:description"]').attr('content');
@@ -91,22 +109,31 @@ export async function scrapeUrl(rawUrl: string): Promise<ScrapedMetadata> {
       cover = ytThumb;
     }
 
+    // Clean Reddit preview images
+    if (cover && (domain.includes('reddit.com') || domain === 'redd.it')) {
+      cover = cover.replace(/&amp;/g, '&');
+    }
+
     // 5. Favicon
     let favicon: string | undefined;
-    const iconHref =
-      $('link[rel="apple-touch-icon"]').attr('href') ||
-      $('link[rel="icon"][sizes="32x32"]').attr('href') ||
-      $('link[rel="icon"]').attr('href') ||
-      $('link[rel="shortcut icon"]').attr('href');
+    if (domain.includes('reddit.com') || domain === 'redd.it') {
+      favicon = 'https://www.redditstatic.com/shreddit/assets/favicon/192x192.png';
+    } else {
+      const iconHref =
+        $('link[rel="apple-touch-icon"]').attr('href') ||
+        $('link[rel="icon"][sizes="32x32"]').attr('href') ||
+        $('link[rel="icon"]').attr('href') ||
+        $('link[rel="shortcut icon"]').attr('href');
 
-    if (iconHref) {
-      try {
-        favicon = new URL(iconHref, url).href;
-      } catch {
+      if (iconHref) {
+        try {
+          favicon = new URL(iconHref, url).href;
+        } catch {
+          favicon = getFaviconUrl(domain);
+        }
+      } else {
         favicon = getFaviconUrl(domain);
       }
-    } else {
-      favicon = getFaviconUrl(domain);
     }
 
     // 6. Detect Type
@@ -172,4 +199,85 @@ function fallbackMetadata(url: string, domain: string, errorMsg?: string): Scrap
     favicon: getFaviconUrl(domain),
     type: 'link'
   };
+}
+
+async function scrapeRedditPost(info: RedditPostInfo, canonicalUrl: string): Promise<ScrapedMetadata | null> {
+  if (!info.postId) return null;
+  try {
+    const jsonUrl = `https://www.reddit.com/comments/${info.postId}.json`;
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 6000);
+
+    const res = await fetch(jsonUrl, {
+      signal: controller.signal,
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+        'Accept': 'application/json'
+      }
+    });
+    clearTimeout(timeout);
+
+    if (!res.ok) return null;
+
+    const data = await res.json();
+    const post = data?.[0]?.data?.children?.[0]?.data;
+    if (!post) return null;
+
+    const title = post.title ? cleanRedditTitle(post.title) : canonicalUrl;
+    const subreddit = post.subreddit || info.subreddit || '';
+    const author = post.author || '';
+    const selftext = (post.selftext || '').trim();
+
+    // Extract high-res image
+    let cover: string | undefined;
+    if (post.preview?.images?.[0]?.source?.url) {
+      cover = post.preview.images[0].source.url.replace(/&amp;/g, '&');
+    } else if (post.url && /\.(jpe?g|png|gif|webp)$/i.test(post.url)) {
+      cover = post.url;
+    } else if (post.thumbnail && post.thumbnail.startsWith('http')) {
+      cover = post.thumbnail;
+    }
+
+    // Detect type
+    let type: BookmarkType = 'link';
+    if (post.is_video || post.domain === 'v.redd.it') {
+      type = 'video';
+    } else if (post.post_hint === 'image' || (cover && (cover.includes('i.redd.it') || cover.includes('preview.redd.it')))) {
+      type = 'image';
+    } else if (selftext && selftext.length > 80) {
+      type = 'article';
+    }
+
+    let readerContent: ReaderContent | undefined;
+    if (selftext) {
+      const cleanHtml = selftext
+        .split('\n\n')
+        .filter(Boolean)
+        .map((p: string) => `<p>${p.replace(/\n/g, '<br>')}</p>`)
+        .join('');
+
+      readerContent = {
+        title,
+        byline: author ? `u/${author} in r/${subreddit}` : `r/${subreddit}`,
+        content: cleanHtml,
+        textContent: selftext,
+        length: selftext.length,
+        siteName: `r/${subreddit}`
+      };
+    }
+
+    return {
+      url: canonicalUrl,
+      title,
+      description: selftext ? selftext.slice(0, 280) : (post.url_overridden_by_dest ? `Link: ${post.url_overridden_by_dest}` : `Reddit post in r/${subreddit}`),
+      domain: 'reddit.com',
+      favicon: 'https://www.redditstatic.com/shreddit/assets/favicon/192x192.png',
+      cover,
+      type,
+      siteName: subreddit ? `r/${subreddit}` : 'Reddit',
+      readerContent
+    };
+  } catch {
+    return null;
+  }
 }

@@ -110,6 +110,62 @@ export function getYouTubeThumbnail(rawUrl: string): string | null {
   return `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`;
 }
 
+export interface RedditPostInfo {
+  subreddit?: string;
+  postId?: string;
+  slug?: string;
+}
+
+/**
+ * Parses Reddit URLs to extract post ID and subreddit
+ */
+export function parseRedditUrl(rawUrl: string): RedditPostInfo | null {
+  if (!rawUrl) return null;
+  try {
+    const url = new URL(rawUrl.startsWith('http') ? rawUrl : `https://${rawUrl}`);
+    const host = url.hostname.toLowerCase().replace(/^www\./, '');
+
+    if (host === 'redd.it') {
+      const postId = url.pathname.slice(1).split('/')[0];
+      return postId ? { postId } : null;
+    }
+
+    if (['reddit.com', 'old.reddit.com', 'new.reddit.com', 'sh.reddit.com', 'm.reddit.com'].includes(host)) {
+      const match = url.pathname.match(/\/r\/([a-zA-Z0-9_]+)\/comments\/([a-zA-Z0-9]+)(?:\/([^\/]+))?/);
+      if (match) {
+        return {
+          subreddit: match[1],
+          postId: match[2],
+          slug: match[3]
+        };
+      }
+      // Subreddit homepage e.g. /r/technology
+      const subMatch = url.pathname.match(/\/r\/([a-zA-Z0-9_]+)\/?$/);
+      if (subMatch) {
+        return {
+          subreddit: subMatch[1]
+        };
+      }
+    }
+  } catch {}
+  return null;
+}
+
+export function isRedditUrl(rawUrl: string): boolean {
+  return !!parseRedditUrl(rawUrl);
+}
+
+/**
+ * Strips redundant Reddit suffixes like ": r/subreddit" or "- Reddit" from page titles
+ */
+export function cleanRedditTitle(rawTitle: string): string {
+  if (!rawTitle) return '';
+  return rawTitle
+    .replace(/\s*:\s*r\/[a-zA-Z0-9_]+.*$/i, '')
+    .replace(/\s*[-–—]\s*Reddit.*$/i, '')
+    .trim();
+}
+
 /**
  * Exports bookmarks to Netscape Bookmark HTML format (standard supported by Chrome, Firefox, Safari, Raindrop)
  */

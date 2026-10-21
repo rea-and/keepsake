@@ -20,6 +20,20 @@ export declare function getYouTubeVideoId(rawUrl: string): string | null;
  * Generates a high-definition video thumbnail URL for YouTube videos
  */
 export declare function getYouTubeThumbnail(rawUrl: string): string | null;
+export interface RedditPostInfo {
+    subreddit?: string;
+    postId?: string;
+    slug?: string;
+}
+/**
+ * Parses Reddit URLs to extract post ID and subreddit
+ */
+export declare function parseRedditUrl(rawUrl: string): RedditPostInfo | null;
+export declare function isRedditUrl(rawUrl: string): boolean;
+/**
+ * Strips redundant Reddit suffixes like ": r/subreddit" or "- Reddit" from page titles
+ */
+export declare function cleanRedditTitle(rawTitle: string): string;
 /**
  * Exports bookmarks to Netscape Bookmark HTML format (standard supported by Chrome, Firefox, Safari, Raindrop)
  */

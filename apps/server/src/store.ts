@@ -12,7 +12,10 @@ import {
   getFaviconUrl,
   normalizeUrl,
   getYouTubeThumbnail,
-  getYouTubeVideoId
+  getYouTubeVideoId,
+  isRedditUrl,
+  parseRedditUrl,
+  cleanRedditTitle
 } from '@keepsake/shared';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -148,7 +151,9 @@ class ServerStoreManager {
     const now = new Date().toISOString();
     const cleanUrl = normalizeUrl(data.url);
     const domain = data.domain || extractDomain(cleanUrl);
-    const favicon = data.favicon || getFaviconUrl(domain);
+    let favicon = data.favicon || getFaviconUrl(domain);
+    let title = data.title || domain;
+    let tags = data.tags !== undefined ? data.tags : [];
 
     // Auto-detect YouTube thumbnail and video type
     const ytThumb = getYouTubeThumbnail(cleanUrl);
@@ -157,6 +162,19 @@ class ServerStoreManager {
     if (ytThumb && (!cover || cover.includes('yt_1200.png') || cover.includes('youtube.com/img/desktop'))) {
       cover = ytThumb;
     }
+
+    // Auto-detect Reddit posts: clean title, extract subreddit tag, set Reddit favicon
+    if (isRedditUrl(cleanUrl)) {
+      title = cleanRedditTitle(title) || title;
+      const rInfo = parseRedditUrl(cleanUrl);
+      if (rInfo?.subreddit && tags.length === 0) {
+        tags = [rInfo.subreddit.toLowerCase()];
+      }
+      if (!data.favicon || data.favicon.includes('google.com')) {
+        favicon = 'https://www.redditstatic.com/shreddit/assets/favicon/192x192.png';
+      }
+    }
+
     const bookmarkType = isVideo ? 'video' : (data.type || 'link');
 
     let existingIndex = -1;
@@ -179,11 +197,12 @@ class ServerStoreManager {
         ...data,
         id: existing.id,
         url: cleanUrl,
+        title: title || existing.title,
         domain,
         favicon: favicon || existing.favicon,
         cover: cover !== undefined ? cover : existing.cover,
         type: bookmarkType,
-        tags: data.tags !== undefined ? data.tags : existing.tags,
+        tags: data.tags !== undefined ? tags : existing.tags,
         updatedAt: now
       };
       this.store.bookmarks[existingIndex] = savedBm;
@@ -194,14 +213,14 @@ class ServerStoreManager {
           data.id ||
           'bm_' + Math.random().toString(36).substring(2, 9) + Date.now().toString(36),
         url: cleanUrl,
-        title: data.title || domain,
+        title: title,
         description: data.description || '',
         note: data.note || '',
         domain,
         favicon,
         cover,
         collectionId: data.collectionId || 'unsorted',
-        tags: data.tags || [],
+        tags,
         isFavorite: data.isFavorite || false,
         isTrash: data.isTrash || false,
         type: bookmarkType,

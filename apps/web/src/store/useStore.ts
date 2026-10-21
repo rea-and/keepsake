@@ -21,7 +21,10 @@ import {
   getFaviconUrl,
   normalizeUrl,
   getYouTubeThumbnail,
-  getYouTubeVideoId
+  getYouTubeVideoId,
+  isRedditUrl,
+  parseRedditUrl,
+  cleanRedditTitle
 } from '@keepsake/shared';
 
 const LOCAL_STORAGE_KEY = 'keepsake_local_store_v1';
@@ -345,12 +348,29 @@ export function useKeepsakeStore() {
         cover = ytThumb;
       }
 
+      let title = bookmarkData.title;
+      let tags = bookmarkData.tags || [];
+      let favicon = bookmarkData.favicon || getFaviconUrl(domain);
+
+      if (isRedditUrl(bookmarkData.url)) {
+        title = cleanRedditTitle(title) || title;
+        const rInfo = parseRedditUrl(bookmarkData.url);
+        if (rInfo?.subreddit && tags.length === 0) {
+          tags = [rInfo.subreddit.toLowerCase()];
+        }
+        if (!bookmarkData.favicon || bookmarkData.favicon.includes('google.com')) {
+          favicon = 'https://www.redditstatic.com/shreddit/assets/favicon/192x192.png';
+        }
+      }
+
       const newBm: Bookmark = {
         ...bookmarkData,
         id: 'bm_' + Math.random().toString(36).substring(2, 9) + Date.now().toString(36),
+        title,
         domain,
-        favicon: bookmarkData.favicon || getFaviconUrl(domain),
+        favicon,
         cover,
+        tags,
         type: isVideo ? 'video' : (bookmarkData.type || 'link'),
         createdAt: now,
         updatedAt: now

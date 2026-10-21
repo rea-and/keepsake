@@ -5,7 +5,9 @@ import {
   getFaviconUrl,
   normalizeUrl,
   getYouTubeThumbnail,
-  getYouTubeVideoId
+  getYouTubeVideoId,
+  isRedditUrl,
+  cleanRedditTitle
 } from '@keepsake/shared';
 
 interface ExtensionStorage {
@@ -139,6 +141,10 @@ async function init() {
     const meta = await chrome.tabs.sendMessage(tab.id!, { action: 'GET_PAGE_METADATA' });
     if (meta) {
       if (meta.title && !currentTitle) currentTitle = meta.title;
+      if (isRedditUrl(currentUrl) && currentTitle) {
+        currentTitle = cleanRedditTitle(currentTitle);
+        pageTitle.textContent = currentTitle;
+      }
       if (meta.cover && !meta.cover.includes('yt_1200.png') && !meta.cover.includes('youtube.com/img/desktop')) {
         currentCover = meta.cover;
         coverImg.src = currentCover;
@@ -150,6 +156,10 @@ async function init() {
       }
       if (meta.selectedText && !noteInput.value) {
         noteInput.value = `> ${meta.selectedText}\n\n`;
+      }
+      // Auto-populate suggested tags (e.g. subreddit name)
+      if (meta.tags && Array.isArray(meta.tags) && currentTags.length === 0) {
+        meta.tags.forEach((t: string) => addTag(t));
       }
     }
   } catch {
