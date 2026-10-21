@@ -33,6 +33,8 @@ interface SettingsModalProps {
   themeMode: 'system' | 'light' | 'dark';
   effectiveTheme: 'light' | 'dark';
   onSelectThemeMode: (mode: 'system' | 'light' | 'dark') => void;
+  cardSize?: 'small' | 'medium' | 'large';
+  onSelectCardSize?: (size: 'small' | 'medium' | 'large') => void;
 }
 
 export const SettingsModal: React.FC<SettingsModalProps> = ({
@@ -47,7 +49,9 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   onImport,
   themeMode,
   effectiveTheme,
-  onSelectThemeMode
+  onSelectThemeMode,
+  cardSize = 'medium',
+  onSelectCardSize
 }) => {
   const [activeTab, setActiveTab] = useState<'appearance' | 'sync' | 'backup' | 'about'>('appearance');
   const [importStatus, setImportStatus] = useState<string | null>(null);
@@ -297,6 +301,88 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     </div>
                   )}
                 </button>
+              </div>
+
+              {/* Grid View Bookmark Box Size (3 levels) */}
+              <div className="pt-5 border-t border-neutral-100 dark:border-neutral-800">
+                <div>
+                  <h3 className="font-semibold text-neutral-900 dark:text-white text-sm">
+                    Grid View Card Size
+                  </h3>
+                  <p className="text-xs text-neutral-500 dark:text-neutral-400 mt-1">
+                    Choose the size of bookmark boxes in the cards view grid. Medium is the standard default size.
+                  </p>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mt-3">
+                  {/* Small (Compact) */}
+                  <button
+                    type="button"
+                    onClick={() => onSelectCardSize?.('small')}
+                    className={`p-3.5 rounded-xl border text-left flex flex-col justify-between transition-all relative ${
+                      cardSize === 'small'
+                        ? 'border-sky-500 bg-sky-50/50 dark:bg-sky-950/20 ring-2 ring-sky-500/20'
+                        : 'border-neutral-200 dark:border-neutral-800 bg-white dark:bg-[#1a1a1e] hover:border-neutral-300 dark:hover:border-neutral-700'
+                    }`}
+                  >
+                    <div>
+                      <div className="flex items-center justify-between mb-1.5">
+                        <span className="font-bold text-xs text-neutral-900 dark:text-white">Compact (Small)</span>
+                        {cardSize === 'small' && <Check className="w-4 h-4 text-sky-500" />}
+                      </div>
+                      <p className="text-[11px] text-neutral-500 dark:text-neutral-400 leading-snug">
+                        Denser grid with compact preview thumbnails and minimal padding.
+                      </p>
+                    </div>
+                  </button>
+
+                  {/* Medium (Standard Current) */}
+                  <button
+                    type="button"
+                    onClick={() => onSelectCardSize?.('medium')}
+                    className={`p-3.5 rounded-xl border text-left flex flex-col justify-between transition-all relative ${
+                      cardSize === 'medium'
+                        ? 'border-sky-500 bg-sky-50/50 dark:bg-sky-950/20 ring-2 ring-sky-500/20'
+                        : 'border-neutral-200 dark:border-neutral-800 bg-white dark:bg-[#1a1a1e] hover:border-neutral-300 dark:hover:border-neutral-700'
+                    }`}
+                  >
+                    <div>
+                      <div className="flex items-center justify-between mb-1.5">
+                        <div className="flex items-center gap-1.5">
+                          <span className="font-bold text-xs text-neutral-900 dark:text-white">Medium</span>
+                          <span className="text-[9px] uppercase font-bold tracking-wider px-1 py-0.2 rounded bg-neutral-200 dark:bg-neutral-800 text-neutral-600 dark:text-neutral-300">
+                            Current
+                          </span>
+                        </div>
+                        {cardSize === 'medium' && <Check className="w-4 h-4 text-sky-500" />}
+                      </div>
+                      <p className="text-[11px] text-neutral-500 dark:text-neutral-400 leading-snug">
+                        Standard balanced dimensions for comfortable browsing and reading.
+                      </p>
+                    </div>
+                  </button>
+
+                  {/* Large (Spacious) */}
+                  <button
+                    type="button"
+                    onClick={() => onSelectCardSize?.('large')}
+                    className={`p-3.5 rounded-xl border text-left flex flex-col justify-between transition-all relative ${
+                      cardSize === 'large'
+                        ? 'border-sky-500 bg-sky-50/50 dark:bg-sky-950/20 ring-2 ring-sky-500/20'
+                        : 'border-neutral-200 dark:border-neutral-800 bg-white dark:bg-[#1a1a1e] hover:border-neutral-300 dark:hover:border-neutral-700'
+                    }`}
+                  >
+                    <div>
+                      <div className="flex items-center justify-between mb-1.5">
+                        <span className="font-bold text-xs text-neutral-900 dark:text-white">Spacious (Large)</span>
+                        {cardSize === 'large' && <Check className="w-4 h-4 text-sky-500" />}
+                      </div>
+                      <p className="text-[11px] text-neutral-500 dark:text-neutral-400 leading-snug">
+                        Large prominent cover art and expanded multi-line excerpt text.
+                      </p>
+                    </div>
+                  </button>
+                </div>
               </div>
             </div>
           )}

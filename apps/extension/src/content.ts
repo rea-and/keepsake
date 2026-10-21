@@ -61,16 +61,22 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
       }
 
       // Extract high-resolution media cover
+      const ogMeta = document.querySelector('meta[property="og:image"]')?.getAttribute('content');
       const redditMedia =
         shredditPost?.getAttribute('content-href') ||
         shredditPost?.getAttribute('thumbnail-src') ||
+        document.querySelector('shreddit-aspect-ratio img')?.getAttribute('src') ||
+        document.querySelector('img[src*="preview.redd.it"]')?.getAttribute('src') ||
+        document.querySelector('img[src*="i.redd.it"]')?.getAttribute('src') ||
+        document.querySelector('img[src*="external-preview.redd.it"]')?.getAttribute('src') ||
+        (ogMeta && !ogMeta.includes('redditstatic.com') ? ogMeta : null) ||
         document.querySelector('shreddit-player')?.getAttribute('poster') ||
         document.querySelector('img[alt="Post image"]')?.getAttribute('src') ||
         document.querySelector('div[data-click-id="media"] img')?.getAttribute('src') ||
         document.querySelector('figure img')?.getAttribute('src');
 
       if (redditMedia && (redditMedia.startsWith('http') || redditMedia.startsWith('//'))) {
-        ogImage = redditMedia.startsWith('//') ? `https:${redditMedia}` : redditMedia;
+        ogImage = (redditMedia.startsWith('//') ? `https:${redditMedia}` : redditMedia).replace(/&amp;/g, '&');
       } else if (ogImage) {
         // Decode HTML entities in Reddit preview images
         ogImage = ogImage.replace(/&amp;/g, '&');

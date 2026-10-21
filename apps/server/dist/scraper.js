@@ -1,11 +1,123 @@
 import * as cheerio from 'cheerio';
 import { JSDOM } from 'jsdom';
 import { Readability } from '@mozilla/readability';
+import { isIP } from 'net';
+import dns from 'dns/promises';
 import { extractDomain, getFaviconUrl, normalizeUrl, getYouTubeThumbnail, getYouTubeVideoId, parseRedditUrl, isRedditUrl, cleanRedditTitle } from '@keepsake/shared';
 const USER_AGENT = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36';
+// ==========================================
+// SSRF Defense: Validate URL & Private IP Checks
+// ==========================================
+function isPrivateOrLoopbackIP(ip) {
+    if (ip.startsWith('127.'))
+        return true; // IPv4 loopback
+    if (ip.startsWith('10.'))
+        return true; // 10.0.0.0/8
+    if (ip.startsWith('192.168.'))
+        return true; // 192.168.0.0/16
+    if (/^172\.(1[6-9]|2[0-9]|3[0-1])\./.test(ip))
+        return true; // 172.16.0.0/12
+    if (ip.startsWith('169.254.'))
+        return true; // Link-local / Cloud metadata (169.254.169.254)
+    if (ip.startsWith('0.'))
+        return true;
+    if (ip === '255.255.255.255')
+        return true;
+    if (ip === '::1' || ip === '::')
+        return true;
+    if (ip.toLowerCase().startsWith('fc') || ip.toLowerCase().startsWith('fd'))
+        return true; // Unique local IPv6
+    if (ip.toLowerCase().startsWith('fe80'))
+        return true; // Link-local IPv6
+    if (ip.startsWith('::ffff:')) {
+        return isPrivateOrLoopbackIP(ip.substring(7));
+    }
+    return false;
+}
+export async function validateSafeUrl(urlString) {
+    try {
+        const parsed = new URL(urlString);
+        if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+            return false;
+        }
+        const hostname = parsed.hostname.toLowerCase();
+        if (hostname === 'localhost' ||
+            hostname === '0.0.0.0' ||
+            hostname === '127.0.0.1' ||
+            hostname === '::1' ||
+            hostname.endsWith('.localhost') ||
+            hostname.endsWith('.local') ||
+            hostname.endsWith('.internal')) {
+            return false;
+        }
+        if (isIP(hostname)) {
+            return !isPrivateOrLoopbackIP(hostname);
+        }
+        try {
+            const records = await dns.lookup(hostname, { all: true });
+            for (const rec of records) {
+                if (isPrivateOrLoopbackIP(rec.address)) {
+                    return false;
+                }
+            }
+        }
+        catch {
+            // DNS resolution failure will be handled by fetch
+            return true;
+        }
+        return true;
+    }
+    catch {
+        return false;
+    }
+}
+// ==========================================
+// HTML Sanitizer for Reader Mode
+// ==========================================
+function sanitizeHtmlContent(dirtyHtml) {
+    try {
+        const dom = new JSDOM(`<!DOCTYPE html><html><body>${dirtyHtml}</body></html>`);
+        const doc = dom.window.document;
+        // Disallowed elements
+        const dangerousTags = ['script', 'style', 'iframe', 'object', 'embed', 'applet', 'base', 'form', 'input', 'button', 'link'];
+        dangerousTags.forEach((tag) => {
+            doc.querySelectorAll(tag).forEach((el) => el.remove());
+        });
+        // Remove event handlers and javascript: URIs from all remaining elements
+        const allElements = doc.querySelectorAll('*');
+        allElements.forEach((el) => {
+            // Clean attributes
+            const attrs = Array.from(el.attributes);
+            for (const attr of attrs) {
+                const name = attr.name.toLowerCase();
+                const val = attr.value.trim().toLowerCase();
+                // Remove on* event handlers (e.g. onerror, onload, onclick)
+                if (name.startsWith('on')) {
+                    el.removeAttribute(attr.name);
+                    continue;
+                }
+                // Remove javascript: or vbscript: or data: (except data:image)
+                if (name === 'href' || name === 'src' || name === 'action' || name === 'formaction') {
+                    if (val.startsWith('javascript:') || val.startsWith('vbscript:') || (val.startsWith('data:') && !val.startsWith('data:image/'))) {
+                        el.removeAttribute(attr.name);
+                    }
+                }
+            }
+        });
+        return doc.body.innerHTML;
+    }
+    catch {
+        return dirtyHtml;
+    }
+}
 export async function scrapeUrl(rawUrl) {
     const url = normalizeUrl(rawUrl);
     const domain = extractDomain(url);
+    // SSRF Protection
+    const isSafe = await validateSafeUrl(url);
+    if (!isSafe) {
+        return fallbackMetadata(url, domain, 'URL blocked by security policy');
+    }
     // 1. Specialized Reddit Ingestion (Direct JSON API)
     if (isRedditUrl(url)) {
         const redditInfo = parseRedditUrl(url);
@@ -130,7 +242,7 @@ export async function scrapeUrl(rawUrl) {
                 readerContent = {
                     title: article.title || title,
                     byline: article.byline || undefined,
-                    content: article.content,
+                    content: sanitizeHtmlContent(article.content),
                     textContent: article.textContent.trim(),
                     length: article.length,
                     excerpt: article.excerpt || description,
@@ -170,79 +282,160 @@ function fallbackMetadata(url, domain, errorMsg) {
 async function scrapeRedditPost(info, canonicalUrl) {
     if (!info.postId)
         return null;
+    const subreddit = info.subreddit || '';
+    let title = canonicalUrl;
+    let cover;
+    let selftext = '';
+    let author = '';
+    let type = 'link';
+    // Strategy 1: Public Reddit RSS Feed (Bypasses Reddit bot blocking and returns full media thumbnails)
     try {
-        const jsonUrl = `https://www.reddit.com/comments/${info.postId}.json`;
+        const rssTarget = subreddit
+            ? `https://www.reddit.com/r/${subreddit}/comments/${info.postId}/.rss`
+            : `https://www.reddit.com/comments/${info.postId}/.rss`;
         const controller = new AbortController();
         const timeout = setTimeout(() => controller.abort(), 6000);
-        const res = await fetch(jsonUrl, {
+        const res = await fetch(rssTarget, {
             signal: controller.signal,
             headers: {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
-                'Accept': 'application/json'
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+                'Accept': 'application/atom+xml,application/xml,text/xml;q=0.9,*/*;q=0.8'
             }
         });
         clearTimeout(timeout);
-        if (!res.ok)
-            return null;
-        const data = await res.json();
-        const post = data?.[0]?.data?.children?.[0]?.data;
-        if (!post)
-            return null;
-        const title = post.title ? cleanRedditTitle(post.title) : canonicalUrl;
-        const subreddit = post.subreddit || info.subreddit || '';
-        const author = post.author || '';
-        const selftext = (post.selftext || '').trim();
-        // Extract high-res image
-        let cover;
-        if (post.preview?.images?.[0]?.source?.url) {
-            cover = post.preview.images[0].source.url.replace(/&amp;/g, '&');
+        if (res.ok) {
+            const xml = await res.text();
+            // Extract title from entry or feed
+            const titleMatch = xml.match(/<entry>[^]*?<title>([^<]+)<\/title>/i) || xml.match(/<title>([^<]+)<\/title>/i);
+            if (titleMatch) {
+                title = cleanRedditTitle(titleMatch[1].replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>'));
+            }
+            // Extract author
+            const authorMatch = xml.match(/<author>[^]*?<name>(?:\/u\/)?([^<]+)<\/name>/i);
+            if (authorMatch) {
+                author = authorMatch[1].replace(/^\/u\//i, '');
+            }
+            // Extract high-res thumbnail / preview image
+            const thumbMatch = xml.match(/<media:thumbnail[^>]+url="([^"]+)"/i) ||
+                xml.match(/<media:content[^>]+url="([^"]+)"/i) ||
+                xml.match(/https:\/\/(?:preview|i|external-preview)\.redd\.it\/[^"&<>\s]+(?:\?[^"<>\s]*)?/i);
+            if (thumbMatch) {
+                cover = (thumbMatch[1] || thumbMatch[0]).replace(/&amp;/g, '&');
+            }
+            // Extract description / body from content
+            const contentMatch = xml.match(/<content[^>]*type="html"[^>]*>([\s\S]*?)<\/content>/i);
+            if (contentMatch) {
+                const rawContent = contentMatch[1]
+                    .replace(/&lt;/g, '<')
+                    .replace(/&gt;/g, '>')
+                    .replace(/&amp;/g, '&')
+                    .replace(/&#39;/g, "'")
+                    .replace(/&quot;/g, '"');
+                const textOnly = rawContent.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+                if (textOnly && textOnly.length > 20) {
+                    selftext = textOnly;
+                }
+            }
+            if (cover) {
+                type = 'image';
+            }
         }
-        else if (post.url && /\.(jpe?g|png|gif|webp)$/i.test(post.url)) {
-            cover = post.url;
-        }
-        else if (post.thumbnail && post.thumbnail.startsWith('http')) {
-            cover = post.thumbnail;
-        }
-        // Detect type
-        let type = 'link';
-        if (post.is_video || post.domain === 'v.redd.it') {
-            type = 'video';
-        }
-        else if (post.post_hint === 'image' || (cover && (cover.includes('i.redd.it') || cover.includes('preview.redd.it')))) {
-            type = 'image';
-        }
-        else if (selftext && selftext.length > 80) {
-            type = 'article';
-        }
-        let readerContent;
-        if (selftext) {
-            const cleanHtml = selftext
-                .split('\n\n')
-                .filter(Boolean)
-                .map((p) => `<p>${p.replace(/\n/g, '<br>')}</p>`)
-                .join('');
-            readerContent = {
-                title,
-                byline: author ? `u/${author} in r/${subreddit}` : `r/${subreddit}`,
-                content: cleanHtml,
-                textContent: selftext,
-                length: selftext.length,
-                siteName: `r/${subreddit}`
-            };
-        }
-        return {
-            url: canonicalUrl,
-            title,
-            description: selftext ? selftext.slice(0, 280) : (post.url_overridden_by_dest ? `Link: ${post.url_overridden_by_dest}` : `Reddit post in r/${subreddit}`),
-            domain: 'reddit.com',
-            favicon: 'https://www.redditstatic.com/shreddit/assets/favicon/192x192.png',
-            cover,
-            type,
-            siteName: subreddit ? `r/${subreddit}` : 'Reddit',
-            readerContent
-        };
     }
     catch {
-        return null;
+        // RSS fallback
     }
+    // Strategy 2: Reddit oEmbed API (if title or author missing)
+    if (!cover || title === canonicalUrl) {
+        try {
+            const oembedUrl = `https://www.reddit.com/oembed?url=${encodeURIComponent(canonicalUrl)}`;
+            const controller = new AbortController();
+            const timeout = setTimeout(() => controller.abort(), 4000);
+            const oembedRes = await fetch(oembedUrl, {
+                signal: controller.signal,
+                headers: {
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+                }
+            });
+            clearTimeout(timeout);
+            if (oembedRes.ok) {
+                const oembedData = await oembedRes.json();
+                if (oembedData.title && title === canonicalUrl) {
+                    title = cleanRedditTitle(oembedData.title);
+                }
+                if (oembedData.author_name && !author) {
+                    author = oembedData.author_name;
+                }
+            }
+        }
+        catch {
+            // oEmbed fallback
+        }
+    }
+    // Strategy 3: Reddit JSON comments endpoint (fallback for internal Reddit API)
+    if (!cover) {
+        try {
+            const jsonUrl = `https://www.reddit.com/comments/${info.postId}.json`;
+            const controller = new AbortController();
+            const timeout = setTimeout(() => controller.abort(), 4000);
+            const res = await fetch(jsonUrl, {
+                signal: controller.signal,
+                headers: {
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+                    'Accept': 'application/json'
+                }
+            });
+            clearTimeout(timeout);
+            if (res.ok) {
+                const data = await res.json();
+                const post = data?.[0]?.data?.children?.[0]?.data;
+                if (post) {
+                    if (post.title && title === canonicalUrl) {
+                        title = cleanRedditTitle(post.title);
+                    }
+                    if (post.preview?.images?.[0]?.source?.url) {
+                        cover = post.preview.images[0].source.url.replace(/&amp;/g, '&');
+                    }
+                    else if (post.url && /\.(jpe?g|png|gif|webp)$/i.test(post.url)) {
+                        cover = post.url;
+                    }
+                    else if (post.thumbnail && post.thumbnail.startsWith('http')) {
+                        cover = post.thumbnail;
+                    }
+                    if (post.is_video || post.domain === 'v.redd.it') {
+                        type = 'video';
+                    }
+                }
+            }
+        }
+        catch {
+            // JSON fallback
+        }
+    }
+    let readerContent;
+    if (selftext) {
+        const cleanHtml = selftext
+            .split('\n\n')
+            .filter(Boolean)
+            .map((p) => `<p>${p.replace(/\n/g, '<br>')}</p>`)
+            .join('');
+        readerContent = {
+            title,
+            byline: author ? `u/${author} in r/${subreddit}` : (subreddit ? `r/${subreddit}` : undefined),
+            content: sanitizeHtmlContent(cleanHtml),
+            textContent: selftext,
+            length: selftext.length,
+            siteName: subreddit ? `r/${subreddit}` : 'Reddit'
+        };
+    }
+    return {
+        url: canonicalUrl,
+        title: title || canonicalUrl,
+        description: selftext ? selftext.slice(0, 280) : (subreddit ? `Reddit post in r/${subreddit}` : 'Reddit post'),
+        domain: 'reddit.com',
+        favicon: 'https://www.redditstatic.com/shreddit/assets/favicon/192x192.png',
+        cover,
+        type,
+        siteName: subreddit ? `r/${subreddit}` : 'Reddit',
+        readerContent
+    };
 }

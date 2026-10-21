@@ -7,6 +7,44 @@ interface ReaderModalProps {
   onClose: () => void;
 }
 
+function sanitizeReaderHtml(html: string): string {
+  if (!html) return '';
+  try {
+    const parser = new DOMParser();
+    const doc = parser.parseFromString(html, 'text/html');
+
+    // Remove dangerous executable or layout breaking tags
+    const dangerousTags = ['script', 'style', 'iframe', 'object', 'embed', 'applet', 'base', 'form', 'input', 'button', 'link', 'meta'];
+    dangerousTags.forEach((tag) => {
+      doc.querySelectorAll(tag).forEach((el) => el.remove());
+    });
+
+    // Strip on* event handlers and javascript: URIs from all remaining elements
+    doc.querySelectorAll('*').forEach((el) => {
+      const attrs = Array.from(el.attributes);
+      for (const attr of attrs) {
+        const name = attr.name.toLowerCase();
+        const val = attr.value.trim().toLowerCase();
+
+        if (name.startsWith('on')) {
+          el.removeAttribute(attr.name);
+          continue;
+        }
+
+        if (name === 'href' || name === 'src' || name === 'action') {
+          if (val.startsWith('javascript:') || val.startsWith('vbscript:') || (val.startsWith('data:') && !val.startsWith('data:image/'))) {
+            el.removeAttribute(attr.name);
+          }
+        }
+      }
+    });
+
+    return doc.body.innerHTML;
+  } catch {
+    return '';
+  }
+}
+
 export const ReaderModal: React.FC<ReaderModalProps> = ({ bookmark, onClose }) => {
   const [fontSize, setFontSize] = useState<'sm' | 'md' | 'lg' | 'xl'>('md');
   const [fontFamily, setFontFamily] = useState<'sans' | 'serif' | 'mono'>('sans');
@@ -167,7 +205,7 @@ export const ReaderModal: React.FC<ReaderModalProps> = ({ bookmark, onClose }) =
             {/* Sanitized Article HTML Content */}
             <div
               className={`reader-content ${fontClasses} ${sizeClasses}`}
-              dangerouslySetInnerHTML={{ __html: content || '' }}
+              dangerouslySetInnerHTML={{ __html: sanitizeReaderHtml(content || '') }}
             />
           </div>
         </div>

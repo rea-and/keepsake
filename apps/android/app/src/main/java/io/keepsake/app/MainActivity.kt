@@ -27,7 +27,7 @@ class MainActivity : AppCompatActivity() {
     companion object {
         const val PREFS_NAME = "keepsake_prefs"
         const val KEY_SERVER_URL = "server_url"
-        const val DEFAULT_SERVER_URL = "http://10.0.2.2:3000"
+        const val DEFAULT_SERVER_URL = "http://10.0.2.2:3000" // Standard loopback for Android emulator/devices to host
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -119,9 +119,10 @@ class MainActivity : AppCompatActivity() {
         settings.javaScriptEnabled = true
         settings.domStorageEnabled = true
         settings.databaseEnabled = true
-        settings.allowFileAccess = true
+        settings.allowFileAccess = false
+        settings.allowContentAccess = false
         settings.cacheMode = WebSettings.LOAD_DEFAULT
-        settings.mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
+        settings.mixedContentMode = WebSettings.MIXED_CONTENT_NEVER_ALLOW
         settings.useWideViewPort = true
         settings.loadWithOverviewMode = true
         settings.setSupportZoom(false)
@@ -208,7 +209,7 @@ class MainActivity : AppCompatActivity() {
         val current = getServerUrl()
         val input = android.widget.EditText(this).apply {
             setText(current)
-            hint = "http://10.0.2.2:3000"
+            hint = "https://keepsake.example.com or http://10.0.2.2:3000"
         }
 
         AlertDialog.Builder(this)

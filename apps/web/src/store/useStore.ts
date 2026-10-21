@@ -31,8 +31,10 @@ const LOCAL_STORAGE_KEY = 'keepsake_local_store_v1';
 const AUTH_STORAGE_KEY = 'keepsake_auth_session';
 const DEVICE_ID_KEY = 'keepsake_device_id';
 const THEME_KEY = 'keepsake_theme_mode';
+const CARD_SIZE_KEY = 'keepsake_grid_card_size';
 
 export type ThemeMode = 'system' | 'light' | 'dark';
+export type CardSize = 'small' | 'medium' | 'large';
 
 function getOrCreateDeviceId(): string {
   let id = localStorage.getItem(DEVICE_ID_KEY);
@@ -77,6 +79,20 @@ export function useKeepsakeStore() {
   const [sortField, setSortField] = useState<SortField>('createdAt');
   const [sortOrder, setSortOrder] = useState<SortOrder>('desc');
   const [selectedBookmarkIds, setSelectedBookmarkIds] = useState<Set<string>>(new Set());
+
+  // Grid View Card Box Size: small, medium (default/current), large
+  const [cardSize, setCardSizeState] = useState<CardSize>(() => {
+    const saved = localStorage.getItem(CARD_SIZE_KEY);
+    if (saved === 'small' || saved === 'medium' || saved === 'large') {
+      return saved as CardSize;
+    }
+    return 'medium'; // Default is current medium size
+  });
+
+  const setCardSize = useCallback((size: CardSize) => {
+    setCardSizeState(size);
+    localStorage.setItem(CARD_SIZE_KEY, size);
+  }, []);
 
   // Theme: system (default), light, or dark
   const [themeMode, setThemeMode] = useState<ThemeMode>(() => {
@@ -850,6 +866,8 @@ export function useKeepsakeStore() {
     effectiveTheme,
     setThemeMode,
     cycleThemeMode,
+    cardSize,
+    setCardSize,
     authSession,
     setAuthSession,
     syncStatus,

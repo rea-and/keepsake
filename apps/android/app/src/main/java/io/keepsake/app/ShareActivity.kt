@@ -146,6 +146,28 @@ class ShareActivity : AppCompatActivity() {
             if (cleaned.isNotEmpty()) {
                 binding.etTitle.setText(cleaned)
             }
+
+            // Direct native high-res Reddit thumbnail discovery
+            val postId = extractRedditPostId(targetUrl)
+            if (postId != null) {
+                val sub = subreddit ?: "all"
+                lifecycleScope.launch(Dispatchers.IO) {
+                    try {
+                        val rssUrl = "https://www.reddit.com/r/$sub/comments/$postId/.rss"
+                        val xml = httpGet(rssUrl, rssUrl, customUa = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
+                        if (!xml.isNullOrEmpty()) {
+                            val thumbPattern = Pattern.compile("https://(?:preview|i|external-preview)\\.redd\\.it/[^\"&<>\\s]+(?:\\?[^\"<>\\s]*)?")
+                            val matcher = thumbPattern.matcher(xml)
+                            if (matcher.find()) {
+                                val thumb = matcher.group().replace("&amp;", "&")
+                                currentCoverUrl = thumb
+                                bookmarkType = "image"
+                                loadThumbnailBitmap(thumb)
+                            }
+                        }
+                    } catch (_: Exception) {}
+                }
+            }
         }
     }
 
@@ -316,7 +338,7 @@ class ShareActivity : AppCompatActivity() {
 
     // --- Network Helpers ---
 
-    private fun httpGet(urlString: String, serverUrl: String): String? {
+    private fun httpGet(urlString: String, serverUrl: String, customUa: String? = null): String? {
         var conn: HttpURLConnection? = null
         return try {
             val url = URL(urlString)
@@ -324,7 +346,10 @@ class ShareActivity : AppCompatActivity() {
             conn.requestMethod = "GET"
             conn.connectTimeout = 6000
             conn.readTimeout = 6000
-            conn.setRequestProperty("Accept", "application/json")
+            conn.setRequestProperty("Accept", if (customUa != null) "*/*" else "application/json")
+            if (customUa != null) {
+                conn.setRequestProperty("User-Agent", customUa)
+            }
 
             val cookie = CookieManager.getInstance().getCookie(serverUrl)
             if (!cookie.isNullOrEmpty()) {
@@ -448,6 +473,12 @@ class ShareActivity : AppCompatActivity() {
 
     private fun extractRedditSubreddit(url: String): String? {
         val pattern = "reddit\\.com/r/([a-zA-Z0-9_]+)"
+        val matcher = Pattern.compile(pattern, Pattern.CASE_INSENSITIVE).matcher(url)
+        return if (matcher.find()) matcher.group(1) else null
+    }
+
+    private fun extractRedditPostId(url: String): String? {
+        val pattern = "(?:comments|gallery)/([a-zA-Z0-9]+)"
         val matcher = Pattern.compile(pattern, Pattern.CASE_INSENSITIVE).matcher(url)
         return if (matcher.find()) matcher.group(1) else null
     }

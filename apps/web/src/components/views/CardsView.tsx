@@ -10,6 +10,7 @@ interface CardsViewProps {
   onEdit: (bm: Bookmark) => void;
   onDelete: (id: string) => void;
   onOpenReader: (bm: Bookmark) => void;
+  cardSize?: 'small' | 'medium' | 'large';
 }
 
 export const CardsView: React.FC<CardsViewProps> = ({
@@ -19,10 +20,47 @@ export const CardsView: React.FC<CardsViewProps> = ({
   onToggleFavorite,
   onEdit,
   onDelete,
-  onOpenReader
+  onOpenReader,
+  cardSize = 'medium'
 }) => {
+  const gridClasses = {
+    small: 'grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3 p-3',
+    medium: 'grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-4 p-4',
+    large: 'grid grid-cols-1 sm:grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6 p-6'
+  }[cardSize];
+
+  const coverHeight = {
+    small: 'h-28',
+    medium: 'h-44',
+    large: 'h-60'
+  }[cardSize];
+
+  const fallbackHeight = {
+    small: 'h-16',
+    medium: 'h-20',
+    large: 'h-28'
+  }[cardSize];
+
+  const paddingClass = {
+    small: 'p-2.5',
+    medium: 'p-4',
+    large: 'p-5'
+  }[cardSize];
+
+  const titleClass = {
+    small: 'text-xs font-semibold line-clamp-2 leading-tight mb-1',
+    medium: 'text-sm font-semibold line-clamp-2 leading-snug mb-2',
+    large: 'text-base sm:text-lg font-bold line-clamp-2 leading-snug mb-2.5'
+  }[cardSize];
+
+  const descClass = {
+    small: 'text-[11px] line-clamp-1 mb-2 leading-tight',
+    medium: 'text-xs line-clamp-2 mb-3 leading-relaxed',
+    large: 'text-sm line-clamp-3 mb-3 leading-relaxed'
+  }[cardSize];
+
   return (
-    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-4 p-4">
+    <div className={gridClasses}>
       {bookmarks.map((bm) => {
         const isSelected = selectedIds.has(bm.id);
 
@@ -37,7 +75,7 @@ export const CardsView: React.FC<CardsViewProps> = ({
           >
             {/* Cover Image Thumbnail */}
             {bm.cover ? (
-              <div className="relative h-44 w-full bg-neutral-100 dark:bg-neutral-900 overflow-hidden">
+              <div className={`relative ${coverHeight} w-full bg-neutral-100 dark:bg-neutral-900 overflow-hidden`}>
                 <img
                   src={bm.cover}
                   alt={bm.title}
@@ -49,11 +87,11 @@ export const CardsView: React.FC<CardsViewProps> = ({
                 />
               </div>
             ) : (
-              <div className="h-20 w-full bg-gradient-to-br from-neutral-100 to-neutral-200 dark:from-neutral-900 dark:to-[#1c1c20] flex items-center justify-center">
+              <div className={`${fallbackHeight} w-full bg-gradient-to-br from-neutral-100 to-neutral-200 dark:from-neutral-900 dark:to-[#1c1c20] flex items-center justify-center`}>
                 <img
                   src={bm.favicon}
                   alt={bm.domain}
-                  className="w-8 h-8 opacity-40 rounded"
+                  className={`${cardSize === 'small' ? 'w-6 h-6' : 'w-8 h-8'} opacity-40 rounded`}
                   onError={(e) => ((e.target as HTMLElement).style.display = 'none')}
                 />
               </div>
@@ -80,17 +118,17 @@ export const CardsView: React.FC<CardsViewProps> = ({
             </button>
 
             {/* Card Body */}
-            <div className="p-4 flex-1 flex flex-col justify-between">
+            <div className={`${paddingClass} flex-1 flex flex-col justify-between`}>
               <div>
                 {/* Domain & Favicon */}
-                <div className="flex items-center gap-2 mb-1.5">
+                <div className="flex items-center gap-1.5 mb-1.5">
                   <img
                     src={bm.favicon}
                     alt=""
                     className="w-3.5 h-3.5 rounded shrink-0"
                     onError={(e) => ((e.target as HTMLElement).style.display = 'none')}
                   />
-                  <span className="text-xs font-medium text-neutral-500 dark:text-neutral-400 truncate">
+                  <span className="text-[11px] font-medium text-neutral-500 dark:text-neutral-400 truncate">
                     {bm.domain}
                   </span>
                 </div>
@@ -100,21 +138,21 @@ export const CardsView: React.FC<CardsViewProps> = ({
                   href={bm.url}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="block text-sm font-semibold text-neutral-900 dark:text-neutral-100 hover:text-sky-600 dark:hover:text-sky-400 line-clamp-2 leading-snug mb-2"
+                  className={`block ${titleClass} text-neutral-900 dark:text-neutral-100 hover:text-sky-600 dark:hover:text-sky-400`}
                 >
                   {bm.title || bm.url}
                 </a>
 
                 {/* Excerpt / Description */}
                 {bm.description && (
-                  <p className="text-xs text-neutral-600 dark:text-neutral-400 line-clamp-2 mb-3 leading-relaxed">
+                  <p className={`${descClass} text-neutral-600 dark:text-neutral-400`}>
                     {bm.description}
                   </p>
                 )}
 
                 {/* Personal Note */}
                 {bm.note && (
-                  <div className="p-2 mb-3 rounded bg-amber-50 dark:bg-amber-950/20 border border-amber-200/60 dark:border-amber-800/30 text-[11px] text-amber-900 dark:text-amber-200 line-clamp-2">
+                  <div className="p-2 mb-2 rounded bg-amber-50 dark:bg-amber-950/20 border border-amber-200/60 dark:border-amber-800/30 text-[11px] text-amber-900 dark:text-amber-200 line-clamp-2">
                     <span className="font-semibold">Note:</span> {bm.note}
                   </div>
                 )}
@@ -123,11 +161,11 @@ export const CardsView: React.FC<CardsViewProps> = ({
               <div>
                 {/* Tags */}
                 {bm.tags && bm.tags.length > 0 && (
-                  <div className="flex flex-wrap gap-1 mb-3">
+                  <div className="flex flex-wrap gap-1 mb-2.5">
                     {bm.tags.map((t) => (
                       <span
                         key={t}
-                        className="px-2 py-0.5 rounded text-[10px] bg-neutral-100 dark:bg-neutral-800/80 text-neutral-600 dark:text-neutral-300 font-medium"
+                        className="px-1.5 py-0.5 rounded text-[10px] bg-neutral-100 dark:bg-neutral-800/80 text-neutral-600 dark:text-neutral-300 font-medium"
                       >
                         #{t}
                       </span>
@@ -137,7 +175,7 @@ export const CardsView: React.FC<CardsViewProps> = ({
 
                 {/* Card Footer Actions */}
                 <div className="pt-2 border-t border-neutral-100 dark:border-neutral-800/60 flex items-center justify-between text-xs text-neutral-400">
-                  <span>{new Date(bm.createdAt).toLocaleDateString([], { month: 'short', day: 'numeric' })}</span>
+                  <span className="text-[11px]">{new Date(bm.createdAt).toLocaleDateString([], { month: 'short', day: 'numeric' })}</span>
 
                   <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                     {bm.readerContent && (

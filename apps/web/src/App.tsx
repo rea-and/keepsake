@@ -206,6 +206,7 @@ export function App() {
                   onEdit={handleEditBookmark}
                   onDelete={store.moveToTrash}
                   onOpenReader={(bm) => setReaderBookmark(bm)}
+                  cardSize={store.cardSize}
                 />
               )}
 
@@ -292,6 +293,8 @@ export function App() {
         themeMode={store.themeMode}
         effectiveTheme={store.effectiveTheme}
         onSelectThemeMode={store.setThemeMode}
+        cardSize={store.cardSize}
+        onSelectCardSize={store.setCardSize}
       />
     </div>
   );

@@ -58,15 +58,15 @@ authRouter.get('/google/url', (req, res) => {
 authRouter.get('/google/callback', async (req, res) => {
     const { code, error, state } = req.query;
     if (error) {
-        return res.status(400).send(`Google Login Error: ${error}`);
+        return res.status(400).type('text/plain').send('Google Login Error: ' + String(error));
     }
     if (!code || typeof code !== 'string') {
-        return res.status(400).send('Authorization code missing');
+        return res.status(400).type('text/plain').send('Authorization code missing');
     }
     const clientId = process.env.GOOGLE_CLIENT_ID;
     const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
     if (!clientId || !clientSecret) {
-        return res.status(500).send('Google OAuth credentials not configured on server');
+        return res.status(500).type('text/plain').send('Google OAuth credentials not configured on server');
     }
     const host = req.get('host');
     const protocol = req.protocol === 'https' || req.get('x-forwarded-proto') === 'https' ? 'https' : 'http';
@@ -140,7 +140,7 @@ authRouter.get('/google/callback', async (req, res) => {
     const payload = ${JSON.stringify(authPayload)};
     try {
       if (window.opener && window.opener !== window) {
-        window.opener.postMessage({ type: 'KEEPSAKE_AUTH_SUCCESS', payload }, '*');
+        window.opener.postMessage({ type: 'KEEPSAKE_AUTH_SUCCESS', payload }, window.location.origin);
         setTimeout(() => window.close(), 600);
       } else {
         localStorage.setItem('keepsake_auth_session', JSON.stringify(payload));
@@ -156,7 +156,7 @@ authRouter.get('/google/callback', async (req, res) => {
         return res.send(html);
     }
     catch (err) {
-        return res.status(500).send(`Authentication error: ${err.message}`);
+        return res.status(500).type('text/plain').send('Authentication error');
     }
 });
 /**
