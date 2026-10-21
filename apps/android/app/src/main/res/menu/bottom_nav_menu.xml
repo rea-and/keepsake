@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<menu xmlns:android="http://schemas.android.com/apk/res/android">
+    <item
+        android:id="@+id/nav_bookmarks"
+        android:icon="@drawable/ic_nav_bookmarks"
+        android:title="Bookmarks" />
+
+    <item
+        android:id="@+id/nav_collections"
+        android:icon="@drawable/ic_nav_collections"
+        android:title="Collections" />
+
+    <item
+        android:id="@+id/nav_tags"
+        android:icon="@drawable/ic_nav_tags"
+        android:title="Tags" />
+
+    <item
+        android:id="@+id/nav_settings"
+        android:icon="@drawable/ic_settings"
+        android:title="Settings" />
+</menu>
