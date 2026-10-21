@@ -8,15 +8,9 @@ services:
     container_name: keepsake
     restart: unless-stopped
     ports:
-      - "3000:3000"
-    environment:
-      - PORT=3000
-      - NODE_ENV=production
-      - DATA_DIR=/app/data
-      - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID}
-      - GOOGLE_CLIENT_SECRET=${GOOGLE_CLIENT_SECRET}
-      - GOOGLE_REDIRECT_URI=${GOOGLE_REDIRECT_URI}
-      - CORS_ORIGIN=*
+      - "127.0.0.1:3000:3000"
+    env_file:
+      - ../.env
     volumes:
       - keepsake_data:/app/data
     healthcheck:
@@ -25,23 +19,5 @@ services:
       timeout: 5s
       retries: 3
 
-  # Optional: Caddy Reverse Proxy for automatic Let's Encrypt SSL on Ubuntu
-  # Uncomment if you want automatic HTTPS for your custom domain
-  # caddy:
-  #   image: caddy:2-alpine
-  #   container_name: keepsake_caddy
-  #   restart: unless-stopped
-  #   ports:
-  #     - "80:80"
-  #     - "443:443"
-  #   volumes:
-  #     - ./Caddyfile:/etc/caddy/Caddyfile
-  #     - caddy_data:/data
-  #     - caddy_config:/config
-  #   depends_on:
-  #     - keepsake
-
 volumes:
   keepsake_data:
-  # caddy_data:
-  # caddy_config:
