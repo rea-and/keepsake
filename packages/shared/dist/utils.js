@@ -126,8 +126,10 @@ function parseRedditUrl(rawUrl) {
             const postId = url.pathname.slice(1).split('/')[0];
             return postId ? { postId } : null;
         }
-        if (['reddit.com', 'old.reddit.com', 'new.reddit.com', 'sh.reddit.com', 'm.reddit.com'].includes(host)) {
-            const match = url.pathname.match(/\/r\/([a-zA-Z0-9_]+)\/comments\/([a-zA-Z0-9]+)(?:\/([^\/]+))?/);
+        if (['reddit.com', 'old.reddit.com', 'new.reddit.com', 'sh.reddit.com', 'm.reddit.com'].includes(host) ||
+            host.endsWith('.reddit.com')) {
+            // 1. /r/subreddit/comments/postId/...
+            const match = url.pathname.match(/\/r\/([a-zA-Z0-9_]+)\/comments\/([a-zA-Z0-9]+)(?:\/([^\/]+))?/i);
             if (match) {
                 return {
                     subreddit: match[1],
@@ -135,20 +137,57 @@ function parseRedditUrl(rawUrl) {
                     slug: match[3]
                 };
             }
+            // 2. /comments/postId/...
+            const directCommentsMatch = url.pathname.match(/\/comments\/([a-zA-Z0-9]+)(?:\/([^\/]+))?/i);
+            if (directCommentsMatch) {
+                return {
+                    postId: directCommentsMatch[1],
+                    slug: directCommentsMatch[2]
+                };
+            }
+            // 3. /gallery/postId/...
+            const galleryMatch = url.pathname.match(/\/gallery\/([a-zA-Z0-9]+)/i);
+            if (galleryMatch) {
+                return {
+                    postId: galleryMatch[1]
+                };
+            }
+            // 4. /r/subreddit/s/shortcode (Reddit mobile share links)
+            const shortMatch = url.pathname.match(/\/r\/([a-zA-Z0-9_]+)\/s\/([a-zA-Z0-9]+)/i);
+            if (shortMatch) {
+                return {
+                    subreddit: shortMatch[1]
+                };
+            }
+            // 5. /s/shortcode
+            const directShortMatch = url.pathname.match(/\/s\/([a-zA-Z0-9]+)/i);
+            if (directShortMatch) {
+                return {};
+            }
             // Subreddit homepage e.g. /r/technology
-            const subMatch = url.pathname.match(/\/r\/([a-zA-Z0-9_]+)\/?$/);
+            const subMatch = url.pathname.match(/\/r\/([a-zA-Z0-9_]+)\/?$/i);
             if (subMatch) {
                 return {
                     subreddit: subMatch[1]
                 };
             }
+            return {};
         }
     }
     catch { }
     return null;
 }
 function isRedditUrl(rawUrl) {
-    return !!parseRedditUrl(rawUrl);
+    if (!rawUrl)
+        return false;
+    try {
+        const url = new URL(rawUrl.startsWith('http') ? rawUrl : `https://${rawUrl}`);
+        const host = url.hostname.toLowerCase().replace(/^www\./, '');
+        return host === 'redd.it' || host === 'reddit.com' || host.endsWith('.reddit.com');
+    }
+    catch {
+        return false;
+    }
 }
 /**
  * Strips redundant Reddit suffixes like ": r/subreddit" or "- Reddit" from page titles
@@ -157,8 +196,12 @@ function cleanRedditTitle(rawTitle) {
     if (!rawTitle)
         return '';
     return rawTitle
+        .replace(/^From the [^:]+ community on Reddit:\s*/i, '')
+        .replace(/^From the [^:]+ on Reddit:\s*/i, '')
         .replace(/\s*:\s*r\/[a-zA-Z0-9_]+.*$/i, '')
+        .replace(/\s*[-–—]\s*r\/[a-zA-Z0-9_]+.*$/i, '')
         .replace(/\s*[-–—]\s*Reddit.*$/i, '')
+        .replace(/\s*:\s*Reddit.*$/i, '')
         .trim();
 }
 /**
