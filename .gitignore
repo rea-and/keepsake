@@ -32,6 +32,10 @@ yarn-error.log*
 dist/
 dist-*/
 
+# Data store (server local persistence)
+data/*.json
+!data/.gitkeep
+
 # Preserve package dists for production runner
 !packages/shared/dist/
 !apps/web/dist/
