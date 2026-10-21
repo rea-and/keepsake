@@ -13,7 +13,11 @@ import {
   AlertCircle,
   FileText,
   Server,
-  ExternalLink
+  ExternalLink,
+  Sun,
+  Moon,
+  Monitor,
+  Check
 } from 'lucide-react';
 
 interface SettingsModalProps {
@@ -26,6 +30,9 @@ interface SettingsModalProps {
   bookmarks: Bookmark[];
   collections: Collection[];
   onImport: (content: string, format: 'html' | 'json') => { importedCount: number };
+  themeMode: 'system' | 'light' | 'dark';
+  effectiveTheme: 'light' | 'dark';
+  onSelectThemeMode: (mode: 'system' | 'light' | 'dark') => void;
 }
 
 export const SettingsModal: React.FC<SettingsModalProps> = ({
@@ -37,9 +44,12 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   onSync,
   bookmarks,
   collections,
-  onImport
+  onImport,
+  themeMode,
+  effectiveTheme,
+  onSelectThemeMode
 }) => {
-  const [activeTab, setActiveTab] = useState<'sync' | 'backup' | 'about'>('sync');
+  const [activeTab, setActiveTab] = useState<'appearance' | 'sync' | 'backup' | 'about'>('appearance');
   const [importStatus, setImportStatus] = useState<string | null>(null);
   const [isDriveBackingUp, setIsDriveBackingUp] = useState(false);
   const [driveBackupSuccess, setDriveBackupSuccess] = useState(false);
@@ -134,6 +144,16 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
         {/* Tab Switcher */}
         <div className="px-6 border-b border-slate-100 dark:border-slate-800 flex gap-6 text-xs font-semibold">
           <button
+            onClick={() => setActiveTab('appearance')}
+            className={`py-3 border-b-2 transition-colors ${
+              activeTab === 'appearance'
+                ? 'border-sky-500 text-sky-500'
+                : 'border-transparent text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
+            }`}
+          >
+            Appearance
+          </button>
+          <button
             onClick={() => setActiveTab('sync')}
             className={`py-3 border-b-2 transition-colors ${
               activeTab === 'sync'
@@ -167,6 +187,120 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
         {/* Tab Content */}
         <div className="p-6 overflow-y-auto space-y-6 flex-1 text-sm">
+          {activeTab === 'appearance' && (
+            <div className="space-y-5">
+              <div>
+                <h3 className="font-semibold text-slate-900 dark:text-white text-sm">
+                  Theme & Visual Style
+                </h3>
+                <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+                  Choose your interface appearance. By default, Keepsake is system-driven and automatically adapts to your operating system's light or dark mode.
+                </p>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                {/* System Driven */}
+                <button
+                  type="button"
+                  onClick={() => onSelectThemeMode('system')}
+                  className={`p-4 rounded-xl border text-left flex flex-col justify-between transition-all relative ${
+                    themeMode === 'system'
+                      ? 'border-sky-500 bg-sky-50/50 dark:bg-sky-950/30 ring-2 ring-sky-500/20'
+                      : 'border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-800/40 hover:border-slate-300 dark:hover:border-slate-700'
+                  }`}
+                >
+                  <div>
+                    <div className="flex items-center justify-between mb-3">
+                      <div className="p-2 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200">
+                        <Monitor className="w-5 h-5" />
+                      </div>
+                      <span className="text-[10px] uppercase font-bold tracking-wider px-1.5 py-0.5 rounded bg-sky-100 dark:bg-sky-900/60 text-sky-700 dark:text-sky-300">
+                        Default
+                      </span>
+                    </div>
+                    <div className="font-semibold text-xs text-slate-900 dark:text-white">
+                      System
+                    </div>
+                    <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-1 leading-snug">
+                      Matches your device preference ({effectiveTheme})
+                    </div>
+                  </div>
+
+                  {themeMode === 'system' && (
+                    <div className="mt-3 flex items-center gap-1 text-[11px] font-semibold text-sky-600 dark:text-sky-400">
+                      <Check className="w-3.5 h-3.5" />
+                      <span>Active</span>
+                    </div>
+                  )}
+                </button>
+
+                {/* Light */}
+                <button
+                  type="button"
+                  onClick={() => onSelectThemeMode('light')}
+                  className={`p-4 rounded-xl border text-left flex flex-col justify-between transition-all relative ${
+                    themeMode === 'light'
+                      ? 'border-sky-500 bg-sky-50/50 dark:bg-sky-950/30 ring-2 ring-sky-500/20'
+                      : 'border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-800/40 hover:border-slate-300 dark:hover:border-slate-700'
+                  }`}
+                >
+                  <div>
+                    <div className="flex items-center justify-between mb-3">
+                      <div className="p-2 rounded-lg bg-amber-50 dark:bg-amber-950/40 text-amber-500">
+                        <Sun className="w-5 h-5" />
+                      </div>
+                    </div>
+                    <div className="font-semibold text-xs text-slate-900 dark:text-white">
+                      Light
+                    </div>
+                    <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-1 leading-snug">
+                      Crisp, bright look with soft gray surfaces
+                    </div>
+                  </div>
+
+                  {themeMode === 'light' && (
+                    <div className="mt-3 flex items-center gap-1 text-[11px] font-semibold text-sky-600 dark:text-sky-400">
+                      <Check className="w-3.5 h-3.5" />
+                      <span>Active</span>
+                    </div>
+                  )}
+                </button>
+
+                {/* Dark */}
+                <button
+                  type="button"
+                  onClick={() => onSelectThemeMode('dark')}
+                  className={`p-4 rounded-xl border text-left flex flex-col justify-between transition-all relative ${
+                    themeMode === 'dark'
+                      ? 'border-sky-500 bg-sky-50/50 dark:bg-sky-950/30 ring-2 ring-sky-500/20'
+                      : 'border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-800/40 hover:border-slate-300 dark:hover:border-slate-700'
+                  }`}
+                >
+                  <div>
+                    <div className="flex items-center justify-between mb-3">
+                      <div className="p-2 rounded-lg bg-indigo-50 dark:bg-indigo-950/40 text-indigo-400">
+                        <Moon className="w-5 h-5" />
+                      </div>
+                    </div>
+                    <div className="font-semibold text-xs text-slate-900 dark:text-white">
+                      Dark
+                    </div>
+                    <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-1 leading-snug">
+                      Deep slate styling, comfortable for your eyes
+                    </div>
+                  </div>
+
+                  {themeMode === 'dark' && (
+                    <div className="mt-3 flex items-center gap-1 text-[11px] font-semibold text-sky-600 dark:text-sky-400">
+                      <Check className="w-3.5 h-3.5" />
+                      <span>Active</span>
+                    </div>
+                  )}
+                </button>
+              </div>
+            </div>
+          )}
+
           {activeTab === 'sync' && (
             <div className="space-y-5">
               {/* Google Drive Status Card */}

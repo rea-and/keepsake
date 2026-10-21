@@ -25,7 +25,9 @@ import {
 const LOCAL_STORAGE_KEY = 'keepsake_local_store_v1';
 const AUTH_STORAGE_KEY = 'keepsake_auth_session';
 const DEVICE_ID_KEY = 'keepsake_device_id';
-const THEME_KEY = 'keepsake_theme';
+const THEME_KEY = 'keepsake_theme_mode';
+
+export type ThemeMode = 'system' | 'light' | 'dark';
 
 function getOrCreateDeviceId(): string {
   let id = localStorage.getItem(DEVICE_ID_KEY);
@@ -71,12 +73,58 @@ export function useKeepsakeStore() {
   const [sortOrder, setSortOrder] = useState<SortOrder>('desc');
   const [selectedBookmarkIds, setSelectedBookmarkIds] = useState<Set<string>>(new Set());
 
-  // Theme
-  const [theme, setTheme] = useState<'light' | 'dark'>(() => {
+  // Theme: system (default), light, or dark
+  const [themeMode, setThemeMode] = useState<ThemeMode>(() => {
     const saved = localStorage.getItem(THEME_KEY);
-    if (saved === 'dark' || saved === 'light') return saved;
-    return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+    if (saved === 'dark' || saved === 'light' || saved === 'system') {
+      return saved as ThemeMode;
+    }
+    return 'system'; // Default system driven
   });
+
+  const [systemPrefersDark, setSystemPrefersDark] = useState<boolean>(() => {
+    if (typeof window !== 'undefined' && window.matchMedia) {
+      return window.matchMedia('(prefers-color-scheme: dark)').matches;
+    }
+    return false;
+  });
+
+  // Listen to system OS theme changes
+  useEffect(() => {
+    if (typeof window === 'undefined' || !window.matchMedia) return;
+    const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
+    const handler = (e: MediaQueryListEvent) => {
+      setSystemPrefersDark(e.matches);
+    };
+    mediaQuery.addEventListener('change', handler);
+    return () => mediaQuery.removeEventListener('change', handler);
+  }, []);
+
+  const effectiveTheme: 'light' | 'dark' =
+    themeMode === 'system' ? (systemPrefersDark ? 'dark' : 'light') : themeMode;
+
+  // Apply Theme to Document and theme-color meta tag
+  useEffect(() => {
+    localStorage.setItem(THEME_KEY, themeMode);
+    if (effectiveTheme === 'dark') {
+      document.documentElement.classList.add('dark');
+    } else {
+      document.documentElement.classList.remove('dark');
+    }
+
+    const metaThemeColor = document.querySelector('meta[name="theme-color"]');
+    if (metaThemeColor) {
+      metaThemeColor.setAttribute('content', effectiveTheme === 'dark' ? '#0b1120' : '#f8fafc');
+    }
+  }, [themeMode, effectiveTheme]);
+
+  const cycleThemeMode = useCallback(() => {
+    setThemeMode((prev) => {
+      if (prev === 'system') return 'light';
+      if (prev === 'light') return 'dark';
+      return 'system';
+    });
+  }, []);
 
   // Sync Status
   const [syncStatus, setSyncStatus] = useState<SyncStatus>({
@@ -87,16 +135,6 @@ export function useKeepsakeStore() {
 
   // Sync drive file ID cache
   const [driveFileId, setDriveFileId] = useState<string | null>(null);
-
-  // Apply Theme to Document
-  useEffect(() => {
-    localStorage.setItem(THEME_KEY, theme);
-    if (theme === 'dark') {
-      document.documentElement.classList.add('dark');
-    } else {
-      document.documentElement.classList.remove('dark');
-    }
-  }, [theme]);
 
   // Persist store to LocalStorage whenever it changes
   useEffect(() => {
@@ -644,8 +682,11 @@ export function useKeepsakeStore() {
     setSortOrder,
     selectedBookmarkIds,
     setSelectedBookmarkIds,
-    theme,
-    setTheme,
+    theme: effectiveTheme,
+    themeMode,
+    effectiveTheme,
+    setThemeMode,
+    cycleThemeMode,
     authSession,
     setAuthSession,
     syncStatus,

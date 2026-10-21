@@ -13,6 +13,7 @@ import {
   RefreshCw,
   Sun,
   Moon,
+  Monitor,
   MoreVertical,
   Edit2,
   Check,
@@ -48,8 +49,9 @@ interface SidebarProps {
   authSession: AuthSession | null;
   syncStatus: SyncStatus;
   onSync: () => void;
-  theme: 'light' | 'dark';
-  onToggleTheme: () => void;
+  themeMode: 'system' | 'light' | 'dark';
+  effectiveTheme: 'light' | 'dark';
+  onCycleTheme: () => void;
   onOpenSettings: () => void;
   onOpenAddBookmark: () => void;
   onOpenAddCollection: () => void;
@@ -70,8 +72,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
   authSession,
   syncStatus,
   onSync,
-  theme,
-  onToggleTheme,
+  themeMode,
+  effectiveTheme,
+  onCycleTheme,
   onOpenSettings,
   onOpenAddBookmark,
   onOpenAddCollection,
@@ -103,14 +106,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
             <div className="w-8 h-8 rounded-lg bg-sky-500 flex items-center justify-center text-white shadow-md shadow-sky-500/20 font-bold">
               <BookmarkIcon className="w-4 h-4 fill-current" />
             </div>
-            <div>
-              <span className="font-bold text-base tracking-tight text-slate-900 dark:text-white">
-                Keepsake
-              </span>
-              <span className="block text-[10px] text-sky-600 dark:text-sky-400 font-medium">
-                Google Drive Synced
-              </span>
-            </div>
+            <span className="font-bold text-base tracking-tight text-slate-900 dark:text-white">
+              Keepsake
+            </span>
           </div>
 
           <button
@@ -396,11 +394,24 @@ export const Sidebar: React.FC<SidebarProps> = ({
             </button>
 
             <button
-              onClick={onToggleTheme}
-              title={`Switch to ${theme === 'dark' ? 'Light' : 'Dark'} mode`}
-              className="p-1.5 rounded-md text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200 hover:bg-slate-200/50 dark:hover:bg-slate-800 transition-colors"
+              onClick={onCycleTheme}
+              title={`Theme: ${
+                themeMode === 'system'
+                  ? `System (${effectiveTheme})`
+                  : themeMode === 'dark'
+                  ? 'Dark'
+                  : 'Light'
+              } (Click to switch)`}
+              className="flex items-center gap-1.5 px-2 py-1 rounded-md text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200 hover:bg-slate-200/50 dark:hover:bg-slate-800 text-xs transition-colors"
             >
-              {theme === 'dark' ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
+              {themeMode === 'system' ? (
+                <Monitor className="w-3.5 h-3.5" />
+              ) : themeMode === 'dark' ? (
+                <Moon className="w-3.5 h-3.5" />
+              ) : (
+                <Sun className="w-3.5 h-3.5" />
+              )}
+              <span className="capitalize text-[11px] font-medium">{themeMode}</span>
             </button>
           </div>
         </div>

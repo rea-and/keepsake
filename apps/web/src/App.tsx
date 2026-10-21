@@ -123,8 +123,9 @@ export function App() {
         authSession={store.authSession}
         syncStatus={store.syncStatus}
         onSync={store.syncWithGoogleDrive}
-        theme={store.theme}
-        onToggleTheme={() => store.setTheme(store.theme === 'dark' ? 'light' : 'dark')}
+        themeMode={store.themeMode}
+        effectiveTheme={store.effectiveTheme}
+        onCycleTheme={store.cycleThemeMode}
         onOpenSettings={() => setIsSettingsOpen(true)}
         onOpenAddBookmark={() => {
           setBookmarkToEdit(null);
@@ -288,6 +289,9 @@ export function App() {
         bookmarks={store.store.bookmarks}
         collections={store.collections}
         onImport={store.importData}
+        themeMode={store.themeMode}
+        effectiveTheme={store.effectiveTheme}
+        onSelectThemeMode={store.setThemeMode}
       />
     </div>
   );
