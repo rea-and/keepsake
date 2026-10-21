@@ -19,7 +19,9 @@ import {
   parseNetscapeHtml,
   extractDomain,
   getFaviconUrl,
-  normalizeUrl
+  normalizeUrl,
+  getYouTubeThumbnail,
+  getYouTubeVideoId
 } from '@keepsake/shared';
 
 const LOCAL_STORAGE_KEY = 'keepsake_local_store_v1';
@@ -335,12 +337,21 @@ export function useKeepsakeStore() {
     (bookmarkData: Omit<Bookmark, 'id' | 'createdAt' | 'updatedAt' | 'domain' | 'type'> & { type?: BookmarkType }) => {
       const now = new Date().toISOString();
       const domain = extractDomain(bookmarkData.url);
+      const ytThumb = getYouTubeThumbnail(bookmarkData.url);
+      const isVideo = !!getYouTubeVideoId(bookmarkData.url);
+
+      let cover = bookmarkData.cover;
+      if (ytThumb && (!cover || cover.includes('yt_1200.png') || cover.includes('youtube.com/img/desktop'))) {
+        cover = ytThumb;
+      }
+
       const newBm: Bookmark = {
         ...bookmarkData,
         id: 'bm_' + Math.random().toString(36).substring(2, 9) + Date.now().toString(36),
         domain,
         favicon: bookmarkData.favicon || getFaviconUrl(domain),
-        type: bookmarkData.type || 'link',
+        cover,
+        type: isVideo ? 'video' : (bookmarkData.type || 'link'),
         createdAt: now,
         updatedAt: now
       };

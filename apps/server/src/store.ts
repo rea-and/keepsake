@@ -10,7 +10,9 @@ import {
   mergeStores,
   extractDomain,
   getFaviconUrl,
-  normalizeUrl
+  normalizeUrl,
+  getYouTubeThumbnail,
+  getYouTubeVideoId
 } from '@keepsake/shared';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -148,6 +150,15 @@ class ServerStoreManager {
     const domain = data.domain || extractDomain(cleanUrl);
     const favicon = data.favicon || getFaviconUrl(domain);
 
+    // Auto-detect YouTube thumbnail and video type
+    const ytThumb = getYouTubeThumbnail(cleanUrl);
+    const isVideo = !!getYouTubeVideoId(cleanUrl);
+    let cover = data.cover;
+    if (ytThumb && (!cover || cover.includes('yt_1200.png') || cover.includes('youtube.com/img/desktop'))) {
+      cover = ytThumb;
+    }
+    const bookmarkType = isVideo ? 'video' : (data.type || 'link');
+
     let existingIndex = -1;
     if (data.id) {
       existingIndex = this.store.bookmarks.findIndex((b) => b.id === data.id);
@@ -170,6 +181,8 @@ class ServerStoreManager {
         url: cleanUrl,
         domain,
         favicon: favicon || existing.favicon,
+        cover: cover !== undefined ? cover : existing.cover,
+        type: bookmarkType,
         tags: data.tags !== undefined ? data.tags : existing.tags,
         updatedAt: now
       };
@@ -186,12 +199,12 @@ class ServerStoreManager {
         note: data.note || '',
         domain,
         favicon,
-        cover: data.cover,
+        cover,
         collectionId: data.collectionId || 'unsorted',
         tags: data.tags || [],
         isFavorite: data.isFavorite || false,
         isTrash: data.isTrash || false,
-        type: data.type || 'link',
+        type: bookmarkType,
         createdAt: data.createdAt || now,
         updatedAt: now,
         readerContent: data.readerContent

@@ -1,4 +1,11 @@
-import { Bookmark, extractDomain, getFaviconUrl, normalizeUrl } from '@keepsake/shared';
+import {
+  Bookmark,
+  extractDomain,
+  getFaviconUrl,
+  normalizeUrl,
+  getYouTubeThumbnail,
+  getYouTubeVideoId
+} from '@keepsake/shared';
 
 // Setup Context Menus on Installation
 chrome.runtime.onInstalled.addListener(() => {
@@ -69,6 +76,9 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
   }
 
   const domain = extractDomain(targetUrl);
+  const ytThumb = getYouTubeThumbnail(targetUrl);
+  const isVideo = !!getYouTubeVideoId(targetUrl);
+
   const bookmark: Bookmark = {
     id: 'bm_' + Math.random().toString(36).substring(2, 9) + Date.now().toString(36),
     url: targetUrl,
@@ -77,11 +87,12 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
     note: targetNote,
     domain,
     favicon: tab.favIconUrl || getFaviconUrl(domain),
+    cover: ytThumb || undefined,
     collectionId: 'unsorted',
     tags: [],
     isFavorite: false,
     isTrash: false,
-    type: 'link',
+    type: isVideo ? 'video' : 'link',
     createdAt: now,
     updatedAt: now
   };
@@ -111,6 +122,8 @@ chrome.commands.onCommand.addListener(async (command) => {
 
     const url = normalizeUrl(tab.url);
     const domain = extractDomain(url);
+    const ytThumb = getYouTubeThumbnail(url);
+    const isVideo = !!getYouTubeVideoId(url);
     const now = new Date().toISOString();
 
     const bookmark: Bookmark = {
@@ -120,11 +133,12 @@ chrome.commands.onCommand.addListener(async (command) => {
       description: '',
       domain,
       favicon: tab.favIconUrl || getFaviconUrl(domain),
+      cover: ytThumb || undefined,
       collectionId: 'unsorted',
       tags: [],
       isFavorite: false,
       isTrash: false,
-      type: 'link',
+      type: isVideo ? 'video' : 'link',
       createdAt: now,
       updatedAt: now
     };

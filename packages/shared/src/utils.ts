@@ -68,6 +68,49 @@ export function getFaviconUrl(domainOrUrl: string, size = 64): string {
 }
 
 /**
+ * Extracts YouTube video ID from various YouTube URL formats
+ * (watch?v=, youtu.be/, shorts/, embed/, live/)
+ */
+export function getYouTubeVideoId(rawUrl: string): string | null {
+  if (!rawUrl) return null;
+  try {
+    const url = new URL(rawUrl.startsWith('http') ? rawUrl : `https://${rawUrl}`);
+    const host = url.hostname.toLowerCase().replace(/^www\./, '');
+
+    if (host === 'youtu.be') {
+      const id = url.pathname.slice(1).split('/')[0].split('?')[0];
+      return id && id.length >= 5 ? id : null;
+    }
+
+    if (
+      host === 'youtube.com' ||
+      host === 'm.youtube.com' ||
+      host === 'music.youtube.com' ||
+      host === 'youtube-nocookie.com'
+    ) {
+      if (url.searchParams.has('v')) {
+        const id = url.searchParams.get('v');
+        return id && id.length >= 5 ? id : null;
+      }
+      const parts = url.pathname.split('/').filter(Boolean);
+      if (['shorts', 'embed', 'v', 'live'].includes(parts[0]) && parts[1]) {
+        return parts[1].split('?')[0];
+      }
+    }
+  } catch {}
+  return null;
+}
+
+/**
+ * Generates a high-definition video thumbnail URL for YouTube videos
+ */
+export function getYouTubeThumbnail(rawUrl: string): string | null {
+  const videoId = getYouTubeVideoId(rawUrl);
+  if (!videoId) return null;
+  return `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`;
+}
+
+/**
  * Exports bookmarks to Netscape Bookmark HTML format (standard supported by Chrome, Firefox, Safari, Raindrop)
  */
 export function exportToNetscapeHtml(bookmarks: Bookmark[], collections: Collection[]): string {

@@ -1,4 +1,12 @@
-import { Bookmark, Collection, extractDomain, getFaviconUrl, normalizeUrl } from '@keepsake/shared';
+import {
+  Bookmark,
+  Collection,
+  extractDomain,
+  getFaviconUrl,
+  normalizeUrl,
+  getYouTubeThumbnail,
+  getYouTubeVideoId
+} from '@keepsake/shared';
 
 interface ExtensionStorage {
   serverUrl?: string;
@@ -118,13 +126,25 @@ async function init() {
   domainLabel.textContent = currentDomain;
   faviconImg.src = currentFavicon;
 
+  // Auto-detect YouTube thumbnail immediately from URL
+  const ytInitialThumb = getYouTubeThumbnail(currentUrl);
+  if (ytInitialThumb) {
+    currentCover = ytInitialThumb;
+    coverImg.src = currentCover;
+    coverImg.style.display = 'block';
+  }
+
   // Ask content script for rich DOM metadata & selected text
   try {
     const meta = await chrome.tabs.sendMessage(tab.id!, { action: 'GET_PAGE_METADATA' });
     if (meta) {
       if (meta.title && !currentTitle) currentTitle = meta.title;
-      if (meta.cover) {
+      if (meta.cover && !meta.cover.includes('yt_1200.png') && !meta.cover.includes('youtube.com/img/desktop')) {
         currentCover = meta.cover;
+        coverImg.src = currentCover;
+        coverImg.style.display = 'block';
+      } else if (ytInitialThumb) {
+        currentCover = ytInitialThumb;
         coverImg.src = currentCover;
         coverImg.style.display = 'block';
       }
@@ -235,6 +255,15 @@ saveBtn.addEventListener('click', async () => {
   saveBtn.textContent = 'Saving...';
   const now = new Date().toISOString();
 
+  // If YouTube video, ensure thumbnail is saved and type is video
+  const ytThumb = getYouTubeThumbnail(currentUrl);
+  let finalCover = currentCover || undefined;
+  if (ytThumb && (!finalCover || finalCover.includes('yt_1200.png') || finalCover.includes('youtube.com/img/desktop'))) {
+    finalCover = ytThumb;
+  }
+
+  const isVideo = !!getYouTubeVideoId(currentUrl);
+
   let newBm: Bookmark = {
     id: currentBookmark ? currentBookmark.id : 'bm_' + Math.random().toString(36).substring(2, 9) + Date.now().toString(36),
     url: currentUrl,
@@ -243,12 +272,12 @@ saveBtn.addEventListener('click', async () => {
     note: noteInput.value.trim(),
     domain: currentDomain,
     favicon: currentFavicon,
-    cover: currentCover || undefined,
+    cover: finalCover,
     collectionId: collectionSelect.value || 'unsorted',
     tags: currentTags,
     isFavorite: isStarred,
     isTrash: false,
-    type: 'link',
+    type: isVideo ? 'video' : (currentBookmark?.type || 'link'),
     createdAt: currentBookmark ? currentBookmark.createdAt : now,
     updatedAt: now
   };

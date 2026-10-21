@@ -1,7 +1,7 @@
 import * as cheerio from 'cheerio';
 import { JSDOM } from 'jsdom';
 import { Readability } from '@mozilla/readability';
-import { extractDomain, getFaviconUrl, normalizeUrl } from '@keepsake/shared';
+import { extractDomain, getFaviconUrl, normalizeUrl, getYouTubeThumbnail, getYouTubeVideoId } from '@keepsake/shared';
 const USER_AGENT = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36';
 export async function scrapeUrl(rawUrl) {
     const url = normalizeUrl(rawUrl);
@@ -63,6 +63,11 @@ export async function scrapeUrl(rawUrl) {
                 cover = rawCover;
             }
         }
+        // High quality YouTube thumbnail override
+        const ytThumb = getYouTubeThumbnail(url);
+        if (ytThumb && (!cover || cover.includes('yt_1200.png') || cover.includes('youtube.com/img/desktop'))) {
+            cover = ytThumb;
+        }
         // 5. Favicon
         let favicon;
         const iconHref = $('link[rel="apple-touch-icon"]').attr('href') ||
@@ -82,7 +87,8 @@ export async function scrapeUrl(rawUrl) {
         }
         // 6. Detect Type
         let type = 'link';
-        if (domain.includes('youtube.com') ||
+        if (getYouTubeVideoId(url) ||
+            domain.includes('youtube.com') ||
             domain.includes('youtu.be') ||
             domain.includes('vimeo.com') ||
             domain.includes('tiktok.com') ||

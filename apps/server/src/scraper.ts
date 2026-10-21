@@ -1,7 +1,16 @@
 import * as cheerio from 'cheerio';
 import { JSDOM } from 'jsdom';
 import { Readability } from '@mozilla/readability';
-import { BookmarkType, ScrapedMetadata, ReaderContent, extractDomain, getFaviconUrl, normalizeUrl } from '@keepsake/shared';
+import {
+  BookmarkType,
+  ScrapedMetadata,
+  ReaderContent,
+  extractDomain,
+  getFaviconUrl,
+  normalizeUrl,
+  getYouTubeThumbnail,
+  getYouTubeVideoId
+} from '@keepsake/shared';
 
 const USER_AGENT = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36';
 
@@ -76,6 +85,12 @@ export async function scrapeUrl(rawUrl: string): Promise<ScrapedMetadata> {
       }
     }
 
+    // High quality YouTube thumbnail override
+    const ytThumb = getYouTubeThumbnail(url);
+    if (ytThumb && (!cover || cover.includes('yt_1200.png') || cover.includes('youtube.com/img/desktop'))) {
+      cover = ytThumb;
+    }
+
     // 5. Favicon
     let favicon: string | undefined;
     const iconHref =
@@ -97,6 +112,7 @@ export async function scrapeUrl(rawUrl: string): Promise<ScrapedMetadata> {
     // 6. Detect Type
     let type: BookmarkType = 'link';
     if (
+      getYouTubeVideoId(url) ||
       domain.includes('youtube.com') ||
       domain.includes('youtu.be') ||
       domain.includes('vimeo.com') ||
