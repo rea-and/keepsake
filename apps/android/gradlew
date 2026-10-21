@@ -27,6 +27,9 @@ if [ -n "$JAVA_HOME" ] ; then
     if [ ! -x "$JAVACMD" ] ; then
         die "ERROR: JAVA_HOME is set to an invalid directory: $JAVA_HOME"
     fi
+elif [ -x "/Applications/Android Studio.app/Contents/jbr/Contents/Home/bin/java" ]; then
+    export JAVA_HOME="/Applications/Android Studio.app/Contents/jbr/Contents/Home"
+    JAVACMD="$JAVA_HOME/bin/java"
 else
     JAVACMD="java"
     which java >/dev/null 2>&1 || die "ERROR: JAVA_HOME is not set and no 'java' command could be found in your PATH."
@@ -34,4 +37,4 @@ fi
 
 CLASSPATH=$APP_HOME/gradle/wrapper/gradle-wrapper.jar
 
-exec "$JAVACMD" $DEFAULT_JVM_OPTS -jar "$CLASSPATH" "$@"
+exec "$JAVACMD" -cp "$CLASSPATH" org.gradle.wrapper.GradleWrapperMain "$@"

@@ -10,11 +10,18 @@
     </style>
 
     <!-- Translucent Dialog Theme for Quick Share Bottom Ingestion -->
-    <style name="Theme.Keepsake.Dialog" parent="Theme.MaterialComponents.DayNight.BottomSheetDialog">
+    <style name="Theme.Keepsake.Dialog" parent="Theme.MaterialComponents.DayNight.NoActionBar">
         <item name="android:windowIsTranslucent">true</item>
         <item name="android:windowBackground">@android:color/transparent</item>
         <item name="android:windowContentOverlay">@null</item>
         <item name="android:windowNoTitle">true</item>
         <item name="android:backgroundDimEnabled">true</item>
+        <item name="android:windowAnimationStyle">@style/Animation.Design.BottomSheetDialog</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">#18181B</item>
+    </style>
+
+    <style name="ShapeAppearance.RoundedThumb" parent="">
+        <item name="cornerSize">10dp</item>
     </style>
 </resources>

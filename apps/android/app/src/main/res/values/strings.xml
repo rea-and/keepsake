@@ -5,7 +5,13 @@
     <string name="bookmark_saved">Bookmark saved to Keepsake</string>
     <string name="invalid_link">No valid web link found</string>
     <string name="cancel">Cancel</string>
-    <string name="save">Save</string>
+    <string name="save">Save Bookmark</string>
     <string name="collection">Collection</string>
     <string name="tags">Tags</string>
+    <string name="notes">Notes</string>
+    <string name="unsorted">Unsorted Inbox</string>
+    <string name="save_failed">Failed to save bookmark</string>
+    <string name="title_hint">Title</string>
+    <string name="tags_hint">e.g. tech, news, video</string>
+    <string name="notes_hint">Add a note (optional)…</string>
 </resources>

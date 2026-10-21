@@ -1,49 +1,406 @@
 package io.keepsake.app
 
-import android.app.Activity
+import android.content.Context
 import android.content.Intent
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import android.net.Uri
 import android.os.Bundle
+import android.view.View
+import android.webkit.CookieManager
+import android.widget.ArrayAdapter
 import android.widget.Toast
+import androidx.appcompat.app.AppCompatActivity
+import androidx.lifecycle.lifecycleScope
+import io.keepsake.app.databinding.ActivityShareBinding
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import org.json.JSONArray
+import org.json.JSONObject
+import java.io.BufferedReader
+import java.io.InputStreamReader
+import java.io.OutputStreamWriter
+import java.net.HttpURLConnection
+import java.net.URL
+import java.net.URLEncoder
 import java.util.regex.Pattern
 
-class ShareActivity : Activity() {
+class ShareActivity : AppCompatActivity() {
+
+    private lateinit var binding: ActivityShareBinding
+
+    private var targetUrl: String = ""
+    private var detectedDomain: String = ""
+    private var currentCoverUrl: String? = null
+    private var bookmarkType: String = "link"
+    private var isFavorite: Boolean = false
+
+    private val collectionList = mutableListOf<CollectionOption>()
+
+    data class CollectionOption(val id: String?, val title: String) {
+        override fun toString(): String = title
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        binding = ActivityShareBinding.inflate(layoutInflater)
+        setContentView(binding.root)
 
         val intent = intent
         val action = intent.action
         val type = intent.type
 
         if (Intent.ACTION_SEND == action && type != null) {
-            handleSendIntent(intent)
+            setupShareFlow(intent)
         } else {
             finish()
         }
     }
 
-    private fun handleSendIntent(intent: Intent) {
+    private fun setupShareFlow(intent: Intent) {
         val sharedText = intent.getStringExtra(Intent.EXTRA_TEXT) ?: ""
         val sharedSubject = intent.getStringExtra(Intent.EXTRA_SUBJECT) ?: ""
 
-        val extractedUrl = extractUrl(sharedText)
-
-        if (extractedUrl != null) {
-            Toast.makeText(this, getString(R.string.saving_bookmark), Toast.LENGTH_SHORT).show()
-
-            // Pass extracted URL and subject/title to MainActivity
-            val mainIntent = Intent(this, MainActivity::class.java).apply {
-                flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
-                putExtra("shared_url", extractedUrl)
-                putExtra("shared_title", sharedSubject.ifEmpty { sharedText.replace(extractedUrl, "").trim() })
-            }
-            startActivity(mainIntent)
-        } else {
+        val extracted = extractUrl(sharedText)
+        if (extracted == null) {
             Toast.makeText(this, getString(R.string.invalid_link), Toast.LENGTH_SHORT).show()
+            finish()
+            return
         }
 
-        finish()
+        targetUrl = extracted
+        detectedDomain = extractDomain(targetUrl)
+
+        // Dismiss when tapping outside the sheet
+        binding.rootContainer.setOnClickListener { finish() }
+        binding.sheetContainer.setOnClickListener { /* prevent dismissal when tapping card */ }
+
+        binding.btnClose.setOnClickListener { finish() }
+        binding.btnCancel.setOnClickListener { finish() }
+
+        binding.btnFavorite.setOnClickListener {
+            isFavorite = !isFavorite
+            updateFavoriteIcon()
+        }
+
+        binding.btnSave.setOnClickListener {
+            saveBookmark()
+        }
+
+        // Initial preview UI
+        binding.tvUrl.text = targetUrl
+        binding.tvDomain.text = detectedDomain
+
+        val initialTitle = extractTitle(sharedText, targetUrl, sharedSubject)
+        if (initialTitle.isNotEmpty()) {
+            binding.etTitle.setText(initialTitle)
+        } else {
+            binding.etTitle.setText(detectedDomain)
+        }
+
+        setupCollectionsSpinner()
+
+        // Platform-specific heuristics (YouTube & Reddit)
+        checkPlatformSpecifics()
+
+        // Background enrich: collections & server scraper
+        fetchCollectionsAsync()
+        fetchScrapedMetadataAsync()
     }
+
+    private fun updateFavoriteIcon() {
+        if (isFavorite) {
+            binding.btnFavorite.setImageResource(R.drawable.ic_star_filled)
+        } else {
+            binding.btnFavorite.setImageResource(R.drawable.ic_star_empty)
+        }
+    }
+
+    private fun checkPlatformSpecifics() {
+        // 1. YouTube detection
+        val ytVideoId = extractYouTubeVideoId(targetUrl)
+        if (ytVideoId != null) {
+            bookmarkType = "video"
+            detectedDomain = "youtube.com"
+            binding.tvDomain.text = detectedDomain
+            currentCoverUrl = "https://i.ytimg.com/vi/$ytVideoId/hqdefault.jpg"
+            loadThumbnailBitmap(currentCoverUrl!!)
+            return
+        }
+
+        // 2. Reddit detection
+        if (isRedditUrl(targetUrl)) {
+            val subreddit = extractRedditSubreddit(targetUrl)
+            if (subreddit != null) {
+                binding.tvDomain.text = "r/${subreddit.lowercase()}"
+                if (binding.etTags.text.isEmpty()) {
+                    binding.etTags.setText(subreddit.lowercase())
+                }
+            } else {
+                binding.tvDomain.text = "reddit.com"
+            }
+
+            val currentTitle = binding.etTitle.text.toString()
+            val cleaned = cleanRedditTitle(currentTitle)
+            if (cleaned.isNotEmpty()) {
+                binding.etTitle.setText(cleaned)
+            }
+        }
+    }
+
+    private fun setupCollectionsSpinner() {
+        collectionList.clear()
+        collectionList.add(CollectionOption(null, getString(R.string.unsorted)))
+
+        val adapter = ArrayAdapter(
+            this,
+            R.layout.item_spinner_selected,
+            collectionList
+        ).apply {
+            setDropDownViewResource(R.layout.item_spinner)
+        }
+        binding.spinnerCollection.adapter = adapter
+    }
+
+    private fun fetchCollectionsAsync() {
+        val serverUrl = getServerUrl()
+        lifecycleScope.launch(Dispatchers.IO) {
+            try {
+                val jsonStr = httpGet("$serverUrl/api/collections", serverUrl) ?: return@launch
+                val json = JSONObject(jsonStr)
+                val collectionsArray = json.optJSONArray("collections") ?: return@launch
+
+                val fetched = mutableListOf<CollectionOption>()
+                fetched.add(CollectionOption(null, getString(R.string.unsorted)))
+
+                for (i in 0 until collectionsArray.length()) {
+                    val item = collectionsArray.getJSONObject(i)
+                    val id = item.optString("id")
+                    val title = item.optString("title")
+                    if (id.isNotEmpty() && title.isNotEmpty()) {
+                        fetched.add(CollectionOption(id, title))
+                    }
+                }
+
+                withContext(Dispatchers.Main) {
+                    collectionList.clear()
+                    collectionList.addAll(fetched)
+                    (binding.spinnerCollection.adapter as? ArrayAdapter<*>)?.notifyDataSetChanged()
+                }
+            } catch (e: Exception) {
+                // Ignore collection load error, fallback to Unsorted
+            }
+        }
+    }
+
+    private fun fetchScrapedMetadataAsync() {
+        val serverUrl = getServerUrl()
+        val encodedUrl = URLEncoder.encode(targetUrl, "UTF-8")
+
+        lifecycleScope.launch(Dispatchers.IO) {
+            try {
+                val jsonStr = httpGet("$serverUrl/api/scrape?url=$encodedUrl", serverUrl) ?: return@launch
+                val meta = JSONObject(jsonStr)
+
+                val scrapedTitle = meta.optString("title")
+                val scrapedCover = meta.optString("cover")
+                val scrapedDomain = meta.optString("domain")
+
+                withContext(Dispatchers.Main) {
+                    if (scrapedDomain.isNotEmpty() && binding.tvDomain.text == detectedDomain) {
+                        detectedDomain = scrapedDomain
+                        binding.tvDomain.text = detectedDomain
+                    }
+
+                    // Update title if user hasn't modified it or if it was just the domain
+                    val currentTitle = binding.etTitle.text.toString().trim()
+                    if (scrapedTitle.isNotEmpty() && (currentTitle.isEmpty() || currentTitle == detectedDomain)) {
+                        val cleaned = if (isRedditUrl(targetUrl)) cleanRedditTitle(scrapedTitle) else scrapedTitle
+                        binding.etTitle.setText(cleaned)
+                    }
+
+                    // Update cover if not yet loaded by YouTube
+                    if (scrapedCover.isNotEmpty() && currentCoverUrl == null) {
+                        currentCoverUrl = scrapedCover
+                        loadThumbnailBitmap(scrapedCover)
+                    }
+                }
+            } catch (e: Exception) {
+                // Background scrape failure is non-fatal
+            }
+        }
+    }
+
+    private fun loadThumbnailBitmap(imageUrl: String) {
+        lifecycleScope.launch(Dispatchers.IO) {
+            val bmp = fetchBitmap(imageUrl)
+            if (bmp != null) {
+                withContext(Dispatchers.Main) {
+                    binding.ivThumbnail.setImageBitmap(bmp)
+                }
+            }
+        }
+    }
+
+    private fun saveBookmark() {
+        val title = binding.etTitle.text.toString().trim().ifEmpty { detectedDomain }
+        val notes = binding.etNotes.text.toString().trim()
+        val tagsInput = binding.etTags.text.toString().trim()
+
+        val selectedCollection = binding.spinnerCollection.selectedItem as? CollectionOption
+        val collectionId = selectedCollection?.id
+
+        val tagsArray = JSONArray()
+        if (tagsInput.isNotEmpty()) {
+            tagsInput.split(",").forEach {
+                val cleanTag = it.trim().removePrefix("#")
+                if (cleanTag.isNotEmpty()) {
+                    tagsArray.put(cleanTag)
+                }
+            }
+        }
+
+        // Disable UI and show saving state
+        binding.btnSave.isEnabled = false
+        binding.btnCancel.isEnabled = false
+        binding.btnSave.text = ""
+        binding.pbSaving.visibility = View.VISIBLE
+
+        val payload = JSONObject().apply {
+            put("url", targetUrl)
+            put("title", title)
+            put("domain", detectedDomain)
+            put("note", notes)
+            put("collectionId", collectionId ?: JSONObject.NULL)
+            put("tags", tagsArray)
+            put("isFavorite", isFavorite)
+            put("type", bookmarkType)
+            if (!currentCoverUrl.isNullOrEmpty()) {
+                put("cover", currentCoverUrl)
+            }
+        }
+
+        val serverUrl = getServerUrl()
+
+        lifecycleScope.launch(Dispatchers.IO) {
+            val (status, _) = httpPost("$serverUrl/api/bookmarks", payload.toString(), serverUrl)
+
+            withContext(Dispatchers.Main) {
+                if (status in 200..299) {
+                    Toast.makeText(this@ShareActivity, getString(R.string.bookmark_saved), Toast.LENGTH_SHORT).show()
+
+                    // Return cleanly to MainActivity and trigger instant bookmark sync
+                    val mainIntent = Intent(this@ShareActivity, MainActivity::class.java).apply {
+                        flags = Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
+                        putExtra("reload_bookmarks", true)
+                    }
+                    startActivity(mainIntent)
+                    finish()
+                } else {
+                    binding.btnSave.isEnabled = true
+                    binding.btnCancel.isEnabled = true
+                    binding.btnSave.setText(R.string.save)
+                    binding.pbSaving.visibility = View.GONE
+                    Toast.makeText(this@ShareActivity, getString(R.string.save_failed), Toast.LENGTH_LONG).show()
+                }
+            }
+        }
+    }
+
+    private fun getServerUrl(): String {
+        val prefs = getSharedPreferences(MainActivity.PREFS_NAME, Context.MODE_PRIVATE)
+        return prefs.getString(MainActivity.KEY_SERVER_URL, MainActivity.DEFAULT_SERVER_URL)
+            ?: MainActivity.DEFAULT_SERVER_URL
+    }
+
+    // --- Network Helpers ---
+
+    private fun httpGet(urlString: String, serverUrl: String): String? {
+        var conn: HttpURLConnection? = null
+        return try {
+            val url = URL(urlString)
+            conn = url.openConnection() as HttpURLConnection
+            conn.requestMethod = "GET"
+            conn.connectTimeout = 6000
+            conn.readTimeout = 6000
+            conn.setRequestProperty("Accept", "application/json")
+
+            val cookie = CookieManager.getInstance().getCookie(serverUrl)
+            if (!cookie.isNullOrEmpty()) {
+                conn.setRequestProperty("Cookie", cookie)
+            }
+
+            conn.connect()
+            if (conn.responseCode in 200..299) {
+                conn.inputStream.bufferedReader().use(BufferedReader::readText)
+            } else {
+                null
+            }
+        } catch (e: Exception) {
+            null
+        } finally {
+            conn?.disconnect()
+        }
+    }
+
+    private fun httpPost(urlString: String, jsonPayload: String, serverUrl: String): Pair<Int, String?> {
+        var conn: HttpURLConnection? = null
+        return try {
+            val url = URL(urlString)
+            conn = url.openConnection() as HttpURLConnection
+            conn.requestMethod = "POST"
+            conn.connectTimeout = 8000
+            conn.readTimeout = 8000
+            conn.doOutput = true
+            conn.setRequestProperty("Content-Type", "application/json; charset=UTF-8")
+            conn.setRequestProperty("Accept", "application/json")
+
+            val cookie = CookieManager.getInstance().getCookie(serverUrl)
+            if (!cookie.isNullOrEmpty()) {
+                conn.setRequestProperty("Cookie", cookie)
+            }
+
+            OutputStreamWriter(conn.outputStream, "UTF-8").use {
+                it.write(jsonPayload)
+                it.flush()
+            }
+
+            val code = conn.responseCode
+            val responseText = if (code in 200..299) {
+                conn.inputStream?.bufferedReader()?.use(BufferedReader::readText)
+            } else {
+                conn.errorStream?.bufferedReader()?.use(BufferedReader::readText)
+            }
+            Pair(code, responseText)
+        } catch (e: Exception) {
+            Pair(-1, e.message)
+        } finally {
+            conn?.disconnect()
+        }
+    }
+
+    private fun fetchBitmap(urlString: String): Bitmap? {
+        return try {
+            val url = URL(urlString)
+            val conn = url.openConnection() as HttpURLConnection
+            conn.connectTimeout = 5000
+            conn.readTimeout = 5000
+            conn.instanceFollowRedirects = true
+            conn.connect()
+            if (conn.responseCode in 200..299) {
+                conn.inputStream.use { input ->
+                    BitmapFactory.decodeStream(input)
+                }
+            } else {
+                null
+            }
+        } catch (e: Exception) {
+            null
+        }
+    }
+
+    // --- Extraction & Parsing Helpers ---
 
     private fun extractUrl(text: String): String? {
         val urlPattern = Pattern.compile(
@@ -58,5 +415,54 @@ class ShareActivity : Activity() {
         } else {
             null
         }
+    }
+
+    private fun extractTitle(sharedText: String, url: String, sharedSubject: String?): String {
+        if (!sharedSubject.isNullOrBlank() && sharedSubject != url) {
+            return sharedSubject.trim()
+        }
+        val remainder = sharedText.replace(url, "").trim()
+        val cleaned = remainder.removePrefix("-").removePrefix(":").trim()
+        return if (cleaned.isNotEmpty()) cleaned else ""
+    }
+
+    private fun extractDomain(urlString: String): String {
+        return try {
+            val uri = Uri.parse(urlString)
+            val host = uri.host ?: urlString
+            host.removePrefix("www.")
+        } catch (e: Exception) {
+            urlString
+        }
+    }
+
+    private fun extractYouTubeVideoId(url: String): String? {
+        val pattern = "(?:youtu\\.be/|youtube\\.com/(?:embed/|v/|watch\\?v=|watch\\?.+&v=|shorts/))([a-zA-Z0-9_-]{11})"
+        val matcher = Pattern.compile(pattern, Pattern.CASE_INSENSITIVE).matcher(url)
+        return if (matcher.find()) matcher.group(1) else null
+    }
+
+    private fun isRedditUrl(url: String): Boolean {
+        return url.contains("reddit.com", ignoreCase = true) || url.contains("redd.it", ignoreCase = true)
+    }
+
+    private fun extractRedditSubreddit(url: String): String? {
+        val pattern = "reddit\\.com/r/([a-zA-Z0-9_]+)"
+        val matcher = Pattern.compile(pattern, Pattern.CASE_INSENSITIVE).matcher(url)
+        return if (matcher.find()) matcher.group(1) else null
+    }
+
+    private fun cleanRedditTitle(title: String): String {
+        var clean = title.trim()
+        val patterns = listOf(
+            Regex(" : r/[a-zA-Z0-9_]+$", RegexOption.IGNORE_CASE),
+            Regex(" - r/[a-zA-Z0-9_]+$", RegexOption.IGNORE_CASE),
+            Regex(" - Reddit$", RegexOption.IGNORE_CASE),
+            Regex(" : Reddit$", RegexOption.IGNORE_CASE)
+        )
+        for (p in patterns) {
+            clean = clean.replace(p, "").trim()
+        }
+        return clean
     }
 }

@@ -69,10 +69,34 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun processIntent(intent: Intent) {
+        val serverUrl = getServerUrl()
+        val reloadBookmarks = intent.getBooleanExtra("reload_bookmarks", false)
+
+        if (reloadBookmarks) {
+            if (webView.url == null) {
+                webView.loadUrl(serverUrl)
+            } else {
+                // Instantly notify webapp store to sync and display the newly imported bookmark
+                webView.evaluateJavascript(
+                    """
+                    (function() {
+                        window.postMessage({ type: 'KEEPSAKE_SYNC_TRIGGER' }, '*');
+                        window.dispatchEvent(new Event('focus'));
+                    })();
+                    """.trimIndent(),
+                    null
+                )
+                // Brief refresh indicator feedback
+                swipeRefreshLayout.isRefreshing = true
+                webView.postDelayed({
+                    swipeRefreshLayout.isRefreshing = false
+                }, 1000)
+            }
+            return
+        }
+
         val sharedUrl = intent.getStringExtra("shared_url")
         val sharedTitle = intent.getStringExtra("shared_title") ?: ""
-
-        val serverUrl = getServerUrl()
 
         if (!sharedUrl.isNullOrEmpty()) {
             val encodedUrl = URLEncoder.encode(sharedUrl, "UTF-8")
