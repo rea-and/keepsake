@@ -35,6 +35,10 @@ export declare function isRedditUrl(rawUrl: string): boolean;
  */
 export declare function cleanRedditTitle(rawTitle: string): string;
 /**
+ * Checks whether a bookmark title is sparse or generic (e.g. matching url, domain, or placeholder)
+ */
+export declare function isSparseTitle(title?: string | null, domain?: string, url?: string): boolean;
+/**
  * Checks if a Reddit image URL is a generic placeholder, icon, or share tracker
  */
 export declare function isGenericRedditMedia(url?: string | null): boolean;

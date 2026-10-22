@@ -210,6 +210,34 @@ export function cleanRedditTitle(rawTitle: string): string {
 }
 
 /**
+ * Checks whether a bookmark title is sparse or generic (e.g. matching url, domain, or placeholder)
+ */
+export function isSparseTitle(title?: string | null, domain?: string, url?: string): boolean {
+  if (!title || !title.trim()) return true;
+  const clean = title.trim().toLowerCase();
+  if (url && clean === url.trim().toLowerCase()) return true;
+  if (domain && clean === domain.trim().toLowerCase().replace(/^www\./, '')) return true;
+
+  if (
+    clean === 'reddit' ||
+    clean === 'reddit.com' ||
+    clean === 'redd.it' ||
+    clean.startsWith('reddit:') ||
+    clean === 'reddit - dive into anything' ||
+    clean === 'the heart of the internet' ||
+    clean === 'the front page of the internet'
+  ) {
+    return true;
+  }
+
+  if (clean === 'youtube' || clean === 'youtube.com') {
+    return true;
+  }
+
+  return false;
+}
+
+/**
  * Checks if a Reddit image URL is a generic placeholder, icon, or share tracker
  */
 export function isGenericRedditMedia(url?: string | null): boolean {

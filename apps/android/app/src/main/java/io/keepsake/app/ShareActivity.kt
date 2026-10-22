@@ -14,8 +14,10 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.lifecycleScope
 import io.keepsake.app.databinding.ActivityShareBinding
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.BufferedReader
@@ -35,6 +37,8 @@ class ShareActivity : AppCompatActivity() {
     private var currentCoverUrl: String? = null
     private var bookmarkType: String = "link"
     private var isFavorite: Boolean = false
+    private var platformJob: Job? = null
+    private var scrapeJob: Job? = null
 
     private val collectionList = mutableListOf<CollectionOption>()
 
@@ -141,7 +145,7 @@ class ShareActivity : AppCompatActivity() {
 
         // 2. Reddit detection
         if (isRedditUrl(targetUrl)) {
-            lifecycleScope.launch(Dispatchers.IO) {
+            platformJob = lifecycleScope.launch(Dispatchers.IO) {
                 // If it's a shortlink /s/ or redd.it, resolve the redirect to get the full post URL
                 if (targetUrl.contains("/s/") || targetUrl.contains("redd.it")) {
                     val resolved = resolveRedirectUrl(targetUrl)
@@ -311,7 +315,7 @@ class ShareActivity : AppCompatActivity() {
         val serverUrl = getServerUrl()
         val encodedUrl = URLEncoder.encode(targetToScrape, "UTF-8")
 
-        lifecycleScope.launch(Dispatchers.IO) {
+        scrapeJob = lifecycleScope.launch(Dispatchers.IO) {
             try {
                 val jsonStr = httpGet("$serverUrl/api/scrape?url=$encodedUrl", serverUrl) ?: return@launch
                 val meta = JSONObject(jsonStr)
@@ -366,17 +370,116 @@ class ShareActivity : AppCompatActivity() {
         val serverUrl = getServerUrl()
 
         lifecycleScope.launch(Dispatchers.IO) {
-            // Safety check: if targetUrl still has /s/ or redd.it (e.g. user clicked save instantly), resolve redirect now
+            // 1. Await in-flight platform specifics (redirect resolution, oEmbed title, RSS thumbnail)
+            try {
+                withTimeoutOrNull(2500) {
+                    platformJob?.join()
+                }
+            } catch (_: Exception) {}
+
+            // 2. Safety check: if targetUrl still has /s/ or redd.it (e.g. user clicked save instantly), resolve redirect now
             if (isRedditUrl(targetUrl) && (targetUrl.contains("/s/") || targetUrl.contains("redd.it"))) {
                 val resolved = resolveRedirectUrl(targetUrl)
                 if (resolved.isNotEmpty() && resolved != targetUrl) {
                     targetUrl = resolved
+                    withContext(Dispatchers.Main) {
+                        detectedDomain = extractDomain(targetUrl)
+                    }
                 }
             }
 
-            val title = withContext(Dispatchers.Main) {
-                binding.etTitle.text.toString().trim().ifEmpty { detectedDomain }
+            // 3. Fallback for Reddit: if cover or title is still missing/sparse, fetch immediately
+            if (isRedditUrl(targetUrl)) {
+                val postId = extractRedditPostId(targetUrl)
+                val subreddit = extractRedditSubreddit(targetUrl)
+                if (postId != null) {
+                    if (currentCoverUrl.isNullOrEmpty()) {
+                        try {
+                            val rssUrl = if (subreddit != null) {
+                                "https://www.reddit.com/r/$subreddit/comments/$postId/.rss"
+                            } else {
+                                "https://www.reddit.com/comments/$postId/.rss"
+                            }
+                            val xml = httpGet(
+                                rssUrl,
+                                "https://www.reddit.com",
+                                customUa = "facebookexternalhit/1.3 (+http://www.facebook.com/externalhit_uatext.php)"
+                            )
+                            if (!xml.isNullOrEmpty()) {
+                                val mediaPattern = Pattern.compile("<media:(?:thumbnail|content)[^>]+url=\"([^\"]+)\"", Pattern.CASE_INSENSITIVE)
+                                val mediaMatcher = mediaPattern.matcher(xml)
+                                var thumb: String? = null
+                                if (mediaMatcher.find()) {
+                                    thumb = mediaMatcher.group(1)?.replace("&amp;", "&")
+                                } else {
+                                    val urlPattern = Pattern.compile("https://(?:preview|i|external-preview)\\.redd\\.it/[^\"<>\\s]+", Pattern.CASE_INSENSITIVE)
+                                    val urlMatcher = urlPattern.matcher(xml)
+                                    if (urlMatcher.find()) {
+                                        thumb = urlMatcher.group().replace("&amp;", "&")
+                                    }
+                                }
+
+                                if (!thumb.isNullOrEmpty() && !thumb.contains("redditstatic.com") && !thumb.contains("icon.png") && !thumb.contains("share.redd.it")) {
+                                    currentCoverUrl = thumb
+                                    bookmarkType = "image"
+                                }
+
+                                val curTitle = withContext(Dispatchers.Main) { binding.etTitle.text.toString().trim() }
+                                if (isSparseTitle(curTitle, detectedDomain, targetUrl)) {
+                                    val titlePattern = Pattern.compile("<entry>[^]*?<title>([^<]+)</title>", Pattern.CASE_INSENSITIVE)
+                                    val titleMatcher = titlePattern.matcher(xml)
+                                    if (titleMatcher.find()) {
+                                        val t = cleanRedditTitle(titleMatcher.group(1)?.replace("&amp;", "&") ?: "")
+                                        if (t.isNotEmpty()) {
+                                            withContext(Dispatchers.Main) {
+                                                binding.etTitle.setText(t)
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        } catch (_: Exception) {}
+                    }
+
+                    // If title is still sparse, try oEmbed
+                    val curTitle = withContext(Dispatchers.Main) { binding.etTitle.text.toString().trim() }
+                    if (isSparseTitle(curTitle, detectedDomain, targetUrl)) {
+                        try {
+                            val encodedTarget = URLEncoder.encode(targetUrl, "UTF-8")
+                            val oembedUrl = "https://www.reddit.com/oembed?url=$encodedTarget"
+                            val oembedJsonStr = httpGet(
+                                oembedUrl,
+                                "https://www.reddit.com",
+                                customUa = "facebookexternalhit/1.3 (+http://www.facebook.com/externalhit_uatext.php)"
+                            )
+                            if (!oembedJsonStr.isNullOrEmpty()) {
+                                val oembedJson = JSONObject(oembedJsonStr)
+                                val oTitle = oembedJson.optString("title")
+                                if (oTitle.isNotEmpty()) {
+                                    withContext(Dispatchers.Main) {
+                                        binding.etTitle.setText(cleanRedditTitle(oTitle))
+                                    }
+                                }
+                            }
+                        } catch (_: Exception) {}
+                    }
+
+                    if (subreddit != null) {
+                        withContext(Dispatchers.Main) {
+                            if (binding.etTags.text.isEmpty()) {
+                                binding.etTags.setText(subreddit.lowercase())
+                            }
+                        }
+                    }
+                }
             }
+
+            val rawTitle = withContext(Dispatchers.Main) {
+                binding.etTitle.text.toString().trim()
+            }
+            val cleanTitle = cleanRedditTitle(rawTitle)
+            val titleToSend = if (isSparseTitle(cleanTitle, detectedDomain, targetUrl)) "" else cleanTitle
+
             val notes = withContext(Dispatchers.Main) {
                 binding.etNotes.text.toString().trim()
             }
@@ -400,7 +503,7 @@ class ShareActivity : AppCompatActivity() {
 
             val payload = JSONObject().apply {
                 put("url", targetUrl)
-                put("title", title)
+                put("title", titleToSend)
                 put("domain", detectedDomain)
                 put("note", notes)
                 put("collectionId", collectionId ?: JSONObject.NULL)
@@ -434,6 +537,21 @@ class ShareActivity : AppCompatActivity() {
                 }
             }
         }
+    }
+
+    private fun isSparseTitle(title: String?, domain: String, url: String): Boolean {
+        if (title.isNullOrBlank()) return true
+        val clean = title.trim()
+        if (clean.equals(url.trim(), ignoreCase = true)) return true
+        if (clean.equals(domain.trim(), ignoreCase = true)) return true
+        if (clean.equals("reddit.com", ignoreCase = true) ||
+            clean.equals("reddit", ignoreCase = true) ||
+            clean.startsWith("reddit:", ignoreCase = true) ||
+            clean.equals("reddit - dive into anything", ignoreCase = true)
+        ) {
+            return true
+        }
+        return false
     }
 
     private fun getServerUrl(): String {

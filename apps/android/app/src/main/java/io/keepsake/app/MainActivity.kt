@@ -80,6 +80,16 @@ class MainActivity : AppCompatActivity() {
             binding.pbGoogleSignIn.visibility = View.GONE
             binding.googleButtonContent.visibility = View.VISIBLE
             binding.btnGoogleSignIn.isEnabled = true
+        } else {
+            // Check if any bookmark in the view is sparse or missing Reddit media, and refresh if needed
+            if (repository.bookmarks.any { bm ->
+                !bm.isTrash && (bm.title.isEmpty() || bm.title.equals(bm.domain, ignoreCase = true) || bm.title.equals("reddit.com", ignoreCase = true) || (bm.domain.contains("reddit.com") && bm.cover.isNullOrEmpty()))
+            }) {
+                lifecycleScope.launch {
+                    repository.syncWithServer(getServerUrl())
+                    applyFilterAndRender()
+                }
+            }
         }
     }
 
@@ -111,6 +121,19 @@ class MainActivity : AppCompatActivity() {
             val reloadBookmarks = intent?.getBooleanExtra("reload_bookmarks", false) ?: false
             if (reloadBookmarks) {
                 syncBookmarks()
+                // Auto-enrichment on the server happens asynchronously in the background.
+                // Trigger follow-up background syncs so that enriched title, media, and tags
+                // appear seamlessly without requiring manual user pull-to-refresh!
+                lifecycleScope.launch {
+                    kotlinx.coroutines.delay(2500)
+                    repository.syncWithServer(getServerUrl())
+                    applyFilterAndRender()
+                }
+                lifecycleScope.launch {
+                    kotlinx.coroutines.delay(5000)
+                    repository.syncWithServer(getServerUrl())
+                    applyFilterAndRender()
+                }
             } else if (repository.bookmarks.isEmpty()) {
                 syncBookmarks()
             } else {
@@ -651,6 +674,11 @@ class MainActivity : AppCompatActivity() {
                     Toast.makeText(this@MainActivity, "Bookmark saved!", Toast.LENGTH_SHORT).show()
                     applyFilterAndRender()
                     dialog.dismiss()
+                    lifecycleScope.launch {
+                        kotlinx.coroutines.delay(2500)
+                        repository.syncWithServer(getServerUrl())
+                        applyFilterAndRender()
+                    }
                 } else {
                     btnSave.isEnabled = true
                     btnSave.text = "Save"

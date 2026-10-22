@@ -13,6 +13,9 @@ import {
   extractDomain,
   getFaviconUrl,
   isGenericRedditMedia,
+  isRedditUrl,
+  cleanRedditTitle,
+  isSparseTitle,
   Bookmark,
   Collection,
   KeepsakeDataStore
@@ -171,29 +174,54 @@ app.post('/api/bookmarks', async (req: Request, res: Response) => {
   });
 
   // Background auto-enrichment if metadata is sparse or cover is missing/generic
+  const sparseTitle = isSparseTitle(saved.title, saved.domain, saved.url);
   const needsCover = !saved.cover || isGenericRedditMedia(saved.cover);
-  if ((needsCover || !saved.description) && saved.url.startsWith('http')) {
+  const isShortReddit = isRedditUrl(saved.url) && (saved.url.includes('/s/') || saved.domain === 'redd.it');
+  const needsEnrichment = needsCover || !saved.description || sparseTitle || isShortReddit;
+
+  if (needsEnrichment && saved.url.startsWith('http')) {
     scrapeUrl(saved.url)
       .then((meta) => {
-        if (meta && (meta.cover || meta.description || meta.title)) {
+        if (meta && (meta.cover || meta.description || meta.title || meta.url)) {
           // If we already have a valid non-generic cover, preserve it!
           const resolvedCover = needsCover
             ? (!isGenericRedditMedia(meta.cover) ? meta.cover : saved.cover)
             : saved.cover;
 
+          // Preserve user-specified custom title, but overwrite sparse/generic domain titles
+          const resolvedTitle = (!sparseTitle && saved.title) ? saved.title : (meta.title || saved.title);
+
+          // Update tags with subreddit tag if no tags were provided
+          const existingTags = Array.isArray(saved.tags) ? saved.tags : [];
+          let updatedTags = existingTags;
+          if (existingTags.length === 0 && meta.siteName && meta.siteName.startsWith('r/')) {
+            const subTag = meta.siteName.slice(2).trim().toLowerCase();
+            if (subTag) {
+              updatedTags = [subTag];
+            }
+          }
+
+          // Canonical URL: if scrapeUrl resolved a redirect (e.g. from /s/), update url to canonical
+          const resolvedUrl = (meta.url && meta.url.startsWith('http')) ? meta.url : saved.url;
+          const resolvedDomain = meta.domain || saved.domain;
+
           serverStore.addOrUpdateBookmark({
             id: saved.id,
-            url: saved.url,
-            title: (saved.title && saved.title !== saved.url) ? saved.title : meta.title,
+            url: resolvedUrl,
+            domain: resolvedDomain,
+            title: resolvedTitle,
             description: saved.description || meta.description,
             cover: resolvedCover,
             favicon: saved.favicon || meta.favicon,
-            type: (meta.type && meta.type !== 'link') ? meta.type : saved.type,
-            readerContent: meta.readerContent
+            type: (meta.type && meta.type !== 'link') ? meta.type : (resolvedCover ? 'image' : saved.type),
+            tags: updatedTags,
+            readerContent: meta.readerContent || saved.readerContent
           });
         }
       })
-      .catch(() => {});
+      .catch((err) => {
+        console.error('[Server] Background auto-enrichment failed for', saved.url, err);
+      });
   }
 
   return res.status(201).json({
