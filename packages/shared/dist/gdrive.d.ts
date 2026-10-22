@@ -3,6 +3,7 @@ export declare class GoogleDriveClient {
     private accessToken;
     constructor(accessToken: string);
     setAccessToken(token: string): void;
+    private fetchWithTimeout;
     /**
      * Fetches the authenticated Google User's profile
      */

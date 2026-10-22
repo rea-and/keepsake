@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import {
   Bookmark,
   Collection,
@@ -173,11 +173,29 @@ export function useKeepsakeStore() {
   // Sync drive file ID cache
   const [driveFileId, setDriveFileId] = useState<string | null>(null);
 
+  // Stable references for state accessed inside async callbacks to prevent re-creation loops
+  const storeRef = useRef(store);
+  useEffect(() => {
+    storeRef.current = store;
+  }, [store]);
+
+  const authSessionRef = useRef(authSession);
+  useEffect(() => {
+    authSessionRef.current = authSession;
+  }, [authSession]);
+
+  const driveFileIdRef = useRef<string | null>(driveFileId);
+  useEffect(() => {
+    driveFileIdRef.current = driveFileId;
+  }, [driveFileId]);
+
+  const isSyncingRef = useRef(false);
+
   // Server Sync Engine (Keepsake Backend Persistence)
   const syncWithServer = useCallback(async (options?: { silent?: boolean }) => {
     try {
       const currentStoreRaw = localStorage.getItem(LOCAL_STORAGE_KEY);
-      const storeToSend = currentStoreRaw ? JSON.parse(currentStoreRaw) : store;
+      const storeToSend = currentStoreRaw ? JSON.parse(currentStoreRaw) : storeRef.current;
 
       const res = await fetch('/api/sync', {
         method: 'POST',
@@ -196,6 +214,7 @@ export function useKeepsakeStore() {
               JSON.stringify(data.store.bookmarks) !== JSON.stringify(prev.bookmarks) ||
               JSON.stringify(data.store.collections) !== JSON.stringify(prev.collections)
             ) {
+              storeRef.current = data.store;
               return data.store;
             }
             return prev;
@@ -207,12 +226,12 @@ export function useKeepsakeStore() {
         console.warn('[Keepsake Web] Server sync offline or unavailable:', err);
       }
     }
-  }, [store]);
+  }, []);
 
   // Initial sync with server on mount
   useEffect(() => {
     syncWithServer({ silent: true });
-  }, []);
+  }, [syncWithServer]);
 
   // Sync with server on window focus
   useEffect(() => {
@@ -279,29 +298,37 @@ export function useKeepsakeStore() {
     }
   }, [activeCollectionId, store.collections]);
 
-  // Google Drive Sync Engine
+  // Google Drive Sync Engine (Stable callback that does not re-create on store/fileId changes)
   const syncWithGoogleDrive = useCallback(async () => {
-    if (!authSession?.tokens?.accessToken) {
-      setSyncStatus((prev) => ({ ...prev, error: 'Please log in with Google to sync' }));
+    const session = authSessionRef.current;
+    if (!session?.tokens?.accessToken) {
+      setSyncStatus((prev) => ({ ...prev, isSyncing: false, error: 'Please log in with Google to sync' }));
       return;
     }
+
+    if (isSyncingRef.current) {
+      return; // Already in progress, prevent overlapping execution
+    }
+    isSyncingRef.current = true;
 
     setSyncStatus((prev) => ({ ...prev, isSyncing: true, error: null }));
 
     try {
-      const driveClient = new GoogleDriveClient(authSession.tokens.accessToken);
+      let currentAccessToken = session.tokens.accessToken;
+      const driveClient = new GoogleDriveClient(currentAccessToken);
 
-      // Check if token expired
-      if (authSession.tokens.expiresAt && Date.now() > authSession.tokens.expiresAt - 60000) {
-        if (authSession.tokens.refreshToken) {
+      // Check if token expired and attempt refresh
+      if (session.tokens.expiresAt && Date.now() > session.tokens.expiresAt - 60000) {
+        if (session.tokens.refreshToken) {
           try {
             const refreshRes = await fetch('/api/auth/refresh', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ refreshToken: authSession.tokens.refreshToken })
+              body: JSON.stringify({ refreshToken: session.tokens.refreshToken })
             });
             if (refreshRes.ok) {
               const fresh = await refreshRes.json();
+              currentAccessToken = fresh.accessToken;
               setAuthSession((prev) =>
                 prev
                   ? {
@@ -316,29 +343,37 @@ export function useKeepsakeStore() {
               );
               driveClient.setAccessToken(fresh.accessToken);
             }
-          } catch {}
+          } catch (e) {
+            console.warn('[Keepsake Web] Failed to refresh Google OAuth token:', e);
+          }
         }
       }
 
       // 1. Locate file in Google Drive AppData
-      let fileMeta = await driveClient.findAppDataStoreFile();
+      const fileMeta = await driveClient.findAppDataStoreFile();
       let remoteStore: KeepsakeDataStore | null = null;
-      let existingId = fileMeta?.id || driveFileId;
+      const existingId = fileMeta?.id || driveFileIdRef.current;
 
       if (fileMeta) {
         setDriveFileId(fileMeta.id);
+        driveFileIdRef.current = fileMeta.id;
         remoteStore = await driveClient.readStore(fileMeta.id);
       }
 
       // 2. Merge local and remote
-      const mergeResult = mergeStores(store, remoteStore, deviceId);
+      const currentStore = storeRef.current;
+      const mergeResult = mergeStores(currentStore, remoteStore, deviceId);
 
       // 3. Save merged store back to Google Drive
       const updatedFileId = await driveClient.saveStore(mergeResult.mergedStore, existingId);
       setDriveFileId(updatedFileId);
+      driveFileIdRef.current = updatedFileId;
 
-      // 4. Update local store
-      setStore(mergeResult.mergedStore);
+      // 4. Update local store if remote changes exist
+      if (mergeResult.hasRemoteChanges || JSON.stringify(currentStore) !== JSON.stringify(mergeResult.mergedStore)) {
+        setStore(mergeResult.mergedStore);
+        storeRef.current = mergeResult.mergedStore;
+      }
 
       const now = new Date().toISOString();
       setSyncStatus({
@@ -348,33 +383,45 @@ export function useKeepsakeStore() {
         syncedItemCount: mergeResult.mergedStore.bookmarks.length
       });
     } catch (err: any) {
-      console.error('Sync failed:', err);
+      console.error('[Keepsake Web] Google Drive sync failed:', err);
       setSyncStatus((prev) => ({
         ...prev,
         isSyncing: false,
         error: err.message || 'Google Drive sync failed'
       }));
+    } finally {
+      isSyncingRef.current = false;
     }
-  }, [authSession, store, deviceId, driveFileId]);
+  }, [deviceId]);
 
-  // Auto-sync on startup if logged in and Google Drive sync is enabled
+  // Auto-sync on startup or when Google Drive sync is enabled (runs only ONCE per enable transition)
+  const prevDriveSyncEnabledRef = useRef(false);
   useEffect(() => {
-    if (authSession?.tokens?.accessToken && isDriveSyncEnabled) {
+    const hasToken = Boolean(authSession?.tokens?.accessToken);
+    if (!hasToken || !isDriveSyncEnabled) {
+      prevDriveSyncEnabledRef.current = false;
+      return;
+    }
+
+    // Trigger only once when transitioning to enabled or upon initial load
+    if (!prevDriveSyncEnabledRef.current) {
+      prevDriveSyncEnabledRef.current = true;
       const timer = setTimeout(() => {
         syncWithGoogleDrive();
       }, 1000);
       return () => clearTimeout(timer);
     }
-  }, [authSession?.tokens?.accessToken, isDriveSyncEnabled, syncWithGoogleDrive]);
+  }, [Boolean(authSession?.tokens?.accessToken), isDriveSyncEnabled, syncWithGoogleDrive]);
 
   // Periodic background sync every 3 minutes if Google Drive sync is enabled
   useEffect(() => {
-    if (!authSession?.tokens?.accessToken || !isDriveSyncEnabled) return;
+    const hasToken = Boolean(authSession?.tokens?.accessToken);
+    if (!hasToken || !isDriveSyncEnabled) return;
     const interval = setInterval(() => {
       syncWithGoogleDrive();
     }, 180000);
     return () => clearInterval(interval);
-  }, [authSession?.tokens?.accessToken, isDriveSyncEnabled, syncWithGoogleDrive]);
+  }, [Boolean(authSession?.tokens?.accessToken), isDriveSyncEnabled, syncWithGoogleDrive]);
 
   // Bookmark Actions
   const addBookmark = useCallback(

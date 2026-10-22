@@ -16,11 +16,30 @@ export class GoogleDriveClient {
     this.accessToken = token;
   }
 
+  private async fetchWithTimeout(url: string, options: RequestInit = {}, timeoutMs = 20000): Promise<Response> {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      const res = await fetch(url, {
+        ...options,
+        signal: controller.signal
+      });
+      return res;
+    } catch (err: any) {
+      if (err.name === 'AbortError') {
+        throw new Error(`Google Drive request timed out after ${Math.round(timeoutMs / 1000)}s`);
+      }
+      throw err;
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
   /**
    * Fetches the authenticated Google User's profile
    */
   async getUserProfile(): Promise<UserProfile> {
-    const res = await fetch(USERINFO_ENDPOINT, {
+    const res = await this.fetchWithTimeout(USERINFO_ENDPOINT, {
       headers: {
         Authorization: `Bearer ${this.accessToken}`
       }
@@ -48,7 +67,7 @@ export class GoogleDriveClient {
     const query = encodeURIComponent(`name = '${DRIVE_FILE_NAME}' and trashed = false`);
     const url = `${DRIVE_API_BASE}/files?spaces=appDataFolder&q=${query}&fields=files(id,name,modifiedTime)`;
 
-    const res = await fetch(url, {
+    const res = await this.fetchWithTimeout(url, {
       headers: {
         Authorization: `Bearer ${this.accessToken}`
       }
@@ -75,7 +94,7 @@ export class GoogleDriveClient {
    */
   async readStore(fileId: string): Promise<KeepsakeDataStore> {
     const url = `${DRIVE_API_BASE}/files/${fileId}?alt=media`;
-    const res = await fetch(url, {
+    const res = await this.fetchWithTimeout(url, {
       headers: {
         Authorization: `Bearer ${this.accessToken}`
       }
@@ -98,7 +117,7 @@ export class GoogleDriveClient {
     if (existingFileId) {
       // Update existing file (PATCH upload)
       const uploadUrl = `${UPLOAD_API_BASE}/files/${existingFileId}?uploadType=media`;
-      const res = await fetch(uploadUrl, {
+      const res = await this.fetchWithTimeout(uploadUrl, {
         method: 'PATCH',
         headers: {
           Authorization: `Bearer ${this.accessToken}`,
@@ -136,7 +155,7 @@ export class GoogleDriveClient {
         closeDelimiter;
 
       const uploadUrl = `${UPLOAD_API_BASE}/files?uploadType=multipart`;
-      const res = await fetch(uploadUrl, {
+      const res = await this.fetchWithTimeout(uploadUrl, {
         method: 'POST',
         headers: {
           Authorization: `Bearer ${this.accessToken}`,
@@ -168,7 +187,7 @@ export class GoogleDriveClient {
       "name = 'Keepsake' and mimeType = 'application/vnd.google-apps.folder' and trashed = false"
     );
     const searchFolderUrl = `${DRIVE_API_BASE}/files?q=${folderQuery}&fields=files(id,name)`;
-    const searchRes = await fetch(searchFolderUrl, {
+    const searchRes = await this.fetchWithTimeout(searchFolderUrl, {
       headers: { Authorization: `Bearer ${this.accessToken}` }
     });
     const folderSearch = await searchRes.json();
@@ -178,7 +197,7 @@ export class GoogleDriveClient {
       folderId = folderSearch.files[0].id;
     } else {
       // Create folder
-      const createFolderRes = await fetch(`${DRIVE_API_BASE}/files`, {
+      const createFolderRes = await this.fetchWithTimeout(`${DRIVE_API_BASE}/files`, {
         method: 'POST',
         headers: {
           Authorization: `Bearer ${this.accessToken}`,
@@ -214,7 +233,7 @@ export class GoogleDriveClient {
       closeDelimiter;
 
     const uploadUrl = `${UPLOAD_API_BASE}/files?uploadType=multipart`;
-    const res = await fetch(uploadUrl, {
+    const res = await this.fetchWithTimeout(uploadUrl, {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${this.accessToken}`,

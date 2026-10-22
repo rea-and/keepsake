@@ -465,11 +465,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 <span className="font-medium text-neutral-700 dark:text-neutral-200 block truncate">
                   {authSession?.user?.name || 'Keepsake User'}
                 </span>
-                <span className="text-[10px] text-neutral-400 block truncate">
+                <span className="text-[10px] text-neutral-400 block truncate" title={syncStatus.error || undefined}>
                   {!isDriveSyncEnabled
                     ? 'Drive Sync: Off'
                     : syncStatus.isSyncing
                     ? 'Syncing to Drive...'
+                    : syncStatus.error
+                    ? 'Drive Sync: Error'
                     : syncStatus.lastSyncedAt
                     ? `Synced ${new Date(syncStatus.lastSyncedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
                     : 'Drive Sync Active'}
@@ -481,11 +483,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
               <button
                 onClick={onSync}
                 disabled={syncStatus.isSyncing}
-                title="Sync now"
+                title={syncStatus.error ? `Drive Sync Error: ${syncStatus.error}. Click to retry.` : 'Sync now'}
                 className="p-1.5 rounded-md hover:bg-neutral-100 dark:hover:bg-neutral-800 text-neutral-500 dark:text-neutral-400 transition-colors"
               >
                 <RefreshCw
-                  className={`w-3.5 h-3.5 ${syncStatus.isSyncing ? 'animate-spin text-sky-500' : ''}`}
+                  className={`w-3.5 h-3.5 ${syncStatus.isSyncing ? 'animate-spin text-sky-500' : syncStatus.error ? 'text-amber-500' : ''}`}
                 />
               </button>
             ) : (
