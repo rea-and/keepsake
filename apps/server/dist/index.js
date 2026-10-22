@@ -7,7 +7,7 @@ import fs from 'fs';
 import { authRouter } from './auth.js';
 import { scrapeUrl } from './scraper.js';
 import { serverStore } from './store.js';
-import { exportToNetscapeHtml, parseNetscapeHtml, extractDomain, getFaviconUrl } from '@keepsake/shared';
+import { exportToNetscapeHtml, parseNetscapeHtml, extractDomain, getFaviconUrl, isGenericRedditMedia } from '@keepsake/shared';
 dotenv.config();
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -124,13 +124,14 @@ app.post('/api/bookmarks', async (req, res) => {
         readerContent
     });
     // Background auto-enrichment if metadata is sparse or cover is missing/generic
-    const needsCover = !saved.cover || saved.cover.includes('redditstatic.com') || saved.cover.includes('icon.png');
+    const needsCover = !saved.cover || isGenericRedditMedia(saved.cover);
     if ((needsCover || !saved.description) && saved.url.startsWith('http')) {
         scrapeUrl(saved.url)
             .then((meta) => {
             if (meta && (meta.cover || meta.description || meta.title)) {
-                const resolvedCover = (meta.cover && !meta.cover.includes('redditstatic.com') && !meta.cover.includes('icon.png'))
-                    ? meta.cover
+                // If we already have a valid non-generic cover, preserve it!
+                const resolvedCover = needsCover
+                    ? (!isGenericRedditMedia(meta.cover) ? meta.cover : saved.cover)
                     : saved.cover;
                 serverStore.addOrUpdateBookmark({
                     id: saved.id,

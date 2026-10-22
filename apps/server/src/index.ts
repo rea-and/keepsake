@@ -12,6 +12,7 @@ import {
   parseNetscapeHtml,
   extractDomain,
   getFaviconUrl,
+  isGenericRedditMedia,
   Bookmark,
   Collection,
   KeepsakeDataStore
@@ -170,13 +171,14 @@ app.post('/api/bookmarks', async (req: Request, res: Response) => {
   });
 
   // Background auto-enrichment if metadata is sparse or cover is missing/generic
-  const needsCover = !saved.cover || saved.cover.includes('redditstatic.com') || saved.cover.includes('icon.png');
+  const needsCover = !saved.cover || isGenericRedditMedia(saved.cover);
   if ((needsCover || !saved.description) && saved.url.startsWith('http')) {
     scrapeUrl(saved.url)
       .then((meta) => {
         if (meta && (meta.cover || meta.description || meta.title)) {
-          const resolvedCover = (meta.cover && !meta.cover.includes('redditstatic.com') && !meta.cover.includes('icon.png'))
-            ? meta.cover
+          // If we already have a valid non-generic cover, preserve it!
+          const resolvedCover = needsCover
+            ? (!isGenericRedditMedia(meta.cover) ? meta.cover : saved.cover)
             : saved.cover;
 
           serverStore.addOrUpdateBookmark({

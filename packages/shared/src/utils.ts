@@ -210,6 +210,49 @@ export function cleanRedditTitle(rawTitle: string): string {
 }
 
 /**
+ * Checks if a Reddit image URL is a generic placeholder, icon, or share tracker
+ */
+export function isGenericRedditMedia(url?: string | null): boolean {
+  if (!url) return true;
+  const lower = url.toLowerCase();
+  return (
+    lower.includes('redditstatic.com') ||
+    lower.includes('icon.png') ||
+    lower.includes('favicon') ||
+    lower.includes('default_to_') ||
+    lower.includes('share.redd.it')
+  );
+}
+
+/**
+ * Checks if a given URL is a valid, displayable media/image link (and not a webpage or video stream)
+ */
+export function isValidMediaUrl(url?: string | null): boolean {
+  if (!url) return false;
+  const clean = url.trim().toLowerCase();
+  if (isGenericRedditMedia(clean)) return false;
+  if (clean.includes('v.redd.it')) return false;
+
+  // Real Reddit CDN image domains
+  if (
+    clean.includes('i.redd.it') ||
+    clean.includes('preview.redd.it') ||
+    clean.includes('external-preview.redd.it') ||
+    clean.includes('thumbs.redditmedia.com') ||
+    clean.includes('i.imgur.com')
+  ) {
+    return true;
+  }
+
+  // Standard image extensions (excluding web pages)
+  if (/\.(jpe?g|png|gif|webp|bmp|svg)(\?.*)?$/i.test(clean)) {
+    return true;
+  }
+
+  return false;
+}
+
+/**
  * Exports bookmarks to Netscape Bookmark HTML format (standard supported by Chrome, Firefox, Safari, Raindrop)
  */
 export function exportToNetscapeHtml(bookmarks: Bookmark[], collections: Collection[]): string {

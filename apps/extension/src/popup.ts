@@ -7,7 +7,9 @@ import {
   getYouTubeThumbnail,
   getYouTubeVideoId,
   isRedditUrl,
-  cleanRedditTitle
+  cleanRedditTitle,
+  isGenericRedditMedia,
+  isValidMediaUrl
 } from '@keepsake/shared';
 
 interface ExtensionStorage {
@@ -147,10 +149,9 @@ async function init() {
       }
       if (
         meta.cover &&
+        isValidMediaUrl(meta.cover) &&
         !meta.cover.includes('yt_1200.png') &&
-        !meta.cover.includes('youtube.com/img/desktop') &&
-        !meta.cover.includes('redditstatic.com') &&
-        !meta.cover.includes('icon.png')
+        !meta.cover.includes('youtube.com/img/desktop')
       ) {
         currentCover = meta.cover;
         coverImg.src = currentCover;
@@ -274,7 +275,7 @@ saveBtn.addEventListener('click', async () => {
   // If YouTube video, ensure thumbnail is saved and type is video
   const ytThumb = getYouTubeThumbnail(currentUrl);
   let finalCover = currentCover || undefined;
-  if (finalCover && (finalCover.includes('redditstatic.com') || finalCover.includes('icon.png'))) {
+  if (finalCover && !isValidMediaUrl(finalCover) && !ytThumb) {
     finalCover = undefined;
   }
   if (ytThumb && (!finalCover || finalCover.includes('yt_1200.png') || finalCover.includes('youtube.com/img/desktop'))) {

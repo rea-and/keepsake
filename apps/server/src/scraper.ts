@@ -15,6 +15,8 @@ import {
   parseRedditUrl,
   isRedditUrl,
   cleanRedditTitle,
+  isGenericRedditMedia,
+  isValidMediaUrl,
   RedditPostInfo
 } from '@keepsake/shared';
 
@@ -380,119 +382,113 @@ async function scrapeRedditPost(info: RedditPostInfo, canonicalUrl: string): Pro
     // oEmbed fallback
   }
 
-  // Strategy 2: OpenGraph social crawler fetch (Reddit returns high-res og:image and og:description)
+  // Strategy 2: Public Reddit RSS Feed (extracts real high-res CDN media thumbnails and post selftext)
   try {
+    const rssTarget = subreddit
+      ? `https://www.reddit.com/r/${subreddit}/comments/${info.postId}/.rss`
+      : `https://www.reddit.com/comments/${info.postId}/.rss`;
+
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 5000);
 
-    const ogRes = await fetch(canonicalUrl, {
+    const res = await fetch(rssTarget, {
       signal: controller.signal,
       headers: {
-        'User-Agent': REDDIT_BOT_UA,
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8'
+        'User-Agent': USER_AGENT,
+        'Accept': 'application/atom+xml,application/xml,text/xml;q=0.9,*/*;q=0.8'
       }
     });
     clearTimeout(timeout);
 
-    if (ogRes.ok) {
-      const html = await ogRes.text();
-      const ogTitleMatch = html.match(/<meta property=["']og:title["'] content=["']([^"']+)["']/i);
-      const ogImageMatch = html.match(/<meta property=["']og:image["'] content=["']([^"']+)["']/i);
-      const ogDescMatch = html.match(/<meta property=["']og:description["'] content=["']([^"']+)["']/i);
+    if (res.ok) {
+      const xml = await res.text();
 
-      if (!title && ogTitleMatch) {
-        title = cleanRedditTitle(ogTitleMatch[1]);
+      if (!title) {
+        const titleMatch = xml.match(/<entry>[^]*?<title>([^<]+)<\/title>/i) || xml.match(/<title>([^<]+)<\/title>/i);
+        if (titleMatch) {
+          title = cleanRedditTitle(titleMatch[1].replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>'));
+        }
       }
-      if (!cover && ogImageMatch) {
-        cover = ogImageMatch[1].replace(/&amp;/g, '&');
+
+      if (!author) {
+        const authorMatch = xml.match(/<author>[^]*?<name>(?:\/u\/)?([^<]+)<\/name>/i);
+        if (authorMatch) {
+          author = authorMatch[1].replace(/^\/u\//i, '');
+        }
       }
-      if (!selftext && ogDescMatch) {
-        const desc = ogDescMatch[1].trim();
-        if (desc && !desc.startsWith('Explore this post') && !desc.startsWith('From the ')) {
-          selftext = desc;
+
+      const thumbMatch =
+        xml.match(/<media:thumbnail[^>]+url="([^"]+)"/i) ||
+        xml.match(/<media:content[^>]+url="([^"]+)"/i) ||
+        xml.match(/https:\/\/(?:preview|i|external-preview|a\.thumbs|b\.thumbs)\.redd(?:it|\.it)\/[^"&<>\s]+(?:\?[^"<>\s]*)?/i);
+
+      if (thumbMatch) {
+        const candidateCover = (thumbMatch[1] || thumbMatch[0]).replace(/&amp;/g, '&');
+        if (isValidMediaUrl(candidateCover)) {
+          cover = candidateCover;
+        }
+      }
+
+      if (!selftext) {
+        const contentMatch = xml.match(/<content[^>]*type="html"[^>]*>([\s\S]*?)<\/content>/i);
+        if (contentMatch) {
+          const rawContent = contentMatch[1]
+            .replace(/&lt;/g, '<')
+            .replace(/&gt;/g, '>')
+            .replace(/&amp;/g, '&')
+            .replace(/&#39;/g, "'")
+            .replace(/&quot;/g, '"');
+
+          const textOnly = rawContent.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+          if (textOnly && textOnly.length > 20 && !textOnly.includes('submitted by') && !textOnly.includes('[link]')) {
+            selftext = textOnly;
+          }
         }
       }
     }
   } catch {
-    // OpenGraph fallback
+    // RSS fallback
   }
 
-  // Strategy 3: Public Reddit RSS Feed (extracts selftext, author, and thumbnails if available)
-  if (!selftext || !cover || !title) {
+  // Strategy 3: OpenGraph fallback for description and title
+  if (!selftext || !title) {
     try {
-      const rssTarget = subreddit
-        ? `https://www.reddit.com/r/${subreddit}/comments/${info.postId}/.rss`
-        : `https://www.reddit.com/comments/${info.postId}/.rss`;
-
       const controller = new AbortController();
       const timeout = setTimeout(() => controller.abort(), 5000);
 
-      const res = await fetch(rssTarget, {
+      const ogRes = await fetch(canonicalUrl, {
         signal: controller.signal,
         headers: {
           'User-Agent': REDDIT_BOT_UA,
-          'Accept': 'application/atom+xml,application/xml,text/xml;q=0.9,*/*;q=0.8'
+          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8'
         }
       });
       clearTimeout(timeout);
 
-      if (res.ok) {
-        const xml = await res.text();
+      if (ogRes.ok) {
+        const html = await ogRes.text();
+        const ogTitleMatch = html.match(/<meta property=["']og:title["'] content=["']([^"']+)["']/i);
+        const ogDescMatch = html.match(/<meta property=["']og:description["'] content=["']([^"']+)["']/i);
 
-        if (!title) {
-          const titleMatch = xml.match(/<entry>[^]*?<title>([^<]+)<\/title>/i) || xml.match(/<title>([^<]+)<\/title>/i);
-          if (titleMatch) {
-            title = cleanRedditTitle(titleMatch[1].replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>'));
-          }
+        if (!title && ogTitleMatch) {
+          title = cleanRedditTitle(ogTitleMatch[1]);
         }
-
-        if (!author) {
-          const authorMatch = xml.match(/<author>[^]*?<name>(?:\/u\/)?([^<]+)<\/name>/i);
-          if (authorMatch) {
-            author = authorMatch[1].replace(/^\/u\//i, '');
-          }
-        }
-
-        if (!cover) {
-          const thumbMatch =
-            xml.match(/<media:thumbnail[^>]+url="([^"]+)"/i) ||
-            xml.match(/<media:content[^>]+url="([^"]+)"/i) ||
-            xml.match(/https:\/\/(?:preview|i|external-preview)\.redd\.it\/[^"&<>\s]+(?:\?[^"<>\s]*)?/i);
-
-          if (thumbMatch) {
-            cover = (thumbMatch[1] || thumbMatch[0]).replace(/&amp;/g, '&');
-          }
-        }
-
-        if (!selftext) {
-          const contentMatch = xml.match(/<content[^>]*type="html"[^>]*>([\s\S]*?)<\/content>/i);
-          if (contentMatch) {
-            const rawContent = contentMatch[1]
-              .replace(/&lt;/g, '<')
-              .replace(/&gt;/g, '>')
-              .replace(/&amp;/g, '&')
-              .replace(/&#39;/g, "'")
-              .replace(/&quot;/g, '"');
-
-            const textOnly = rawContent.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
-            if (textOnly && textOnly.length > 20 && !textOnly.includes('submitted by') && !textOnly.includes('[link]')) {
-              selftext = textOnly;
-            }
+        if (!selftext && ogDescMatch) {
+          const desc = ogDescMatch[1].trim();
+          if (desc && !desc.startsWith('Explore this post') && !desc.startsWith('From the ')) {
+            selftext = desc;
           }
         }
       }
     } catch {
-      // RSS fallback
+      // OpenGraph fallback
     }
   }
 
-  // Strategy 4: Fallback cover to official Reddit preview card for this postId
-  if (!cover && info.postId) {
-    cover = `https://share.redd.it/preview/post/${info.postId}`;
-  }
-
-  if (cover) {
+  if (cover && isValidMediaUrl(cover)) {
     type = 'image';
+  } else {
+    cover = undefined;
   }
 
   let readerContent: ReaderContent | undefined;

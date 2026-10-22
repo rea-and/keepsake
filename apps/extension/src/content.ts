@@ -8,18 +8,10 @@ import {
   getYouTubeThumbnail,
   getYouTubeVideoId,
   parseRedditUrl,
-  cleanRedditTitle
+  cleanRedditTitle,
+  isGenericRedditMedia,
+  isValidMediaUrl
 } from '@keepsake/shared';
-
-function isGenericRedditMedia(url?: string | null): boolean {
-  if (!url) return true;
-  return (
-    url.includes('redditstatic.com') ||
-    url.includes('icon.png') ||
-    url.includes('favicon') ||
-    url.includes('default_to_')
-  );
-}
 
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   if (request.action === 'GET_PAGE_METADATA') {
@@ -79,22 +71,39 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
       }
 
       // Extract high-resolution media cover
-      const redditMedia =
-        shredditPost?.getAttribute('content-href') ||
-        shredditPost?.getAttribute('thumbnail-src') ||
-        document.querySelector('shreddit-aspect-ratio img')?.getAttribute('src') ||
-        document.querySelector('img[src*="preview.redd.it"]')?.getAttribute('src') ||
-        document.querySelector('img[src*="i.redd.it"]')?.getAttribute('src') ||
-        document.querySelector('img[src*="external-preview.redd.it"]')?.getAttribute('src') ||
-        document.querySelector('shreddit-player')?.getAttribute('poster') ||
-        document.querySelector('img[alt="Post image"]')?.getAttribute('src') ||
-        document.querySelector('div[data-click-id="media"] img')?.getAttribute('src') ||
-        document.querySelector('figure img')?.getAttribute('src');
+      let redditMedia: string | undefined = undefined;
+      const contentHref = shredditPost?.getAttribute('content-href');
+      const thumbSrc = shredditPost?.getAttribute('thumbnail-src');
 
-      if (redditMedia && (redditMedia.startsWith('http') || redditMedia.startsWith('//')) && !isGenericRedditMedia(redditMedia)) {
+      if (contentHref && isValidMediaUrl(contentHref)) {
+        redditMedia = contentHref;
+      } else if (thumbSrc && isValidMediaUrl(thumbSrc)) {
+        redditMedia = thumbSrc;
+      }
+
+      if (!redditMedia) {
+        const player = document.querySelector('shreddit-player');
+        const poster = player?.getAttribute('poster');
+        if (poster && isValidMediaUrl(poster)) {
+          redditMedia = poster;
+        }
+      }
+
+      if (!redditMedia) {
+        const img = document.querySelector<HTMLImageElement>(
+          'img[src*="preview.redd.it"], img[src*="i.redd.it"], img[src*="external-preview.redd.it"], shreddit-aspect-ratio img, img[alt="Post image"], div[data-click-id="media"] img, figure img'
+        );
+        if (img?.src && isValidMediaUrl(img.src)) {
+          redditMedia = img.src;
+        }
+      }
+
+      if (redditMedia) {
         ogImage = (redditMedia.startsWith('//') ? `https:${redditMedia}` : redditMedia).replace(/&amp;/g, '&');
-      } else if (ogImage) {
+      } else if (ogImage && isValidMediaUrl(ogImage)) {
         ogImage = ogImage.replace(/&amp;/g, '&');
+      } else {
+        ogImage = undefined;
       }
 
       // Extract post text body if available
@@ -235,26 +244,26 @@ function handleBookPost(bookBtn: HTMLButtonElement, post: Element) {
   const contentHref = post.getAttribute('content-href');
   const thumbSrc = post.getAttribute('thumbnail-src');
 
-  if (contentHref && (/\.(jpe?g|png|gif|webp)/i.test(contentHref) || contentHref.includes('redd.it') || contentHref.includes('imgur'))) {
+  if (contentHref && isValidMediaUrl(contentHref)) {
     cover = contentHref;
-  } else if (thumbSrc && thumbSrc.startsWith('http') && !isGenericRedditMedia(thumbSrc)) {
+  } else if (thumbSrc && isValidMediaUrl(thumbSrc)) {
     cover = thumbSrc;
   }
 
   if (!cover) {
-    const img = post.querySelector<HTMLImageElement>(
-      'img[src*="preview.redd.it"], img[src*="i.redd.it"], img[src*="external-preview.redd.it"], shreddit-aspect-ratio img, div[data-click-id="media"] img, figure img'
-    );
-    if (img?.src && !isGenericRedditMedia(img.src)) {
-      cover = img.src;
+    const player = post.querySelector('shreddit-player') || post.shadowRoot?.querySelector('shreddit-player');
+    const poster = player?.getAttribute('poster');
+    if (poster && isValidMediaUrl(poster)) {
+      cover = poster;
     }
   }
 
   if (!cover) {
-    const player = post.querySelector('shreddit-player');
-    const poster = player?.getAttribute('poster');
-    if (poster && poster.startsWith('http')) {
-      cover = poster;
+    const img = post.querySelector<HTMLImageElement>(
+      'img[src*="preview.redd.it"], img[src*="i.redd.it"], img[src*="external-preview.redd.it"], shreddit-aspect-ratio img, div[data-click-id="media"] img, figure img, [slot="thumbnail"] img'
+    ) || post.shadowRoot?.querySelector<HTMLImageElement>('img');
+    if (img?.src && isValidMediaUrl(img.src)) {
+      cover = img.src;
     }
   }
 

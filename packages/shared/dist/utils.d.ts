@@ -35,6 +35,14 @@ export declare function isRedditUrl(rawUrl: string): boolean;
  */
 export declare function cleanRedditTitle(rawTitle: string): string;
 /**
+ * Checks if a Reddit image URL is a generic placeholder, icon, or share tracker
+ */
+export declare function isGenericRedditMedia(url?: string | null): boolean;
+/**
+ * Checks if a given URL is a valid, displayable media/image link (and not a webpage or video stream)
+ */
+export declare function isValidMediaUrl(url?: string | null): boolean;
+/**
  * Exports bookmarks to Netscape Bookmark HTML format (standard supported by Chrome, Firefox, Safari, Raindrop)
  */
 export declare function exportToNetscapeHtml(bookmarks: Bookmark[], collections: Collection[]): string;

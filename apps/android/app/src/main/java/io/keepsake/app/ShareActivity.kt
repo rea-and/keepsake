@@ -177,12 +177,6 @@ class ShareActivity : AppCompatActivity() {
 
                 // Direct native high-res Reddit thumbnail discovery & title via oEmbed
                 if (postId != null) {
-                    // Set official preview card cover immediately
-                    val previewCard = "https://share.redd.it/preview/post/$postId"
-                    currentCoverUrl = previewCard
-                    bookmarkType = "image"
-                    loadThumbnailBitmap(previewCard)
-
                     // Fetch accurate clean post title via Reddit oEmbed
                     try {
                         val encodedTarget = URLEncoder.encode(targetUrl, "UTF-8")
@@ -249,8 +243,9 @@ class ShareActivity : AppCompatActivity() {
                                 }
                             }
 
-                            if (!thumb.isNullOrEmpty() && !thumb.contains("redditstatic.com") && !thumb.contains("icon.png")) {
+                            if (!thumb.isNullOrEmpty() && !thumb.contains("redditstatic.com") && !thumb.contains("icon.png") && !thumb.contains("share.redd.it")) {
                                 currentCoverUrl = thumb
+                                bookmarkType = "image"
                                 loadThumbnailBitmap(thumb)
                             }
                         }
@@ -376,10 +371,6 @@ class ShareActivity : AppCompatActivity() {
                 val resolved = resolveRedirectUrl(targetUrl)
                 if (resolved.isNotEmpty() && resolved != targetUrl) {
                     targetUrl = resolved
-                    val postId = extractRedditPostId(targetUrl)
-                    if (currentCoverUrl.isNullOrEmpty() && postId != null) {
-                        currentCoverUrl = "https://share.redd.it/preview/post/$postId"
-                    }
                 }
             }
 

@@ -4,7 +4,8 @@ import {
   getFaviconUrl,
   normalizeUrl,
   getYouTubeThumbnail,
-  getYouTubeVideoId
+  getYouTubeVideoId,
+  isGenericRedditMedia
 } from '@keepsake/shared';
 
 // Setup Context Menus on Installation
@@ -183,7 +184,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       note: data.note || '',
       domain,
       favicon: data.favicon || (domain.includes('reddit.com') ? 'https://www.redditstatic.com/shreddit/assets/favicon/192x192.png' : getFaviconUrl(domain)),
-      cover: (data.cover && !data.cover.includes('redditstatic.com') && !data.cover.includes('icon.png')) ? data.cover : undefined,
+      cover: (!isGenericRedditMedia(data.cover)) ? data.cover : undefined,
       collectionId: data.collectionId || 'unsorted',
       tags: data.tags || [],
       isFavorite: false,
