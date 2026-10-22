@@ -3,8 +3,9 @@ import { JSDOM } from 'jsdom';
 import { Readability } from '@mozilla/readability';
 import { isIP } from 'net';
 import dns from 'dns/promises';
-import { extractDomain, getFaviconUrl, normalizeUrl, getYouTubeThumbnail, getYouTubeVideoId, parseRedditUrl, isRedditUrl, cleanRedditTitle, isValidMediaUrl } from '@keepsake/shared';
+import { extractDomain, getFaviconUrl, normalizeUrl, getYouTubeThumbnail, getYouTubeVideoId, parseRedditUrl, isRedditUrl, cleanRedditTitle, isValidMediaUrl, cleanRedditMediaUrl } from '@keepsake/shared';
 const USER_AGENT = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36';
+const REDDIT_BOT_UA = 'facebookexternalhit/1.3 (+http://www.facebook.com/externalhit_uatext.php)';
 // ==========================================
 // SSRF Defense: Validate URL & Private IP Checks
 // ==========================================
@@ -122,7 +123,8 @@ export async function scrapeUrl(rawUrl) {
     if (isRedditUrl(url)) {
         let canonicalUrl = url;
         let redditInfo = parseRedditUrl(canonicalUrl);
-        // If it's a shortlink (/s/) or redd.it or missing postId, resolve redirect first
+        let initialHtml = '';
+        // If it's a shortlink (/s/) or redd.it or missing postId, resolve redirect or fetch OpenGraph
         if (!redditInfo?.postId || canonicalUrl.includes('/s/') || extractDomain(canonicalUrl) === 'redd.it') {
             try {
                 const controller = new AbortController();
@@ -132,25 +134,36 @@ export async function scrapeUrl(rawUrl) {
                     redirect: 'follow',
                     signal: controller.signal,
                     headers: {
-                        'User-Agent': 'facebookexternalhit/1.3 (+http://www.facebook.com/externalhit_uatext.php)',
+                        'User-Agent': REDDIT_BOT_UA,
                         'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8'
                     }
                 });
                 clearTimeout(timeout);
-                if (redirectRes.url && redirectRes.url !== canonicalUrl) {
-                    canonicalUrl = redirectRes.url;
-                    redditInfo = parseRedditUrl(canonicalUrl);
+                if (redirectRes.ok) {
+                    if (redirectRes.url && redirectRes.url !== canonicalUrl) {
+                        canonicalUrl = redirectRes.url;
+                        redditInfo = parseRedditUrl(canonicalUrl);
+                    }
+                    initialHtml = await redirectRes.text();
+                    // Extract canonical og:url if redirect didn't update url
+                    const ogUrlMatch = initialHtml.match(/<meta property=["']og:url["'] content=["']([^"']+)["']/i);
+                    if (ogUrlMatch?.[1]) {
+                        const ogUrl = ogUrlMatch[1];
+                        const parsedOg = parseRedditUrl(ogUrl);
+                        if (parsedOg?.postId) {
+                            canonicalUrl = ogUrl;
+                            redditInfo = parsedOg;
+                        }
+                    }
                 }
             }
             catch {
                 // Fall back to original
             }
         }
-        if (redditInfo?.postId) {
-            const redditMeta = await scrapeRedditPost(redditInfo, canonicalUrl);
-            if (redditMeta) {
-                return redditMeta;
-            }
+        const redditMeta = await scrapeRedditPost(redditInfo, canonicalUrl, initialHtml);
+        if (redditMeta) {
+            return redditMeta;
         }
     }
     try {
@@ -304,101 +317,126 @@ function fallbackMetadata(url, domain, errorMsg) {
         type: 'link'
     };
 }
-async function scrapeRedditPost(info, canonicalUrl) {
-    if (!info.postId)
-        return null;
-    const subreddit = info.subreddit || '';
+async function scrapeRedditPost(info, canonicalUrl, initialHtml) {
+    const subreddit = info?.subreddit || '';
     let title = '';
     let cover;
     let selftext = '';
     let author = '';
     let type = 'link';
-    const REDDIT_BOT_UA = 'facebookexternalhit/1.3 (+http://www.facebook.com/externalhit_uatext.php)';
-    // Strategy 1: Reddit oEmbed API (official, fast, never bot-blocked, gives clean post title)
-    try {
-        const oembedUrl = `https://www.reddit.com/oembed?url=${encodeURIComponent(canonicalUrl)}`;
-        const controller = new AbortController();
-        const timeout = setTimeout(() => controller.abort(), 4000);
-        const oembedRes = await fetch(oembedUrl, {
-            signal: controller.signal,
-            headers: {
-                'User-Agent': REDDIT_BOT_UA
+    // Strategy 0: Parse OpenGraph from initialHtml (e.g. from /s/ resolution)
+    if (initialHtml) {
+        const ogTitleMatch = initialHtml.match(/<meta property=["']og:title["'] content=["']([^"']+)["']/i);
+        const ogDescMatch = initialHtml.match(/<meta property=["']og:description["'] content=["']([^"']+)["']/i);
+        const ogImageMatch = initialHtml.match(/<meta property=["']og:image["'] content=["']([^"']+)["']/i);
+        const twitterImageMatch = initialHtml.match(/<meta (?:name|property)=["']twitter:image(?::src)?["'] content=["']([^"']+)["']/i);
+        if (ogTitleMatch) {
+            title = cleanRedditTitle(ogTitleMatch[1]);
+        }
+        const rawImg = ogImageMatch?.[1] || twitterImageMatch?.[1];
+        if (rawImg) {
+            const cleaned = cleanRedditMediaUrl(rawImg);
+            if (cleaned && isValidMediaUrl(cleaned)) {
+                cover = cleaned;
             }
-        });
-        clearTimeout(timeout);
-        if (oembedRes.ok) {
-            const oembedData = (await oembedRes.json());
-            if (oembedData.title) {
-                title = cleanRedditTitle(oembedData.title);
-            }
-            if (oembedData.author_name) {
-                author = oembedData.author_name;
+        }
+        if (ogDescMatch) {
+            const desc = ogDescMatch[1].trim();
+            if (desc && !desc.startsWith('Explore this post') && !desc.startsWith('From the ')) {
+                selftext = desc;
             }
         }
     }
-    catch {
-        // oEmbed fallback
+    // Strategy 1: Reddit oEmbed API (official, fast, never bot-blocked, gives clean post title)
+    if (!title && info?.postId) {
+        try {
+            const oembedUrl = `https://www.reddit.com/oembed?url=${encodeURIComponent(canonicalUrl)}`;
+            const controller = new AbortController();
+            const timeout = setTimeout(() => controller.abort(), 4000);
+            const oembedRes = await fetch(oembedUrl, {
+                signal: controller.signal,
+                headers: {
+                    'User-Agent': REDDIT_BOT_UA
+                }
+            });
+            clearTimeout(timeout);
+            if (oembedRes.ok) {
+                const oembedData = (await oembedRes.json());
+                if (oembedData.title) {
+                    title = cleanRedditTitle(oembedData.title);
+                }
+                if (oembedData.author_name) {
+                    author = oembedData.author_name;
+                }
+            }
+        }
+        catch {
+            // oEmbed fallback
+        }
     }
     // Strategy 2: Public Reddit RSS Feed (extracts real high-res CDN media thumbnails and post selftext)
-    try {
-        const rssTarget = subreddit
-            ? `https://www.reddit.com/r/${subreddit}/comments/${info.postId}/.rss`
-            : `https://www.reddit.com/comments/${info.postId}/.rss`;
-        const controller = new AbortController();
-        const timeout = setTimeout(() => controller.abort(), 5000);
-        const res = await fetch(rssTarget, {
-            signal: controller.signal,
-            headers: {
-                'User-Agent': USER_AGENT,
-                'Accept': 'application/atom+xml,application/xml,text/xml;q=0.9,*/*;q=0.8'
-            }
-        });
-        clearTimeout(timeout);
-        if (res.ok) {
-            const xml = await res.text();
-            if (!title) {
-                const titleMatch = xml.match(/<entry>[^]*?<title>([^<]+)<\/title>/i) || xml.match(/<title>([^<]+)<\/title>/i);
-                if (titleMatch) {
-                    title = cleanRedditTitle(titleMatch[1].replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>'));
+    if (info?.postId) {
+        try {
+            const rssTarget = subreddit
+                ? `https://www.reddit.com/r/${subreddit}/comments/${info.postId}/.rss`
+                : `https://www.reddit.com/comments/${info.postId}/.rss`;
+            const controller = new AbortController();
+            const timeout = setTimeout(() => controller.abort(), 5000);
+            const res = await fetch(rssTarget, {
+                signal: controller.signal,
+                headers: {
+                    'User-Agent': REDDIT_BOT_UA,
+                    'Accept': 'application/atom+xml,application/xml,text/xml;q=0.9,*/*;q=0.8'
                 }
-            }
-            if (!author) {
-                const authorMatch = xml.match(/<author>[^]*?<name>(?:\/u\/)?([^<]+)<\/name>/i);
-                if (authorMatch) {
-                    author = authorMatch[1].replace(/^\/u\//i, '');
+            });
+            clearTimeout(timeout);
+            if (res.ok) {
+                const xml = await res.text();
+                if (!title) {
+                    const titleMatch = xml.match(/<entry>[^]*?<title>([^<]+)<\/title>/i) || xml.match(/<title>([^<]+)<\/title>/i);
+                    if (titleMatch) {
+                        title = cleanRedditTitle(titleMatch[1].replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>'));
+                    }
                 }
-            }
-            const thumbMatch = xml.match(/<media:thumbnail[^>]+url="([^"]+)"/i) ||
-                xml.match(/<media:content[^>]+url="([^"]+)"/i) ||
-                xml.match(/https:\/\/(?:preview|i|external-preview|a\.thumbs|b\.thumbs)\.redd(?:it|\.it)\/[^"&<>\s]+(?:\?[^"<>\s]*)?/i);
-            if (thumbMatch) {
-                const candidateCover = (thumbMatch[1] || thumbMatch[0]).replace(/&amp;/g, '&');
-                if (isValidMediaUrl(candidateCover)) {
-                    cover = candidateCover;
+                if (!author) {
+                    const authorMatch = xml.match(/<author>[^]*?<name>(?:\/u\/)?([^<]+)<\/name>/i);
+                    if (authorMatch) {
+                        author = authorMatch[1].replace(/^\/u\//i, '');
+                    }
                 }
-            }
-            if (!selftext) {
-                const contentMatch = xml.match(/<content[^>]*type="html"[^>]*>([\s\S]*?)<\/content>/i);
-                if (contentMatch) {
-                    const rawContent = contentMatch[1]
-                        .replace(/&lt;/g, '<')
-                        .replace(/&gt;/g, '>')
-                        .replace(/&amp;/g, '&')
-                        .replace(/&#39;/g, "'")
-                        .replace(/&quot;/g, '"');
-                    const textOnly = rawContent.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
-                    if (textOnly && textOnly.length > 20 && !textOnly.includes('submitted by') && !textOnly.includes('[link]')) {
-                        selftext = textOnly;
+                const mediaMatch = xml.match(/<media:(?:thumbnail|content)[^>]+url="([^"]+)"/i);
+                const directMatch = xml.match(/https:\/\/i\.redd\.it\/[a-zA-Z0-9_\-\.]+\.(?:jpe?g|png|webp|gif)/i);
+                const previewMatch = xml.match(/https:\/\/(?:preview|external-preview|a\.thumbs|b\.thumbs)\.redd(?:it|\.it)\/[^"&<>\s]+(?:\?[^"<>\s]*)?/i);
+                const candidateRaw = directMatch?.[0] || mediaMatch?.[1] || previewMatch?.[0];
+                if (candidateRaw) {
+                    const cleaned = cleanRedditMediaUrl(candidateRaw);
+                    if (cleaned && isValidMediaUrl(cleaned)) {
+                        cover = cleaned;
+                    }
+                }
+                if (!selftext) {
+                    const contentMatch = xml.match(/<content[^>]*type="html"[^>]*>([\s\S]*?)<\/content>/i);
+                    if (contentMatch) {
+                        const rawContent = contentMatch[1]
+                            .replace(/&lt;/g, '<')
+                            .replace(/&gt;/g, '>')
+                            .replace(/&amp;/g, '&')
+                            .replace(/&#39;/g, "'")
+                            .replace(/&quot;/g, '"');
+                        const textOnly = rawContent.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+                        if (textOnly && textOnly.length > 20 && !textOnly.includes('submitted by') && !textOnly.includes('[link]')) {
+                            selftext = textOnly;
+                        }
                     }
                 }
             }
         }
+        catch {
+            // RSS fallback
+        }
     }
-    catch {
-        // RSS fallback
-    }
-    // Strategy 3: OpenGraph fallback for description and title
-    if (!selftext || !title) {
+    // Strategy 3: OpenGraph fallback for description, title, and cover image
+    if (!selftext || !title || !cover) {
         try {
             const controller = new AbortController();
             const timeout = setTimeout(() => controller.abort(), 5000);
@@ -414,8 +452,19 @@ async function scrapeRedditPost(info, canonicalUrl) {
                 const html = await ogRes.text();
                 const ogTitleMatch = html.match(/<meta property=["']og:title["'] content=["']([^"']+)["']/i);
                 const ogDescMatch = html.match(/<meta property=["']og:description["'] content=["']([^"']+)["']/i);
+                const ogImageMatch = html.match(/<meta property=["']og:image["'] content=["']([^"']+)["']/i);
+                const twitterImageMatch = html.match(/<meta (?:name|property)=["']twitter:image(?::src)?["'] content=["']([^"']+)["']/i);
                 if (!title && ogTitleMatch) {
                     title = cleanRedditTitle(ogTitleMatch[1]);
+                }
+                if (!cover) {
+                    const rawImg = ogImageMatch?.[1] || twitterImageMatch?.[1];
+                    if (rawImg) {
+                        const cleaned = cleanRedditMediaUrl(rawImg);
+                        if (cleaned && isValidMediaUrl(cleaned)) {
+                            cover = cleaned;
+                        }
+                    }
                 }
                 if (!selftext && ogDescMatch) {
                     const desc = ogDescMatch[1].trim();

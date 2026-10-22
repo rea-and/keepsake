@@ -9,6 +9,7 @@ exports.parseRedditUrl = parseRedditUrl;
 exports.isRedditUrl = isRedditUrl;
 exports.cleanRedditTitle = cleanRedditTitle;
 exports.isSparseTitle = isSparseTitle;
+exports.cleanRedditMediaUrl = cleanRedditMediaUrl;
 exports.isGenericRedditMedia = isGenericRedditMedia;
 exports.isValidMediaUrl = isValidMediaUrl;
 exports.exportToNetscapeHtml = exportToNetscapeHtml;
@@ -231,6 +232,48 @@ function isSparseTitle(title, domain, url) {
         return true;
     }
     return false;
+}
+/**
+ * Normalizes and cleans Reddit media URLs, stripping double-encoded entities and
+ * upgrading preview.redd.it links to permanent, high-res direct i.redd.it URLs.
+ */
+function cleanRedditMediaUrl(rawUrl) {
+    if (!rawUrl)
+        return undefined;
+    let url = rawUrl.trim();
+    url = url.replace(/&quot;.*$/, '');
+    url = url.replace(/&gt;.*$/, '');
+    url = url.replace(/['"]+$/, '');
+    while (url.includes('&amp;')) {
+        url = url.replace(/&amp;/g, '&');
+    }
+    // Handle Reddit wrapper: /media?url=...
+    if (url.includes('/media?') || url.includes('/media/')) {
+        try {
+            const match = url.match(/[?&]url=([^&]+)/);
+            if (match) {
+                url = decodeURIComponent(match[1]);
+                while (url.includes('&amp;')) {
+                    url = url.replace(/&amp;/g, '&');
+                }
+            }
+        }
+        catch { }
+    }
+    // Convert preview.redd.it to direct permanent i.redd.it link
+    const extMatch = url.match(/https:\/\/preview\.redd\.it\/([a-zA-Z0-9_\-\.]+)\.(jpe?g|png|webp|gif)/i);
+    if (extMatch) {
+        return `https://i.redd.it/${extMatch[1]}.${extMatch[2]}`;
+    }
+    const noExtMatch = url.match(/https:\/\/preview\.redd\.it\/([a-zA-Z0-9_\-]+)\?(?:[^"'\s]*&)?format=(p?jpe?g|png|webp|gif)/i);
+    if (noExtMatch) {
+        const ext = noExtMatch[2].toLowerCase() === 'pjpg' ? 'jpg' : noExtMatch[2].toLowerCase();
+        return `https://i.redd.it/${noExtMatch[1]}.${ext}`;
+    }
+    if (isGenericRedditMedia(url)) {
+        return undefined;
+    }
+    return url;
 }
 /**
  * Checks if a Reddit image URL is a generic placeholder, icon, or share tracker

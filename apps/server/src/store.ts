@@ -15,7 +15,9 @@ import {
   getYouTubeVideoId,
   isRedditUrl,
   parseRedditUrl,
-  cleanRedditTitle
+  cleanRedditTitle,
+  cleanRedditMediaUrl,
+  isGenericRedditMedia
 } from '@keepsake/shared';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -163,7 +165,7 @@ class ServerStoreManager {
       cover = ytThumb;
     }
 
-    // Auto-detect Reddit posts: clean title, extract subreddit tag, set Reddit favicon
+    // Auto-detect Reddit posts: clean title, extract subreddit tag, set Reddit favicon, clean media
     if (isRedditUrl(cleanUrl)) {
       title = cleanRedditTitle(title) || title;
       const rInfo = parseRedditUrl(cleanUrl);
@@ -173,12 +175,15 @@ class ServerStoreManager {
       if (!data.favicon || data.favicon.includes('google.com')) {
         favicon = 'https://www.redditstatic.com/shreddit/assets/favicon/192x192.png';
       }
-      if (cover && (cover.includes('redditstatic.com') || cover.includes('icon.png') || cover.includes('/favicon'))) {
+      if (cover) {
+        cover = cleanRedditMediaUrl(cover);
+      }
+      if (cover && isGenericRedditMedia(cover)) {
         cover = undefined;
       }
     }
 
-    const bookmarkType = isVideo ? 'video' : (data.type || 'link');
+    const bookmarkType = isVideo ? 'video' : (data.type || (cover ? 'image' : 'link'));
 
     let existingIndex = -1;
     if (data.id) {

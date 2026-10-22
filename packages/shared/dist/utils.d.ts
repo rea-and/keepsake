@@ -39,6 +39,11 @@ export declare function cleanRedditTitle(rawTitle: string): string;
  */
 export declare function isSparseTitle(title?: string | null, domain?: string, url?: string): boolean;
 /**
+ * Normalizes and cleans Reddit media URLs, stripping double-encoded entities and
+ * upgrading preview.redd.it links to permanent, high-res direct i.redd.it URLs.
+ */
+export declare function cleanRedditMediaUrl(rawUrl?: string | null): string | undefined;
+/**
  * Checks if a Reddit image URL is a generic placeholder, icon, or share tracker
  */
 export declare function isGenericRedditMedia(url?: string | null): boolean;

@@ -17,10 +17,12 @@ import {
   cleanRedditTitle,
   isGenericRedditMedia,
   isValidMediaUrl,
+  cleanRedditMediaUrl,
   RedditPostInfo
 } from '@keepsake/shared';
 
 const USER_AGENT = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36';
+const REDDIT_BOT_UA = 'facebookexternalhit/1.3 (+http://www.facebook.com/externalhit_uatext.php)';
 
 // ==========================================
 // SSRF Defense: Validate URL & Private IP Checks
@@ -142,8 +144,9 @@ export async function scrapeUrl(rawUrl: string): Promise<ScrapedMetadata> {
   if (isRedditUrl(url)) {
     let canonicalUrl = url;
     let redditInfo = parseRedditUrl(canonicalUrl);
+    let initialHtml = '';
 
-    // If it's a shortlink (/s/) or redd.it or missing postId, resolve redirect first
+    // If it's a shortlink (/s/) or redd.it or missing postId, resolve redirect or fetch OpenGraph
     if (!redditInfo?.postId || canonicalUrl.includes('/s/') || extractDomain(canonicalUrl) === 'redd.it') {
       try {
         const controller = new AbortController();
@@ -153,25 +156,36 @@ export async function scrapeUrl(rawUrl: string): Promise<ScrapedMetadata> {
           redirect: 'follow',
           signal: controller.signal,
           headers: {
-            'User-Agent': 'facebookexternalhit/1.3 (+http://www.facebook.com/externalhit_uatext.php)',
+            'User-Agent': REDDIT_BOT_UA,
             'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8'
           }
         });
         clearTimeout(timeout);
-        if (redirectRes.url && redirectRes.url !== canonicalUrl) {
-          canonicalUrl = redirectRes.url;
-          redditInfo = parseRedditUrl(canonicalUrl);
+        if (redirectRes.ok) {
+          if (redirectRes.url && redirectRes.url !== canonicalUrl) {
+            canonicalUrl = redirectRes.url;
+            redditInfo = parseRedditUrl(canonicalUrl);
+          }
+          initialHtml = await redirectRes.text();
+          // Extract canonical og:url if redirect didn't update url
+          const ogUrlMatch = initialHtml.match(/<meta property=["']og:url["'] content=["']([^"']+)["']/i);
+          if (ogUrlMatch?.[1]) {
+            const ogUrl = ogUrlMatch[1];
+            const parsedOg = parseRedditUrl(ogUrl);
+            if (parsedOg?.postId) {
+              canonicalUrl = ogUrl;
+              redditInfo = parsedOg;
+            }
+          }
         }
       } catch {
         // Fall back to original
       }
     }
 
-    if (redditInfo?.postId) {
-      const redditMeta = await scrapeRedditPost(redditInfo, canonicalUrl);
-      if (redditMeta) {
-        return redditMeta;
-      }
+    const redditMeta = await scrapeRedditPost(redditInfo, canonicalUrl, initialHtml);
+    if (redditMeta) {
+      return redditMeta;
     }
   }
 
@@ -343,50 +357,74 @@ function fallbackMetadata(url: string, domain: string, errorMsg?: string): Scrap
   };
 }
 
-async function scrapeRedditPost(info: RedditPostInfo, canonicalUrl: string): Promise<ScrapedMetadata | null> {
-  if (!info.postId) return null;
-
-  const subreddit = info.subreddit || '';
+async function scrapeRedditPost(info: RedditPostInfo | null, canonicalUrl: string, initialHtml?: string): Promise<ScrapedMetadata | null> {
+  const subreddit = info?.subreddit || '';
   let title = '';
   let cover: string | undefined;
   let selftext = '';
   let author = '';
   let type: BookmarkType = 'link';
 
-  const REDDIT_BOT_UA = 'facebookexternalhit/1.3 (+http://www.facebook.com/externalhit_uatext.php)';
+  // Strategy 0: Parse OpenGraph from initialHtml (e.g. from /s/ resolution)
+  if (initialHtml) {
+    const ogTitleMatch = initialHtml.match(/<meta property=["']og:title["'] content=["']([^"']+)["']/i);
+    const ogDescMatch = initialHtml.match(/<meta property=["']og:description["'] content=["']([^"']+)["']/i);
+    const ogImageMatch = initialHtml.match(/<meta property=["']og:image["'] content=["']([^"']+)["']/i);
+    const twitterImageMatch = initialHtml.match(/<meta (?:name|property)=["']twitter:image(?::src)?["'] content=["']([^"']+)["']/i);
 
-  // Strategy 1: Reddit oEmbed API (official, fast, never bot-blocked, gives clean post title)
-  try {
-    const oembedUrl = `https://www.reddit.com/oembed?url=${encodeURIComponent(canonicalUrl)}`;
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 4000);
-
-    const oembedRes = await fetch(oembedUrl, {
-      signal: controller.signal,
-      headers: {
-        'User-Agent': REDDIT_BOT_UA
-      }
-    });
-    clearTimeout(timeout);
-
-    if (oembedRes.ok) {
-      const oembedData = (await oembedRes.json()) as any;
-      if (oembedData.title) {
-        title = cleanRedditTitle(oembedData.title);
-      }
-      if (oembedData.author_name) {
-        author = oembedData.author_name;
+    if (ogTitleMatch) {
+      title = cleanRedditTitle(ogTitleMatch[1]);
+    }
+    const rawImg = ogImageMatch?.[1] || twitterImageMatch?.[1];
+    if (rawImg) {
+      const cleaned = cleanRedditMediaUrl(rawImg);
+      if (cleaned && isValidMediaUrl(cleaned)) {
+        cover = cleaned;
       }
     }
-  } catch {
-    // oEmbed fallback
+    if (ogDescMatch) {
+      const desc = ogDescMatch[1].trim();
+      if (desc && !desc.startsWith('Explore this post') && !desc.startsWith('From the ')) {
+        selftext = desc;
+      }
+    }
+  }
+
+  // Strategy 1: Reddit oEmbed API (official, fast, never bot-blocked, gives clean post title)
+  if (!title && info?.postId) {
+    try {
+      const oembedUrl = `https://www.reddit.com/oembed?url=${encodeURIComponent(canonicalUrl)}`;
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 4000);
+
+      const oembedRes = await fetch(oembedUrl, {
+        signal: controller.signal,
+        headers: {
+          'User-Agent': REDDIT_BOT_UA
+        }
+      });
+      clearTimeout(timeout);
+
+      if (oembedRes.ok) {
+        const oembedData = (await oembedRes.json()) as any;
+        if (oembedData.title) {
+          title = cleanRedditTitle(oembedData.title);
+        }
+        if (oembedData.author_name) {
+          author = oembedData.author_name;
+        }
+      }
+    } catch {
+      // oEmbed fallback
+    }
   }
 
   // Strategy 2: Public Reddit RSS Feed (extracts real high-res CDN media thumbnails and post selftext)
-  try {
-    const rssTarget = subreddit
-      ? `https://www.reddit.com/r/${subreddit}/comments/${info.postId}/.rss`
-      : `https://www.reddit.com/comments/${info.postId}/.rss`;
+  if (info?.postId) {
+    try {
+      const rssTarget = subreddit
+        ? `https://www.reddit.com/r/${subreddit}/comments/${info.postId}/.rss`
+        : `https://www.reddit.com/comments/${info.postId}/.rss`;
 
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 5000);
@@ -394,7 +432,7 @@ async function scrapeRedditPost(info: RedditPostInfo, canonicalUrl: string): Pro
     const res = await fetch(rssTarget, {
       signal: controller.signal,
       headers: {
-        'User-Agent': USER_AGENT,
+        'User-Agent': REDDIT_BOT_UA,
         'Accept': 'application/atom+xml,application/xml,text/xml;q=0.9,*/*;q=0.8'
       }
     });
@@ -417,15 +455,15 @@ async function scrapeRedditPost(info: RedditPostInfo, canonicalUrl: string): Pro
         }
       }
 
-      const thumbMatch =
-        xml.match(/<media:thumbnail[^>]+url="([^"]+)"/i) ||
-        xml.match(/<media:content[^>]+url="([^"]+)"/i) ||
-        xml.match(/https:\/\/(?:preview|i|external-preview|a\.thumbs|b\.thumbs)\.redd(?:it|\.it)\/[^"&<>\s]+(?:\?[^"<>\s]*)?/i);
+      const mediaMatch = xml.match(/<media:(?:thumbnail|content)[^>]+url="([^"]+)"/i);
+      const directMatch = xml.match(/https:\/\/i\.redd\.it\/[a-zA-Z0-9_\-\.]+\.(?:jpe?g|png|webp|gif)/i);
+      const previewMatch = xml.match(/https:\/\/(?:preview|external-preview|a\.thumbs|b\.thumbs)\.redd(?:it|\.it)\/[^"&<>\s]+(?:\?[^"<>\s]*)?/i);
 
-      if (thumbMatch) {
-        const candidateCover = (thumbMatch[1] || thumbMatch[0]).replace(/&amp;/g, '&');
-        if (isValidMediaUrl(candidateCover)) {
-          cover = candidateCover;
+      const candidateRaw = directMatch?.[0] || mediaMatch?.[1] || previewMatch?.[0];
+      if (candidateRaw) {
+        const cleaned = cleanRedditMediaUrl(candidateRaw);
+        if (cleaned && isValidMediaUrl(cleaned)) {
+          cover = cleaned;
         }
       }
 
@@ -449,9 +487,10 @@ async function scrapeRedditPost(info: RedditPostInfo, canonicalUrl: string): Pro
   } catch {
     // RSS fallback
   }
+}
 
-  // Strategy 3: OpenGraph fallback for description and title
-  if (!selftext || !title) {
+  // Strategy 3: OpenGraph fallback for description, title, and cover image
+  if (!selftext || !title || !cover) {
     try {
       const controller = new AbortController();
       const timeout = setTimeout(() => controller.abort(), 5000);
@@ -469,9 +508,20 @@ async function scrapeRedditPost(info: RedditPostInfo, canonicalUrl: string): Pro
         const html = await ogRes.text();
         const ogTitleMatch = html.match(/<meta property=["']og:title["'] content=["']([^"']+)["']/i);
         const ogDescMatch = html.match(/<meta property=["']og:description["'] content=["']([^"']+)["']/i);
+        const ogImageMatch = html.match(/<meta property=["']og:image["'] content=["']([^"']+)["']/i);
+        const twitterImageMatch = html.match(/<meta (?:name|property)=["']twitter:image(?::src)?["'] content=["']([^"']+)["']/i);
 
         if (!title && ogTitleMatch) {
           title = cleanRedditTitle(ogTitleMatch[1]);
+        }
+        if (!cover) {
+          const rawImg = ogImageMatch?.[1] || twitterImageMatch?.[1];
+          if (rawImg) {
+            const cleaned = cleanRedditMediaUrl(rawImg);
+            if (cleaned && isValidMediaUrl(cleaned)) {
+              cover = cleaned;
+            }
+          }
         }
         if (!selftext && ogDescMatch) {
           const desc = ogDescMatch[1].trim();
