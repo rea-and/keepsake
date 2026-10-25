@@ -94,6 +94,44 @@ export function useKeepsakeStore() {
     }
     return 'all';
   });
+
+  const selectCollection = useCallback(
+    (id: string) => {
+      setActiveCollectionId(id);
+      setActiveTag(null);
+
+      let targetPath = '/';
+      let title = 'Keepsake — All-in-one Bookmark Manager';
+
+      if (id === 'all') {
+        targetPath = '/';
+        title = 'All Bookmarks — Keepsake';
+      } else if (id === 'unsorted') {
+        targetPath = '/unsorted/';
+        title = 'Unsorted Inbox — Keepsake';
+      } else if (id === 'favorites') {
+        targetPath = '/favorites/';
+        title = 'Favorites — Keepsake';
+      } else if (id === 'trash') {
+        targetPath = '/trash/';
+        title = 'Trash — Keepsake';
+      } else {
+        const col = store.collections.find((c) => c.id === id);
+        if (col) {
+          targetPath = getCollectionPath(col);
+          title = `${col.title} — Keepsake`;
+        } else {
+          targetPath = `/${id}/`;
+        }
+      }
+
+      if (typeof window !== 'undefined' && window.location.pathname !== targetPath) {
+        window.history.pushState({ collectionId: id }, title, targetPath);
+        document.title = title;
+      }
+    },
+    [store.collections]
+  );
   const [activeTag, setActiveTag] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [selectedType, setSelectedType] = useState<BookmarkType | 'all'>('all');
@@ -328,13 +366,12 @@ export function useKeepsakeStore() {
       if (col) {
         targetPath = getCollectionPath(col);
         title = `${col.title} — Keepsake`;
+      } else {
+        targetPath = `/${activeCollectionId}/`;
       }
     }
 
-    const currentNorm = window.location.pathname.replace(/^\/+|\/+$/g, '');
-    const targetNorm = targetPath.replace(/^\/+|\/+$/g, '');
-
-    if (currentNorm !== targetNorm) {
+    if (window.location.pathname !== targetPath) {
       window.history.pushState({ collectionId: activeCollectionId }, title, targetPath);
     }
     document.title = title;
@@ -1076,7 +1113,8 @@ export function useKeepsakeStore() {
     allTags,
     counts,
     activeCollectionId,
-    setActiveCollectionId,
+    setActiveCollectionId: selectCollection,
+    selectCollection,
     activeTag,
     setActiveTag,
     searchQuery,
