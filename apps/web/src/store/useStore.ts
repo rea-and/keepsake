@@ -28,7 +28,8 @@ import {
   getCollectionSlug,
   getCollectionPath,
   findCollectionBySlug,
-  slugify
+  slugify,
+  extractUrlFromDataTransfer
 } from '@keepsake/shared';
 
 const LOCAL_STORAGE_KEY = 'keepsake_local_store_v1';
@@ -626,6 +627,58 @@ export function useKeepsakeStore() {
     }).catch((e) => console.warn('[Keepsake Web] updateBookmark server persist error:', e));
   }, []);
 
+  const saveUrlToCollection = useCallback(
+    async (rawUrl: string, targetCollectionId?: string, initialTitle?: string): Promise<Bookmark> => {
+      const cleanUrl = normalizeUrl(rawUrl);
+      const domain = extractDomain(cleanUrl);
+
+      // Determine the target collection:
+      let colId = targetCollectionId || 'unsorted';
+      let isFavorite = false;
+      if (colId === 'all' || colId === 'trash') {
+        colId = 'unsorted';
+      } else if (colId === 'favorites') {
+        colId = 'unsorted';
+        isFavorite = true;
+      }
+
+      // Create bookmark immediately with instant domain favicon
+      const initialFavicon = getFaviconUrl(domain);
+      const newBm = addBookmark({
+        url: cleanUrl,
+        title: initialTitle || domain,
+        description: '',
+        collectionId: colId,
+        tags: [],
+        isFavorite,
+        isTrash: false,
+        type: 'link',
+        favicon: initialFavicon
+      });
+
+      // Background scrape to enrich title, description, cover image, and reader content
+      try {
+        const res = await fetch(`/api/scrape?url=${encodeURIComponent(cleanUrl)}`);
+        if (res.ok) {
+          const meta = await res.json();
+          updateBookmark(newBm.id, {
+            title: meta.title || newBm.title,
+            description: meta.description || newBm.description,
+            cover: meta.cover,
+            favicon: meta.favicon || newBm.favicon,
+            type: meta.type || newBm.type,
+            readerContent: meta.readerContent
+          });
+        }
+      } catch (err) {
+        console.warn('[Keepsake Web] Auto-scrape on drop failed:', err);
+      }
+
+      return newBm;
+    },
+    [addBookmark, updateBookmark]
+  );
+
   const toggleFavorite = useCallback((id: string) => {
     const now = new Date().toISOString();
     let nextFavorite = false;
@@ -1149,6 +1202,7 @@ export function useKeepsakeStore() {
     syncWithGoogleDrive,
     syncWithServer,
     addBookmark,
+    saveUrlToCollection,
     updateBookmark,
     toggleFavorite,
     moveToTrash,

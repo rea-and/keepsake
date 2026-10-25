@@ -589,3 +589,74 @@ export function findCollectionBySlug(
   return null;
 }
 
+export interface DragDataTransferLike {
+  getData: (format: string) => string;
+  types?: readonly string[] | string[];
+}
+
+/**
+ * Extracts a valid HTTP/HTTPS URL and optional title from a browser drag-and-drop event.
+ * Supports text/uri-list, text/html (anchor tags), and text/plain.
+ * Automatically ignores internal Keepsake bookmark drags.
+ */
+export function extractUrlFromDataTransfer(
+  dt: DragDataTransferLike
+): { url: string; title?: string } | null {
+  if (!dt) return null;
+
+  // Ignore internal bookmark drags
+  const types = Array.from(dt.types || []);
+  if (types.includes('keepsake/bookmark-id')) {
+    return null;
+  }
+
+  // 1. Check text/uri-list (standard URI drag from Chrome/Firefox tabs & address bar)
+  try {
+    const uriList = dt.getData('text/uri-list');
+    if (uriList) {
+      const lines = uriList
+        .split(/\r?\n/)
+        .map((l) => l.trim())
+        .filter((l) => l && !l.startsWith('#'));
+      for (const line of lines) {
+        if (/^https?:\/\//i.test(line)) {
+          return { url: line };
+        }
+      }
+    }
+  } catch {}
+
+  // 2. Check text/html (frequently contains <a href="...">Title</a>)
+  try {
+    const html = dt.getData('text/html');
+    if (html) {
+      const match = html.match(/<a\s+[^>]*href=["']([^"']+)["'][^>]*>(.*?)<\/a>/i);
+      if (match && /^https?:\/\//i.test(match[1])) {
+        const rawTitle = match[2].replace(/<[^>]+>/g, '').trim();
+        return {
+          url: match[1],
+          title: rawTitle && rawTitle !== match[1] ? rawTitle : undefined
+        };
+      }
+    }
+  } catch {}
+
+  // 3. Check plain text
+  try {
+    const text = dt.getData('text/plain') || dt.getData('Text');
+    if (text) {
+      const trimmed = text.trim();
+      if (/^https?:\/\//i.test(trimmed)) {
+        return { url: trimmed };
+      }
+      const match = trimmed.match(/(https?:\/\/[^\s]+)/i);
+      if (match) {
+        return { url: match[1] };
+      }
+    }
+  } catch {}
+
+  return null;
+}
+
+

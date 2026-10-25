@@ -27,7 +27,7 @@ import {
   FileText,
   LogOut
 } from 'lucide-react';
-import { Collection, AuthSession, SyncStatus, getCollectionPath } from '@keepsake/shared';
+import { Collection, AuthSession, SyncStatus, getCollectionPath, extractUrlFromDataTransfer } from '@keepsake/shared';
 
 const ICON_MAP: Record<string, React.ReactNode> = {
   Folder: <Folder className="w-4 h-4" />,
@@ -63,6 +63,7 @@ interface SidebarProps {
   onCloseMobile: () => void;
   onLogout?: () => void;
   onDropOnCollection?: (bookmarkId: string, collectionId: string) => void;
+  onDropUrlOnCollection?: (url: string, collectionId: string, initialTitle?: string) => void;
   onDropOnTag?: (bookmarkId: string, tag: string) => void;
 }
 
@@ -90,6 +91,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onCloseMobile,
   onLogout,
   onDropOnCollection,
+  onDropUrlOnCollection,
   onDropOnTag
 }) => {
   const [collectionMenuId, setCollectionMenuId] = useState<string | null>(null);
@@ -118,6 +120,31 @@ export const Sidebar: React.FC<SidebarProps> = ({
     onSelectCollection(collectionId);
     onSelectTag(null);
     onCloseMobile();
+  };
+
+  const handleItemDrop = (e: React.DragEvent, targetCollectionId: string) => {
+    e.preventDefault();
+    setDragOverTarget(null);
+
+    // 1. Check if it's an internal bookmark drag
+    const internalId = e.dataTransfer.getData('keepsake/bookmark-id');
+    if (internalId && onDropOnCollection) {
+      onDropOnCollection(internalId, targetCollectionId);
+      return;
+    }
+
+    // 2. Check if it's an external URL dropped from Chrome
+    const dropped = extractUrlFromDataTransfer(e.dataTransfer);
+    if (dropped?.url && onDropUrlOnCollection) {
+      onDropUrlOnCollection(dropped.url, targetCollectionId, dropped.title);
+      return;
+    }
+
+    // 3. Fallback for plain text
+    const plain = e.dataTransfer.getData('text/plain');
+    if (plain && onDropOnCollection) {
+      onDropOnCollection(plain, targetCollectionId);
+    }
   };
 
   return (
@@ -182,20 +209,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
               onClick={(e) => handleNavClick(e, 'unsorted', '/unsorted/', 'Unsorted')}
               onDragOver={(e) => {
                 e.preventDefault();
-                e.dataTransfer.dropEffect = 'move';
+                e.dataTransfer.dropEffect = 'copy';
                 if (dragOverTarget !== 'col:unsorted') setDragOverTarget('col:unsorted');
               }}
               onDragLeave={() => {
                 if (dragOverTarget === 'col:unsorted') setDragOverTarget(null);
               }}
-              onDrop={(e) => {
-                e.preventDefault();
-                setDragOverTarget(null);
-                const id = e.dataTransfer.getData('keepsake/bookmark-id') || e.dataTransfer.getData('text/plain');
-                if (id && onDropOnCollection) {
-                  onDropOnCollection(id, 'unsorted');
-                }
-              }}
+              onDrop={(e) => handleItemDrop(e, 'unsorted')}
               className={`w-full flex items-center justify-between px-3 py-2 rounded-lg text-sm font-medium transition-all ${
                 dragOverTarget === 'col:unsorted'
                   ? 'bg-amber-100 dark:bg-amber-950/60 ring-2 ring-amber-500 text-amber-700 dark:text-amber-300 scale-[1.02] shadow-sm font-semibold'
@@ -218,20 +238,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
               onClick={(e) => handleNavClick(e, 'favorites', '/favorites/', 'Favorites')}
               onDragOver={(e) => {
                 e.preventDefault();
-                e.dataTransfer.dropEffect = 'move';
+                e.dataTransfer.dropEffect = 'copy';
                 if (dragOverTarget !== 'col:favorites') setDragOverTarget('col:favorites');
               }}
               onDragLeave={() => {
                 if (dragOverTarget === 'col:favorites') setDragOverTarget(null);
               }}
-              onDrop={(e) => {
-                e.preventDefault();
-                setDragOverTarget(null);
-                const id = e.dataTransfer.getData('keepsake/bookmark-id') || e.dataTransfer.getData('text/plain');
-                if (id && onDropOnCollection) {
-                  onDropOnCollection(id, 'favorites');
-                }
-              }}
+              onDrop={(e) => handleItemDrop(e, 'favorites')}
               className={`w-full flex items-center justify-between px-3 py-2 rounded-lg text-sm font-medium transition-all ${
                 dragOverTarget === 'col:favorites'
                   ? 'bg-yellow-100 dark:bg-yellow-950/60 ring-2 ring-yellow-400 text-yellow-700 dark:text-yellow-300 scale-[1.02] shadow-sm font-semibold'
@@ -260,14 +273,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
               onDragLeave={() => {
                 if (dragOverTarget === 'col:trash') setDragOverTarget(null);
               }}
-              onDrop={(e) => {
-                e.preventDefault();
-                setDragOverTarget(null);
-                const id = e.dataTransfer.getData('keepsake/bookmark-id') || e.dataTransfer.getData('text/plain');
-                if (id && onDropOnCollection) {
-                  onDropOnCollection(id, 'trash');
-                }
-              }}
+              onDrop={(e) => handleItemDrop(e, 'trash')}
               className={`w-full flex items-center justify-between px-3 py-2 rounded-lg text-sm font-medium transition-all ${
                 dragOverTarget === 'col:trash'
                   ? 'bg-rose-100 dark:bg-rose-950/60 ring-2 ring-rose-500 text-rose-700 dark:text-rose-300 scale-[1.02] shadow-sm font-semibold'
@@ -314,20 +320,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
                         onClick={(e) => handleNavClick(e, col.id, colPath, col.title)}
                         onDragOver={(e) => {
                           e.preventDefault();
-                          e.dataTransfer.dropEffect = 'move';
+                          e.dataTransfer.dropEffect = 'copy';
                           if (dragOverTarget !== `col:${col.id}`) setDragOverTarget(`col:${col.id}`);
                         }}
                         onDragLeave={() => {
                           if (dragOverTarget === `col:${col.id}`) setDragOverTarget(null);
                         }}
-                        onDrop={(e) => {
-                          e.preventDefault();
-                          setDragOverTarget(null);
-                          const id = e.dataTransfer.getData('keepsake/bookmark-id') || e.dataTransfer.getData('text/plain');
-                          if (id && onDropOnCollection) {
-                            onDropOnCollection(id, col.id);
-                          }
-                        }}
+                        onDrop={(e) => handleItemDrop(e, col.id)}
                         className={`w-full flex items-center justify-between px-3 py-2 pr-8 rounded-lg text-sm transition-all text-left ${
                           dragOverTarget === `col:${col.id}`
                             ? 'bg-sky-100 dark:bg-sky-950/70 ring-2 ring-sky-500 text-sky-700 dark:text-sky-300 scale-[1.02] shadow-sm font-semibold'

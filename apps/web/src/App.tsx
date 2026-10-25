@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useKeepsakeStore } from './store/useStore';
 import { Sidebar } from './components/Sidebar';
 import { Header } from './components/Header';
@@ -12,8 +12,8 @@ import { CollectionModal } from './components/CollectionModal';
 import { ReaderModal } from './components/ReaderModal';
 import { SettingsModal } from './components/SettingsModal';
 import { LoginScreen } from './components/LoginScreen';
-import { Bookmark, Collection } from '@keepsake/shared';
-import { BookmarkPlus, Inbox } from 'lucide-react';
+import { Bookmark, Collection, extractUrlFromDataTransfer } from '@keepsake/shared';
+import { BookmarkPlus, Inbox, Link2, CheckCircle2 } from 'lucide-react';
 
 interface KeepsakeDashboardProps {
   store: ReturnType<typeof useKeepsakeStore>;
@@ -112,6 +112,94 @@ function KeepsakeDashboard({ store }: KeepsakeDashboardProps) {
     setCollectionToEdit(null);
   };
 
+  // Drag and drop URL from Chrome into category page
+  const [isDraggingOverPage, setIsDraggingOverPage] = useState(false);
+  const [dragDropToast, setDragDropToast] = useState<{ message: string; url: string } | null>(null);
+  const dragCounterRef = useRef(0);
+  const toastTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Prevent default browser behavior on dragover/drop anywhere on window so Chrome doesn't navigate away
+  useEffect(() => {
+    const handleWindowDragOver = (e: DragEvent) => {
+      e.preventDefault();
+    };
+    const handleWindowDrop = (e: DragEvent) => {
+      e.preventDefault();
+    };
+    window.addEventListener('dragover', handleWindowDragOver);
+    window.addEventListener('drop', handleWindowDrop);
+    return () => {
+      window.removeEventListener('dragover', handleWindowDragOver);
+      window.removeEventListener('drop', handleWindowDrop);
+    };
+  }, []);
+
+  const showDropToast = (url: string, collectionTitle: string) => {
+    if (toastTimeoutRef.current) {
+      clearTimeout(toastTimeoutRef.current);
+    }
+    setDragDropToast({
+      message: `Saved to ${collectionTitle}!`,
+      url
+    });
+    toastTimeoutRef.current = setTimeout(() => {
+      setDragDropToast(null);
+    }, 4000);
+  };
+
+  const handleDropUrlOnCollection = async (url: string, targetColId: string, initialTitle?: string) => {
+    const colName =
+      targetColId === 'unsorted'
+        ? 'Unsorted'
+        : targetColId === 'favorites'
+        ? 'Favorites'
+        : store.collections.find((c) => c.id === targetColId)?.title || 'Unsorted';
+    showDropToast(url, colName);
+    await store.saveUrlToCollection(url, targetColId, initialTitle);
+  };
+
+  const handleViewportDragEnter = (e: React.DragEvent) => {
+    // Ignore internal reordering/moving of bookmarks within Keepsake
+    if (e.dataTransfer.types.includes('keepsake/bookmark-id')) return;
+    e.preventDefault();
+    dragCounterRef.current += 1;
+    if (dragCounterRef.current === 1) {
+      setIsDraggingOverPage(true);
+    }
+  };
+
+  const handleViewportDragOver = (e: React.DragEvent) => {
+    if (e.dataTransfer.types.includes('keepsake/bookmark-id')) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'copy';
+  };
+
+  const handleViewportDragLeave = (e: React.DragEvent) => {
+    if (e.dataTransfer.types.includes('keepsake/bookmark-id')) return;
+    e.preventDefault();
+    dragCounterRef.current -= 1;
+    if (dragCounterRef.current <= 0) {
+      dragCounterRef.current = 0;
+      setIsDraggingOverPage(false);
+    }
+  };
+
+  const handleViewportDrop = async (e: React.DragEvent) => {
+    if (e.dataTransfer.types.includes('keepsake/bookmark-id')) return;
+    e.preventDefault();
+    dragCounterRef.current = 0;
+    setIsDraggingOverPage(false);
+
+    const dropped = extractUrlFromDataTransfer(e.dataTransfer);
+    if (dropped?.url) {
+      const targetColId =
+        store.activeCollectionId === 'all' || store.activeCollectionId === 'trash'
+          ? 'unsorted'
+          : store.activeCollectionId;
+      await handleDropUrlOnCollection(dropped.url, targetColId, dropped.title);
+    }
+  };
+
   return (
     <div className="flex h-screen w-screen overflow-hidden bg-neutral-50 dark:bg-[#0c0c0e]">
       {/* Sidebar Navigation */}
@@ -145,6 +233,7 @@ function KeepsakeDashboard({ store }: KeepsakeDashboardProps) {
         onCloseMobile={() => setIsMobileSidebarOpen(false)}
         onLogout={store.logout}
         onDropOnCollection={store.moveBookmarkToCollection}
+        onDropUrlOnCollection={handleDropUrlOnCollection}
         onDropOnTag={store.addTagToBookmark}
       />
 
@@ -177,7 +266,27 @@ function KeepsakeDashboard({ store }: KeepsakeDashboardProps) {
         />
 
         {/* Bookmarks Viewport */}
-        <main className="flex-1 overflow-y-auto">
+        <main
+          className="flex-1 overflow-y-auto relative"
+          onDragEnter={handleViewportDragEnter}
+          onDragOver={handleViewportDragOver}
+          onDragLeave={handleViewportDragLeave}
+          onDrop={handleViewportDrop}
+        >
+          {/* Visual Dropzone Overlay when dragging an external link/page over the category page */}
+          {isDraggingOverPage && (
+            <div className="absolute inset-0 z-50 bg-sky-500/10 dark:bg-sky-500/15 backdrop-blur-sm border-2 border-dashed border-sky-500 rounded-2xl m-4 flex flex-col items-center justify-center pointer-events-none transition-all animate-in fade-in zoom-in-95 duration-150">
+              <div className="w-16 h-16 rounded-2xl bg-sky-500 text-white shadow-xl shadow-sky-500/30 flex items-center justify-center mb-4 transform scale-110">
+                <Link2 className="w-8 h-8 stroke-[2.5]" />
+              </div>
+              <h3 className="text-xl font-bold text-neutral-900 dark:text-white">
+                Drop link to save to {currentTitle}
+              </h3>
+              <p className="text-sm text-neutral-600 dark:text-neutral-400 mt-1 max-w-sm text-center">
+                Release to automatically fetch metadata and save this page to {currentTitle}
+              </p>
+            </div>
+          )}
           {store.bookmarks.length === 0 ? (
             <div className="h-full flex flex-col items-center justify-center p-8 text-center text-neutral-400">
               <div className="w-16 h-16 rounded-2xl bg-neutral-100 dark:bg-neutral-900 border border-transparent dark:border-neutral-800 flex items-center justify-center mb-4 text-neutral-400">
@@ -306,6 +415,19 @@ function KeepsakeDashboard({ store }: KeepsakeDashboardProps) {
         onToggleDriveSync={store.setDriveSyncEnabled}
         onLogout={store.logout}
       />
+
+      {/* Drag & Drop URL Notification Toast */}
+      {dragDropToast && (
+        <div className="fixed bottom-6 right-6 z-50 max-w-md bg-neutral-900/95 dark:bg-white/95 text-white dark:text-neutral-900 px-4 py-3 rounded-2xl shadow-2xl backdrop-blur-md flex items-center gap-3 border border-white/10 dark:border-black/10 animate-in slide-in-from-bottom-5 duration-200">
+          <div className="w-8 h-8 rounded-xl bg-emerald-500 text-white flex items-center justify-center flex-shrink-0">
+            <CheckCircle2 className="w-5 h-5 stroke-[2.5]" />
+          </div>
+          <div className="min-w-0 flex-1">
+            <div className="text-xs font-semibold leading-tight">{dragDropToast.message}</div>
+            <div className="text-[11px] opacity-70 truncate font-mono mt-0.5">{dragDropToast.url}</div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
