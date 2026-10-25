@@ -29,6 +29,7 @@ import {
   getCollectionPath,
   findCollectionBySlug,
   slugify,
+  isSparseTitle,
   extractUrlFromDataTransfer,
   extractBookmarksFromDataTransfer,
   ExtractedBookmark
@@ -555,12 +556,29 @@ export function useKeepsakeStore() {
   }, [Boolean(authSession?.tokens?.accessToken), isDriveSyncEnabled, syncWithGoogleDrive]);
 
   // Bookmark Actions
+  const updateBookmark = useCallback((id: string, updates: Partial<Bookmark>) => {
+    const now = new Date().toISOString();
+    setStore((prev) => ({
+      ...prev,
+      lastModified: now,
+      bookmarks: prev.bookmarks.map((bm) => (bm.id === id ? { ...bm, ...updates, updatedAt: now } : bm))
+    }));
+
+    // Persist to server
+    fetch(`/api/bookmarks/${id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(updates)
+    }).catch((e) => console.warn('[Keepsake Web] updateBookmark server persist error:', e));
+  }, []);
+
   const addBookmark = useCallback(
     (bookmarkData: Omit<Bookmark, 'id' | 'createdAt' | 'updatedAt' | 'domain' | 'type'> & { type?: BookmarkType }) => {
       const now = new Date().toISOString();
-      const domain = extractDomain(bookmarkData.url);
-      const ytThumb = getYouTubeThumbnail(bookmarkData.url);
-      const isVideo = !!getYouTubeVideoId(bookmarkData.url);
+      const cleanUrl = normalizeUrl(bookmarkData.url);
+      const domain = extractDomain(cleanUrl);
+      const ytThumb = getYouTubeThumbnail(cleanUrl);
+      const isVideo = !!getYouTubeVideoId(cleanUrl);
 
       let cover = bookmarkData.cover;
       if (ytThumb && (!cover || cover.includes('yt_1200.png') || cover.includes('youtube.com/img/desktop'))) {
@@ -571,9 +589,9 @@ export function useKeepsakeStore() {
       let tags = bookmarkData.tags || [];
       let favicon = bookmarkData.favicon || getFaviconUrl(domain);
 
-      if (isRedditUrl(bookmarkData.url)) {
+      if (isRedditUrl(cleanUrl)) {
         title = cleanRedditTitle(title) || title;
-        const rInfo = parseRedditUrl(bookmarkData.url);
+        const rInfo = parseRedditUrl(cleanUrl);
         if (rInfo?.subreddit && tags.length === 0) {
           tags = [rInfo.subreddit.toLowerCase()];
         }
@@ -585,7 +603,8 @@ export function useKeepsakeStore() {
       const newBm: Bookmark = {
         ...bookmarkData,
         id: 'bm_' + Math.random().toString(36).substring(2, 9) + Date.now().toString(36),
-        title,
+        url: cleanUrl,
+        title: title || domain,
         domain,
         favicon,
         cover,
@@ -608,26 +627,36 @@ export function useKeepsakeStore() {
         body: JSON.stringify(newBm)
       }).catch((e) => console.warn('[Keepsake Web] addBookmark server persist error:', e));
 
+      // Auto-enrich in background if metadata/cover is sparse or missing (same as extension)
+      const needsCover = !cover;
+      const sparseTitle = isSparseTitle(title, domain, cleanUrl);
+      const needsEnrichment = needsCover || !bookmarkData.description || sparseTitle;
+
+      if (needsEnrichment && cleanUrl.startsWith('http')) {
+        (async () => {
+          try {
+            const res = await fetch(`/api/scrape?url=${encodeURIComponent(cleanUrl)}`);
+            if (res.ok) {
+              const meta = await res.json();
+              updateBookmark(newBm.id, {
+                title: (!sparseTitle && title) ? title : (meta.title || newBm.title),
+                description: bookmarkData.description || meta.description || newBm.description,
+                cover: cover || meta.cover || newBm.cover,
+                favicon: meta.favicon || newBm.favicon,
+                type: (meta.type && meta.type !== 'link') ? meta.type : newBm.type,
+                readerContent: meta.readerContent
+              });
+            }
+          } catch (err) {
+            console.warn('[Keepsake Web] addBookmark background auto-enrich failed:', err);
+          }
+        })();
+      }
+
       return newBm;
     },
-    []
+    [updateBookmark]
   );
-
-  const updateBookmark = useCallback((id: string, updates: Partial<Bookmark>) => {
-    const now = new Date().toISOString();
-    setStore((prev) => ({
-      ...prev,
-      lastModified: now,
-      bookmarks: prev.bookmarks.map((bm) => (bm.id === id ? { ...bm, ...updates, updatedAt: now } : bm))
-    }));
-
-    // Persist to server
-    fetch(`/api/bookmarks/${id}`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(updates)
-    }).catch((e) => console.warn('[Keepsake Web] updateBookmark server persist error:', e));
-  }, []);
 
   const saveBookmarksToCollection = useCallback(
     async (

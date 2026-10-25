@@ -1,5 +1,14 @@
-import React, { useState, useEffect } from 'react';
-import { Bookmark, Collection, BookmarkType, extractDomain, getFaviconUrl } from '@keepsake/shared';
+import React, { useState, useEffect, useRef } from 'react';
+import {
+  Bookmark,
+  Collection,
+  BookmarkType,
+  extractDomain,
+  getFaviconUrl,
+  normalizeUrl,
+  isSparseTitle,
+  getYouTubeThumbnail
+} from '@keepsake/shared';
 import { X, Loader2, Sparkles, Star, Tag as TagIcon, Folder, Link as LinkIcon } from 'lucide-react';
 
 interface BookmarkModalProps {
@@ -65,34 +74,75 @@ export const BookmarkModal: React.FC<BookmarkModalProps> = ({
 
   if (!isOpen) return null;
 
-  // Auto scrape metadata when URL changes and user moves focus or pastes
-  const handleUrlBlur = async () => {
-    if (!url || !url.trim() || bookmarkToEdit) return;
+  const scrapeAbortControllerRef = useRef<AbortController | null>(null);
+
+  const fetchMetadata = async (rawUrl: string) => {
+    const clean = rawUrl.trim();
+    if (!clean || !/^https?:\/\//i.test(clean) || bookmarkToEdit) return;
+
+    const domain = extractDomain(clean);
+    if (!favicon) {
+      setFavicon(getFaviconUrl(domain));
+    }
+
+    const ytThumb = getYouTubeThumbnail(clean);
+    if (ytThumb && !cover) {
+      setCover(ytThumb);
+      setType('video');
+    }
+
+    if (scrapeAbortControllerRef.current) {
+      scrapeAbortControllerRef.current.abort();
+    }
+    const controller = new AbortController();
+    scrapeAbortControllerRef.current = controller;
 
     try {
       setIsScraping(true);
-      const res = await fetch(`/api/scrape?url=${encodeURIComponent(url.trim())}`);
+      const res = await fetch(`/api/scrape?url=${encodeURIComponent(clean)}`, {
+        signal: controller.signal
+      });
       if (res.ok) {
         const data = await res.json();
-        if (data.title && !title) setTitle(data.title);
-        if (data.description && !description) setDescription(data.description);
-        if (data.cover && !cover) setCover(data.cover);
-        if (data.favicon && !favicon) setFavicon(data.favicon);
-        if (data.type) setType(data.type);
-        if (data.readerContent) setReaderContent(data.readerContent);
+        if (data.title && (!title || isSparseTitle(title, domain, clean))) {
+          setTitle(data.title);
+        }
+        if (data.description && !description) {
+          setDescription(data.description);
+        }
+        if (data.cover && !cover) {
+          setCover(data.cover);
+        }
+        if (data.favicon) {
+          setFavicon(data.favicon);
+        }
+        if (data.type && type === 'link') {
+          setType(data.type);
+        }
+        if (data.readerContent && !readerContent) {
+          setReaderContent(data.readerContent);
+        }
       } else {
-        const dom = extractDomain(url);
-        if (!title) setTitle(dom);
-        if (!favicon) setFavicon(getFaviconUrl(dom));
+        if (!title) setTitle(domain);
       }
-    } catch {
-      const dom = extractDomain(url);
-      if (!title) setTitle(dom);
-      if (!favicon) setFavicon(getFaviconUrl(dom));
+    } catch (err: any) {
+      if (err.name !== 'AbortError') {
+        if (!title) setTitle(domain);
+      }
     } finally {
       setIsScraping(false);
     }
   };
+
+  // Debounced auto-fetch when URL is typed or pasted
+  useEffect(() => {
+    if (bookmarkToEdit || !url.trim() || !/^https?:\/\//i.test(url.trim())) return;
+    if (title && cover) return;
+    const timer = setTimeout(() => {
+      fetchMetadata(url.trim());
+    }, 500);
+    return () => clearTimeout(timer);
+  }, [url, bookmarkToEdit]);
 
   const handleAddTag = (newTag: string) => {
     const clean = newTag.trim().toLowerCase().replace(/^#/, '');
@@ -110,13 +160,16 @@ export const BookmarkModal: React.FC<BookmarkModalProps> = ({
     e.preventDefault();
     if (!url.trim()) return;
 
+    const cleanUrl = normalizeUrl(url.trim());
+    const domain = extractDomain(cleanUrl);
+
     onSave({
-      url: url.trim(),
-      title: title.trim() || extractDomain(url),
+      url: cleanUrl,
+      title: title.trim() || domain,
       description: description.trim(),
       note: note.trim(),
       cover: cover.trim() || undefined,
-      favicon: favicon.trim() || getFaviconUrl(url),
+      favicon: favicon.trim() || getFaviconUrl(domain),
       collectionId,
       tags,
       isFavorite,
@@ -157,15 +210,25 @@ export const BookmarkModal: React.FC<BookmarkModalProps> = ({
                 required
                 value={url}
                 onChange={(e) => setUrl(e.target.value)}
-                onBlur={handleUrlBlur}
+                onPaste={(e) => {
+                  const pasted = e.clipboardData.getData('text');
+                  if (pasted && /^https?:\/\//i.test(pasted.trim())) {
+                    fetchMetadata(pasted.trim());
+                  }
+                }}
+                onBlur={() => {
+                  if (url.trim() && !bookmarkToEdit) {
+                    fetchMetadata(url.trim());
+                  }
+                }}
                 placeholder="https://example.com/article"
                 className="w-full px-3.5 py-2 text-sm bg-neutral-50 dark:bg-[#1c1c20] border border-neutral-200 dark:border-neutral-800 rounded-xl focus:border-sky-500 focus:outline-none transition-colors"
                 autoFocus={!bookmarkToEdit}
               />
               {isScraping && (
-                <div className="absolute right-3 top-2.5 flex items-center gap-1.5 text-xs text-sky-500">
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                  <span>Fetching...</span>
+                <div className="absolute right-3 top-2.5 flex items-center gap-1.5 text-xs text-sky-500 font-medium">
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  <span>Fetching details & cover...</span>
                 </div>
               )}
             </div>
@@ -323,10 +386,18 @@ export const BookmarkModal: React.FC<BookmarkModalProps> = ({
             </button>
 
             {cover && (
-              <span className="text-[11px] text-emerald-500 flex items-center gap-1">
-                <Sparkles className="w-3.5 h-3.5" />
-                Cover image attached
-              </span>
+              <div className="flex items-center gap-2">
+                <img
+                  src={cover}
+                  alt="Cover Preview"
+                  className="w-7 h-7 rounded-lg object-cover border border-neutral-200 dark:border-neutral-700 shadow-sm"
+                  onError={(e) => ((e.target as HTMLElement).style.display = 'none')}
+                />
+                <span className="text-[11px] text-emerald-500 flex items-center gap-1 font-medium">
+                  <Sparkles className="w-3.5 h-3.5" />
+                  Cover attached
+                </span>
+              </div>
             )}
           </div>
 
