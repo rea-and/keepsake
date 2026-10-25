@@ -232,6 +232,14 @@ app.post('/api/collections', (req, res) => {
         collection
     });
 });
+app.put('/api/collections/reorder', (req, res) => {
+    const { collectionIds } = req.body;
+    if (!Array.isArray(collectionIds)) {
+        return res.status(400).json({ error: 'Missing or invalid collectionIds array' });
+    }
+    const collections = serverStore.reorderCollections(collectionIds);
+    return res.json({ success: true, collections });
+});
 app.put('/api/collections/:id', (req, res) => {
     const existing = serverStore.getCollection(req.params.id);
     if (!existing) {
@@ -355,6 +363,9 @@ const webDistPath = path.resolve(__dirname, '../../web/dist');
 if (fs.existsSync(webDistPath)) {
     app.use(express.static(webDistPath));
     app.get('*', (req, res) => {
+        if (req.path.startsWith('/api')) {
+            return res.status(404).json({ error: 'Endpoint not found' });
+        }
         res.sendFile(path.join(webDistPath, 'index.html'));
     });
 }

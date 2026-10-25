@@ -5,19 +5,23 @@ import org.json.JSONObject
 data class Collection(
     val id: String,
     val title: String,
-    val description: String?,
-    val color: String?,
-    val icon: String?,
-    val isSystem: Boolean,
-    val sortOrder: Int,
-    val createdAt: String,
-    val updatedAt: String
+    val slug: String? = null,
+    val description: String? = null,
+    val parentId: String? = null,
+    val color: String? = null,
+    val icon: String? = null,
+    val isSystem: Boolean = false,
+    val sortOrder: Int = 0,
+    val createdAt: String = "",
+    val updatedAt: String = ""
 ) {
     fun toJson(): JSONObject {
         return JSONObject().apply {
             put("id", id)
             put("title", title)
+            put("slug", slug ?: JSONObject.NULL)
             put("description", description ?: JSONObject.NULL)
+            put("parentId", parentId ?: JSONObject.NULL)
             put("color", color ?: JSONObject.NULL)
             put("icon", icon ?: JSONObject.NULL)
             put("isSystem", isSystem)
@@ -32,7 +36,9 @@ data class Collection(
             return Collection(
                 id = obj.optString("id", ""),
                 title = obj.optString("title", "Collection"),
+                slug = obj.optString("slug").takeIf { it.isNotEmpty() && it != "null" },
                 description = obj.optString("description").takeIf { it.isNotEmpty() && it != "null" },
+                parentId = obj.optString("parentId").takeIf { it.isNotEmpty() && it != "null" },
                 color = obj.optString("color").takeIf { it.isNotEmpty() && it != "null" } ?: "#38BDF8",
                 icon = obj.optString("icon").takeIf { it.isNotEmpty() && it != "null" } ?: "Folder",
                 isSystem = obj.optBoolean("isSystem", false),

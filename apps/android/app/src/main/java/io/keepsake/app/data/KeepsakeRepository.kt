@@ -50,7 +50,7 @@ class KeepsakeRepository(private val context: Context) {
                 }
 
                 bookmarks = bms
-                collections = cols
+                collections = cols.sortedBy { it.sortOrder }.toMutableList()
             }
         } catch (e: Exception) {
             e.printStackTrace()
@@ -108,7 +108,7 @@ class KeepsakeRepository(private val context: Context) {
                 }
 
                 bookmarks = remoteBms
-                collections = remoteCols
+                collections = remoteCols.sortedBy { it.sortOrder }.toMutableList()
                 saveToCache()
                 true
             } else {
@@ -246,7 +246,8 @@ class KeepsakeRepository(private val context: Context) {
 
         val res = httpPost("${serverUrl.removeSuffix("/")}/api/bookmarks", payload.toString())
         if (res != null) {
-            val created = Bookmark.fromJson(res)
+            val bmObj = res.optJSONObject("bookmark") ?: res
+            val created = Bookmark.fromJson(bmObj)
             bookmarks.add(0, created)
             saveToCache()
             true
@@ -353,6 +354,23 @@ class KeepsakeRepository(private val context: Context) {
         true
     }
 
+    suspend fun reorderCollections(newOrder: List<Collection>, serverUrl: String): Boolean = withContext(Dispatchers.IO) {
+        val updatedCustomCols = newOrder.mapIndexed { index, col ->
+            col.copy(sortOrder = index, updatedAt = nowIso())
+        }
+        val systemCols = collections.filter { it.isSystem }
+        collections = (systemCols + updatedCustomCols).sortedBy { it.sortOrder }.toMutableList()
+        saveToCache()
+
+        val idsArr = JSONArray()
+        updatedCustomCols.forEach { idsArr.put(it.id) }
+        val payload = JSONObject().apply {
+            put("collectionIds", idsArr)
+        }
+        httpPut("${serverUrl.removeSuffix("/")}/api/collections/reorder", payload.toString())
+        true
+    }
+
     suspend fun updateBookmarkTags(bookmarkId: String, newTags: List<String>, serverUrl: String) = withContext(Dispatchers.IO) {
         val cleanTags = newTags.map { it.trim().lowercase().removePrefix("#") }.filter { it.isNotEmpty() }.distinct()
         val index = bookmarks.indexOfFirst { it.id == bookmarkId }
@@ -429,6 +447,7 @@ class KeepsakeRepository(private val context: Context) {
         url: String,
         title: String,
         description: String? = null,
+        note: String? = null,
         collectionId: String? = null,
         tags: List<String>,
         isFavorite: Boolean,
@@ -443,6 +462,7 @@ class KeepsakeRepository(private val context: Context) {
             url = url.trim(),
             title = title.trim(),
             description = description?.trim()?.ifEmpty { null },
+            note = note?.trim()?.ifEmpty { null } ?: current.note,
             collectionId = collectionId,
             tags = cleanTags,
             isFavorite = isFavorite,
@@ -457,6 +477,7 @@ class KeepsakeRepository(private val context: Context) {
             put("url", updated.url)
             put("title", updated.title)
             put("description", updated.description ?: JSONObject.NULL)
+            put("note", updated.note ?: JSONObject.NULL)
             put("collectionId", updated.collectionId ?: JSONObject.NULL)
             put("tags", tagsArr)
             put("isFavorite", updated.isFavorite)

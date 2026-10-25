@@ -38,6 +38,7 @@ export interface Bookmark {
 export interface Collection {
     id: string;
     title: string;
+    slug?: string;
     description?: string;
     parentId?: string | null;
     icon?: string;

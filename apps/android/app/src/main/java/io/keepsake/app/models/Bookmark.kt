@@ -8,6 +8,8 @@ data class Bookmark(
     val url: String,
     val title: String,
     val description: String?,
+    val excerpt: String? = null,
+    val note: String? = null,
     val domain: String,
     val favicon: String?,
     val cover: String?,
@@ -26,6 +28,8 @@ data class Bookmark(
             put("url", url)
             put("title", title)
             put("description", description ?: JSONObject.NULL)
+            put("excerpt", excerpt ?: JSONObject.NULL)
+            put("note", note ?: JSONObject.NULL)
             put("domain", domain)
             put("favicon", favicon ?: JSONObject.NULL)
             put("cover", cover ?: JSONObject.NULL)
@@ -53,11 +57,21 @@ data class Bookmark(
                 }
             }
 
+            val readerObj = obj.optJSONObject("readerContent")
+            val parsedReaderContent = if (readerObj != null) {
+                readerObj.optString("textContent").takeIf { it.isNotEmpty() && it != "null" }
+                    ?: readerObj.optString("content").takeIf { it.isNotEmpty() && it != "null" }
+            } else {
+                obj.optString("readerContent").takeIf { it.isNotEmpty() && it != "null" }
+            }
+
             return Bookmark(
                 id = obj.optString("id", ""),
                 url = obj.optString("url", ""),
                 title = obj.optString("title", obj.optString("url", "")),
                 description = obj.optString("description").takeIf { it.isNotEmpty() && it != "null" },
+                excerpt = obj.optString("excerpt").takeIf { it.isNotEmpty() && it != "null" },
+                note = obj.optString("note").takeIf { it.isNotEmpty() && it != "null" },
                 domain = obj.optString("domain", ""),
                 favicon = obj.optString("favicon").takeIf { it.isNotEmpty() && it != "null" },
                 cover = obj.optString("cover").takeIf { it.isNotEmpty() && it != "null" },
@@ -66,7 +80,7 @@ data class Bookmark(
                 isFavorite = obj.optBoolean("isFavorite", false),
                 isTrash = obj.optBoolean("isTrash", false),
                 type = obj.optString("type", "link"),
-                readerContent = obj.optString("readerContent").takeIf { it.isNotEmpty() && it != "null" },
+                readerContent = parsedReaderContent,
                 createdAt = obj.optString("createdAt", ""),
                 updatedAt = obj.optString("updatedAt", "")
             )

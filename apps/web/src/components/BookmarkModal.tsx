@@ -72,8 +72,6 @@ export const BookmarkModal: React.FC<BookmarkModalProps> = ({
     }
   }, [bookmarkToEdit, defaultCollectionId, isOpen]);
 
-  if (!isOpen) return null;
-
   const scrapeAbortControllerRef = useRef<AbortController | null>(null);
 
   const fetchMetadata = async (rawUrl: string) => {
@@ -136,13 +134,13 @@ export const BookmarkModal: React.FC<BookmarkModalProps> = ({
 
   // Debounced auto-fetch when URL is typed or pasted
   useEffect(() => {
-    if (bookmarkToEdit || !url.trim() || !/^https?:\/\//i.test(url.trim())) return;
+    if (!isOpen || bookmarkToEdit || !url.trim() || !/^https?:\/\//i.test(url.trim())) return;
     if (title && cover) return;
     const timer = setTimeout(() => {
       fetchMetadata(url.trim());
     }, 500);
     return () => clearTimeout(timer);
-  }, [url, bookmarkToEdit]);
+  }, [url, bookmarkToEdit, isOpen]);
 
   const handleAddTag = (newTag: string) => {
     const clean = newTag.trim().toLowerCase().replace(/^#/, '');
@@ -179,6 +177,8 @@ export const BookmarkModal: React.FC<BookmarkModalProps> = ({
     });
     onClose();
   };
+
+  if (!isOpen) return null;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm animate-in fade-in duration-200">

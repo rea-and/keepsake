@@ -187,14 +187,19 @@ class ShareActivity : AppCompatActivity() {
                 val fetched = mutableListOf<CollectionOption>()
                 fetched.add(CollectionOption(null, getString(R.string.unsorted)))
 
+                val customItems = mutableListOf<Pair<Int, CollectionOption>>()
                 for (i in 0 until collectionsArray.length()) {
                     val item = collectionsArray.getJSONObject(i)
                     val id = item.optString("id")
                     val title = item.optString("title")
-                    if (id.isNotEmpty() && title.isNotEmpty()) {
-                        fetched.add(CollectionOption(id, title))
+                    val isSystem = item.optBoolean("isSystem", false)
+                    val sortOrder = item.optInt("sortOrder", i)
+                    if (id.isNotEmpty() && title.isNotEmpty() && !isSystem && id != "unsorted" && id != "all" && id != "favorites" && id != "trash") {
+                        customItems.add(sortOrder to CollectionOption(id, title))
                     }
                 }
+                customItems.sortBy { it.first }
+                fetched.addAll(customItems.map { it.second })
 
                 withContext(Dispatchers.Main) {
                     collectionList.clear()

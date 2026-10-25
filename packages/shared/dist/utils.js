@@ -14,6 +14,12 @@ exports.isGenericRedditMedia = isGenericRedditMedia;
 exports.isValidMediaUrl = isValidMediaUrl;
 exports.exportToNetscapeHtml = exportToNetscapeHtml;
 exports.parseNetscapeHtml = parseNetscapeHtml;
+exports.slugify = slugify;
+exports.getCollectionSlug = getCollectionSlug;
+exports.getCollectionPath = getCollectionPath;
+exports.findCollectionBySlug = findCollectionBySlug;
+exports.extractBookmarksFromDataTransfer = extractBookmarksFromDataTransfer;
+exports.extractUrlFromDataTransfer = extractUrlFromDataTransfer;
 const TRACKING_PARAMS = new Set([
     'utm_source',
     'utm_medium',
@@ -418,5 +424,410 @@ function parseNetscapeHtml(html) {
         }
     }
     return results;
+}
+/**
+ * Converts a string into a clean, URL-friendly slug.
+ * Handles diacritics, symbols, spaces, and repeated dashes.
+ * Example: "Mac App" -> "mac-app"
+ */
+function slugify(text) {
+    if (!text)
+        return '';
+    return text
+        .toString()
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '') // remove diacritics
+        .toLowerCase()
+        .trim()
+        .replace(/\s+/g, '-')
+        .replace(/[^\w\-]+/g, '')
+        .replace(/\-\-+/g, '-')
+        .replace(/^-+/, '')
+        .replace(/-+$/, '');
+}
+/**
+ * Returns the URL slug for a collection / category.
+ * If the collection has a custom slug, it uses that.
+ * Otherwise, it generates a clean slug from the title.
+ * Specially maps "Mac App" -> "mac-apps" as requested.
+ */
+function getCollectionSlug(collection) {
+    if (collection.slug && collection.slug.trim()) {
+        return slugify(collection.slug);
+    }
+    if (collection.id === 'all')
+        return '';
+    if (collection.id === 'unsorted')
+        return 'unsorted';
+    if (collection.id === 'favorites')
+        return 'favorites';
+    if (collection.id === 'trash')
+        return 'trash';
+    const base = slugify(collection.title);
+    // Specifically map "Mac App" to "mac-apps" as in example
+    if (base === 'mac-app') {
+        return 'mac-apps';
+    }
+    return base || collection.id;
+}
+/**
+ * Returns the full web path for a collection (with trailing slash).
+ * Examples:
+ * - "all" -> "/"
+ * - "unsorted" -> "/unsorted/"
+ * - "favorites" -> "/favorites/"
+ * - "trash" -> "/trash/"
+ * - "Mac App" -> "/mac-apps/"
+ */
+function getCollectionPath(collectionOrId) {
+    if (typeof collectionOrId === 'string') {
+        if (collectionOrId === 'all')
+            return '/';
+        if (collectionOrId === 'unsorted')
+            return '/unsorted/';
+        if (collectionOrId === 'favorites')
+            return '/favorites/';
+        if (collectionOrId === 'trash')
+            return '/trash/';
+        return `/${collectionOrId}/`;
+    }
+    if (collectionOrId.id === 'all')
+        return '/';
+    if (collectionOrId.id === 'unsorted')
+        return '/unsorted/';
+    if (collectionOrId.id === 'favorites')
+        return '/favorites/';
+    if (collectionOrId.id === 'trash')
+        return '/trash/';
+    const slug = getCollectionSlug(collectionOrId);
+    return slug ? `/${slug}/` : '/';
+}
+/**
+ * Resolves a URL path or slug back to a collection or system collection ID.
+ * Supports:
+ * - Direct ID match
+ * - Slug match ("mac-apps")
+ * - Singular / Plural flexibility ("mac-apps" <-> "Mac App")
+ * - Case-insensitive and punctuation-tolerant matching
+ */
+function findCollectionBySlug(collections, rawPath) {
+    if (!rawPath)
+        return 'all';
+    const clean = rawPath.trim().replace(/^\/+|\/+$/g, '').toLowerCase();
+    if (clean === '' || clean === 'all')
+        return 'all';
+    if (clean === 'unsorted')
+        return 'unsorted';
+    if (clean === 'favorites')
+        return 'favorites';
+    if (clean === 'trash')
+        return 'trash';
+    // 1. Direct ID match
+    const byId = collections.find((c) => c.id.toLowerCase() === clean);
+    if (byId)
+        return byId;
+    // 2. Custom slug or getCollectionSlug match
+    const bySlug = collections.find((c) => getCollectionSlug(c).toLowerCase() === clean);
+    if (bySlug)
+        return bySlug;
+    // 3. Direct title slugify match
+    const byTitleSlug = collections.find((c) => slugify(c.title).toLowerCase() === clean);
+    if (byTitleSlug)
+        return byTitleSlug;
+    // 4. Singular / Plural flexibility (e.g. "mac-apps" vs "mac-app")
+    const byPlural = collections.find((c) => {
+        const s = slugify(c.title).toLowerCase();
+        return (s + 's' === clean ||
+            clean + 's' === s ||
+            s.replace(/s$/, '') === clean.replace(/s$/, ''));
+    });
+    if (byPlural)
+        return byPlural;
+    // 5. Alphanumeric match ignoring hyphens/symbols
+    const cleanAlpha = clean.replace(/[^a-z0-9]/g, '');
+    const byAlpha = collections.find((c) => {
+        const titleAlpha = c.title.toLowerCase().replace(/[^a-z0-9]/g, '');
+        return (titleAlpha === cleanAlpha ||
+            titleAlpha + 's' === cleanAlpha ||
+            cleanAlpha + 's' === titleAlpha ||
+            titleAlpha.replace(/s$/, '') === cleanAlpha.replace(/s$/, ''));
+    });
+    if (byAlpha)
+        return byAlpha;
+    return null;
+}
+async function traverseFileTree(entry) {
+    const files = [];
+    if (entry.isFile) {
+        await new Promise((resolve) => {
+            entry.file((file) => {
+                files.push(file);
+                resolve();
+            }, () => resolve());
+        });
+    }
+    else if (entry.isDirectory) {
+        const dirReader = entry.createReader();
+        const readEntries = async () => {
+            const entries = await new Promise((resolve) => {
+                dirReader.readEntries((results) => resolve(results || []), () => resolve([]));
+            });
+            if (entries.length > 0) {
+                for (const child of entries) {
+                    const childFiles = await traverseFileTree(child);
+                    files.push(...childFiles);
+                }
+                await readEntries();
+            }
+        };
+        await readEntries();
+    }
+    return files;
+}
+function parseAnchorsFromHtml(html, addBookmark) {
+    if (typeof window !== 'undefined' && typeof DOMParser !== 'undefined') {
+        try {
+            const doc = new DOMParser().parseFromString(html, 'text/html');
+            const anchors = doc.querySelectorAll('a[href]');
+            for (const a of Array.from(anchors)) {
+                const href = a.getAttribute('href');
+                if (href && /^https?:\/\//i.test(href)) {
+                    const title = a.textContent?.trim();
+                    addBookmark(href, title);
+                }
+            }
+            return;
+        }
+        catch { }
+    }
+    // Regex fallback if DOMParser is unavailable
+    const regex = /<a\s+[^>]*href=["']([^"']+)["'][^>]*>(.*?)<\/a>/gi;
+    let match;
+    while ((match = regex.exec(html)) !== null) {
+        if (/^https?:\/\//i.test(match[1])) {
+            const rawTitle = match[2].replace(/<[^>]+>/g, '').trim();
+            addBookmark(match[1], rawTitle);
+        }
+    }
+}
+/**
+ * Extracts all valid HTTP/HTTPS bookmarks from a browser drag-and-drop event.
+ * Handles:
+ * - Single bookmarks dragged from Chrome tab, URL bar, or bookmark bar.
+ * - Entire bookmark folders or multi-selected bookmarks dragged from Chrome bookmark bar / manager.
+ * - Dropped bookmark HTML export files (Netscape bookmark format).
+ * - Dropped folders or .webloc / .url files.
+ * Automatically ignores internal Keepsake bookmark dragging.
+ */
+async function extractBookmarksFromDataTransfer(dt) {
+    if (!dt)
+        return [];
+    // Ignore internal Keepsake bookmark dragging
+    const types = Array.from(dt.types || []);
+    if (types.includes('keepsake/bookmark-id')) {
+        return [];
+    }
+    const results = [];
+    const seenUrls = new Set();
+    const addBookmark = (url, title, collectionName) => {
+        const trimmed = (url || '').trim();
+        if (!trimmed || !/^https?:\/\//i.test(trimmed))
+            return;
+        try {
+            const normalized = normalizeUrl(trimmed);
+            if (!seenUrls.has(normalized)) {
+                seenUrls.add(normalized);
+                const cleanTitle = title?.trim();
+                results.push({
+                    url: normalized,
+                    title: cleanTitle && cleanTitle !== normalized ? cleanTitle : undefined,
+                    collectionName: collectionName?.trim() || undefined
+                });
+            }
+        }
+        catch {
+            if (!seenUrls.has(trimmed)) {
+                seenUrls.add(trimmed);
+                results.push({
+                    url: trimmed,
+                    title: title?.trim() || undefined,
+                    collectionName: collectionName?.trim() || undefined
+                });
+            }
+        }
+    };
+    // 1. Process Dropped Files and Directories (e.g. bookmarks.html or desktop folder with bookmarks)
+    try {
+        const filesToRead = [];
+        if (dt.items && dt.items.length > 0) {
+            for (let i = 0; i < dt.items.length; i++) {
+                const item = dt.items[i];
+                if (typeof item.webkitGetAsEntry === 'function') {
+                    const entry = item.webkitGetAsEntry();
+                    if (entry) {
+                        const entryFiles = await traverseFileTree(entry);
+                        filesToRead.push(...entryFiles);
+                        continue;
+                    }
+                }
+                if (item.kind === 'file') {
+                    const f = typeof item.getAsFile === 'function' ? item.getAsFile() : null;
+                    if (f)
+                        filesToRead.push(f);
+                }
+            }
+        }
+        else if (dt.files && dt.files.length > 0) {
+            filesToRead.push(...Array.from(dt.files));
+        }
+        for (const file of filesToRead) {
+            const name = file.name.toLowerCase();
+            if (name.endsWith('.html') || name.endsWith('.htm') || file.type === 'text/html') {
+                const text = await file.text();
+                const parsed = parseNetscapeHtml(text);
+                if (parsed.length > 0) {
+                    for (const item of parsed) {
+                        addBookmark(item.url, item.title, item.collectionName);
+                    }
+                }
+                else {
+                    parseAnchorsFromHtml(text, addBookmark);
+                }
+            }
+            else if (name.endsWith('.webloc')) {
+                const text = await file.text();
+                const match = text.match(/<string>(https?:\/\/[^<]+)<\/string>/i) || text.match(/(https?:\/\/[^\s<"']+)/i);
+                if (match) {
+                    const fallbackTitle = file.name.replace(/\.webloc$/i, '');
+                    addBookmark(match[1], fallbackTitle);
+                }
+            }
+            else if (name.endsWith('.url')) {
+                const text = await file.text();
+                const match = text.match(/URL=(https?:\/\/[^\r\n]+)/i);
+                if (match) {
+                    const fallbackTitle = file.name.replace(/\.url$/i, '');
+                    addBookmark(match[1], fallbackTitle);
+                }
+            }
+        }
+    }
+    catch (err) {
+        console.warn('[Keepsake] File extraction error:', err);
+    }
+    // If dropped files yielded bookmarks, return immediately
+    if (results.length > 0) {
+        return results;
+    }
+    // 2. Process text/html (contains multiple <a href="..."> tags when dragging bookmark folders or multi-selected bookmarks)
+    try {
+        const html = dt.getData('text/html');
+        if (html && html.trim()) {
+            if (/<H3/i.test(html) || /<DL/i.test(html)) {
+                const parsed = parseNetscapeHtml(html);
+                for (const item of parsed) {
+                    addBookmark(item.url, item.title, item.collectionName);
+                }
+            }
+            parseAnchorsFromHtml(html, addBookmark);
+        }
+    }
+    catch { }
+    // 3. Process text/uri-list (multiple lines of URLs when dragging bookmarks or folder)
+    try {
+        const uriList = dt.getData('text/uri-list');
+        if (uriList) {
+            const lines = uriList
+                .split(/\r?\n/)
+                .map((l) => l.trim())
+                .filter((l) => l && !l.startsWith('#'));
+            for (const line of lines) {
+                if (/^https?:\/\//i.test(line)) {
+                    addBookmark(line);
+                }
+            }
+        }
+    }
+    catch { }
+    // 4. Process text/plain (single or multiple URLs, one per line or embedded)
+    try {
+        const text = dt.getData('text/plain') || dt.getData('Text');
+        if (text) {
+            const lines = text.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+            for (const line of lines) {
+                if (/^https?:\/\//i.test(line)) {
+                    addBookmark(line);
+                }
+                else {
+                    const matches = line.matchAll(/(https?:\/\/[^\s"'<>]+)/gi);
+                    for (const m of matches) {
+                        addBookmark(m[1]);
+                    }
+                }
+            }
+        }
+    }
+    catch { }
+    return results;
+}
+/**
+ * Extracts a single valid HTTP/HTTPS URL and optional title from a browser drag-and-drop event.
+ * Synchronous helper for backward compatibility.
+ */
+function extractUrlFromDataTransfer(dt) {
+    if (!dt)
+        return null;
+    // Ignore internal bookmark drags
+    const types = Array.from(dt.types || []);
+    if (types.includes('keepsake/bookmark-id')) {
+        return null;
+    }
+    // 1. Check text/uri-list (standard URI drag from Chrome/Firefox tabs & address bar)
+    try {
+        const uriList = dt.getData('text/uri-list');
+        if (uriList) {
+            const lines = uriList
+                .split(/\r?\n/)
+                .map((l) => l.trim())
+                .filter((l) => l && !l.startsWith('#'));
+            for (const line of lines) {
+                if (/^https?:\/\//i.test(line)) {
+                    return { url: line };
+                }
+            }
+        }
+    }
+    catch { }
+    // 2. Check text/html (frequently contains <a href="...">Title</a>)
+    try {
+        const html = dt.getData('text/html');
+        if (html) {
+            const match = html.match(/<a\s+[^>]*href=["']([^"']+)["'][^>]*>(.*?)<\/a>/i);
+            if (match && /^https?:\/\//i.test(match[1])) {
+                const rawTitle = match[2].replace(/<[^>]+>/g, '').trim();
+                return {
+                    url: match[1],
+                    title: rawTitle && rawTitle !== match[1] ? rawTitle : undefined
+                };
+            }
+        }
+    }
+    catch { }
+    // 3. Check plain text
+    try {
+        const text = dt.getData('text/plain') || dt.getData('Text');
+        if (text) {
+            const trimmed = text.trim();
+            if (/^https?:\/\//i.test(trimmed)) {
+                return { url: trimmed };
+            }
+            const match = trimmed.match(/(https?:\/\/[^\s]+)/i);
+            if (match) {
+                return { url: match[1] };
+            }
+        }
+    }
+    catch { }
+    return null;
 }
 //# sourceMappingURL=utils.js.map

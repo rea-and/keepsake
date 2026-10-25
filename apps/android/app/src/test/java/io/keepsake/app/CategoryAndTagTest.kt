@@ -13,6 +13,7 @@ class CategoryAndTagTest {
         val col = Collection(
             id = "col_test123",
             title = "Design Resources",
+            slug = "design-resources",
             description = "Figma, icons, colors",
             color = "#0284C7",
             icon = "Folder",
@@ -25,6 +26,7 @@ class CategoryAndTagTest {
         val json = col.toJson()
         assertEquals("col_test123", json.getString("id"))
         assertEquals("Design Resources", json.getString("title"))
+        assertEquals("design-resources", json.getString("slug"))
         assertEquals("Figma, icons, colors", json.getString("description"))
         assertEquals("#0284C7", json.getString("color"))
         assertEquals("Folder", json.getString("icon"))
@@ -33,6 +35,7 @@ class CategoryAndTagTest {
         val deserialized = Collection.fromJson(json)
         assertEquals(col.id, deserialized.id)
         assertEquals(col.title, deserialized.title)
+        assertEquals("design-resources", deserialized.slug)
         assertEquals(col.description, deserialized.description)
         assertEquals(col.color, deserialized.color)
         assertEquals(col.icon, deserialized.icon)
@@ -46,6 +49,7 @@ class CategoryAndTagTest {
             url = "https://example.com/article",
             title = "Example Article",
             description = "A useful article",
+            note = "My personal reading note",
             domain = "example.com",
             favicon = "https://example.com/favicon.ico",
             cover = null,
@@ -61,6 +65,7 @@ class CategoryAndTagTest {
 
         val json = bm.toJson()
         assertEquals("col_test123", json.getString("collectionId"))
+        assertEquals("My personal reading note", json.getString("note"))
         val tagsArr = json.getJSONArray("tags")
         assertEquals(3, tagsArr.length())
         assertEquals("tech", tagsArr.getString(0))
@@ -70,6 +75,7 @@ class CategoryAndTagTest {
         val deserialized = Bookmark.fromJson(json)
         assertEquals(listOf("tech", "kotlin", "android"), deserialized.tags)
         assertEquals("col_test123", deserialized.collectionId)
+        assertEquals("My personal reading note", deserialized.note)
         assertTrue(deserialized.isFavorite)
     }
 
@@ -203,5 +209,25 @@ class CategoryAndTagTest {
 
         assertNull(bookmarks[0].collectionId)
         assertEquals("col_keep_me", bookmarks[1].collectionId)
+    }
+
+    @Test
+    fun testCollectionReordering() {
+        val col1 = Collection(id = "1", title = "First", sortOrder = 0)
+        val col2 = Collection(id = "2", title = "Second", sortOrder = 1)
+        val col3 = Collection(id = "3", title = "Third", sortOrder = 2)
+
+        val list = mutableListOf(col1, col2, col3)
+        // Move Third to First
+        val moved = list.removeAt(2)
+        list.add(0, moved)
+
+        val reordered = list.mapIndexed { idx, item -> item.copy(sortOrder = idx) }
+        assertEquals("3", reordered[0].id)
+        assertEquals(0, reordered[0].sortOrder)
+        assertEquals("1", reordered[1].id)
+        assertEquals(1, reordered[1].sortOrder)
+        assertEquals("2", reordered[2].id)
+        assertEquals(2, reordered[2].sortOrder)
     }
 }

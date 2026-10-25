@@ -491,7 +491,7 @@ class MainActivity : AppCompatActivity() {
             Pair("+new", "+ New Collection"),
             Pair("unsorted", "Unsorted Inbox")
         )
-        repository.collections.filter { !it.isSystem }.forEach {
+        repository.collections.filter { !it.isSystem }.sortedBy { it.sortOrder }.forEach {
             options.add(Pair(it.id, it.title))
         }
 
@@ -534,7 +534,7 @@ class MainActivity : AppCompatActivity() {
         etTitle.setText(bm.title)
         etUrl.setText(bm.url)
         etTags.setText(bm.tags.joinToString(", "))
-        etNotes.setText(bm.description ?: "")
+        etNotes.setText(bm.note ?: bm.description ?: "")
 
         var isFav = bm.isFavorite
         fun updateFavIcon() {
@@ -550,7 +550,7 @@ class MainActivity : AppCompatActivity() {
         fun setupSpinner(targetSelectId: String? = bm.collectionId) {
             colOptions.clear()
             colOptions.add(Pair(null, "Unsorted Inbox"))
-            repository.collections.filter { !it.isSystem }.forEach {
+            repository.collections.filter { !it.isSystem }.sortedBy { it.sortOrder }.forEach {
                 colOptions.add(Pair(it.id, it.title))
             }
             val adapter = ArrayAdapter(this, android.R.layout.simple_spinner_dropdown_item, colOptions.map { it.second })
@@ -591,7 +591,8 @@ class MainActivity : AppCompatActivity() {
                     bookmarkId = bm.id,
                     url = url,
                     title = title.ifEmpty { extractDomain(url) },
-                    description = notes,
+                    description = notes ?: bm.description,
+                    note = notes ?: bm.note,
                     collectionId = selectedCol,
                     tags = tagsList,
                     isFavorite = isFav,
@@ -760,7 +761,7 @@ class MainActivity : AppCompatActivity() {
             }
 
             // Divider / Section Header
-            val customCols = repository.collections.filter { !it.isSystem }
+            val customCols = repository.collections.filter { !it.isSystem }.sortedBy { it.sortOrder }
             val sectionHeader = TextView(this).apply {
                 text = "MY CATEGORIES (${customCols.size})"
                 setTextColor(0xFF64748B.toInt())
@@ -779,13 +780,38 @@ class MainActivity : AppCompatActivity() {
                 }
                 container.addView(emptyView)
             } else {
-                customCols.forEach { col ->
+                customCols.forEachIndexed { index, col ->
                     val rowView = layoutInflater.inflate(R.layout.item_collection_manage, container, false)
                     val tvTitle = rowView.findViewById<TextView>(R.id.tvCollectionTitle)
                     val tvCount = rowView.findViewById<TextView>(R.id.tvCollectionCount)
                     val vDot = rowView.findViewById<View>(R.id.vCollectionColorDot)
+                    val btnMoveUp = rowView.findViewById<ImageButton>(R.id.btnMoveUp)
+                    val btnMoveDown = rowView.findViewById<ImageButton>(R.id.btnMoveDown)
                     val btnEdit = rowView.findViewById<ImageButton>(R.id.btnEditCollection)
                     val llInfo = rowView.findViewById<View>(R.id.llCollectionInfo)
+
+                    btnMoveUp.visibility = if (index > 0) View.VISIBLE else View.INVISIBLE
+                    btnMoveDown.visibility = if (index < customCols.size - 1) View.VISIBLE else View.INVISIBLE
+
+                    btnMoveUp.setOnClickListener {
+                        val reordered = customCols.toMutableList()
+                        val item = reordered.removeAt(index)
+                        reordered.add(index - 1, item)
+                        lifecycleScope.launch {
+                            repository.reorderCollections(reordered, getServerUrl())
+                            populateList()
+                        }
+                    }
+
+                    btnMoveDown.setOnClickListener {
+                        val reordered = customCols.toMutableList()
+                        val item = reordered.removeAt(index)
+                        reordered.add(index + 1, item)
+                        lifecycleScope.launch {
+                            repository.reorderCollections(reordered, getServerUrl())
+                            populateList()
+                        }
+                    }
 
                     tvTitle.text = col.title
                     if (activeFilterId == col.id && activeTagFilter == null) {
@@ -1189,7 +1215,7 @@ class MainActivity : AppCompatActivity() {
         fun refreshColOptions() {
             colOptions.clear()
             colOptions.add(Pair(null, "Unsorted Inbox"))
-            repository.collections.filter { !it.isSystem }.forEach {
+            repository.collections.filter { !it.isSystem }.sortedBy { it.sortOrder }.forEach {
                 colOptions.add(Pair(it.id, it.title))
             }
         }

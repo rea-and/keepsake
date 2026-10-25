@@ -219,6 +219,27 @@ class ServerStoreManager {
         return true;
     }
     listCollections() {
+        return [...this.store.collections].sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0));
+    }
+    reorderCollections(orderedIds) {
+        const now = new Date().toISOString();
+        const idOrderMap = new Map();
+        orderedIds.forEach((id, index) => {
+            idOrderMap.set(id, index + 1);
+        });
+        this.store.collections = this.store.collections.map((col) => {
+            if (idOrderMap.has(col.id)) {
+                return {
+                    ...col,
+                    sortOrder: idOrderMap.get(col.id),
+                    updatedAt: now
+                };
+            }
+            return col;
+        });
+        this.store.collections.sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0));
+        this.store.lastModified = now;
+        this.persist(this.store);
         return this.store.collections;
     }
     getCollection(id) {
