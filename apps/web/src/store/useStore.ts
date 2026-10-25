@@ -671,6 +671,7 @@ export function useKeepsakeStore() {
           url: cleanUrl,
           title,
           description: '',
+          domain,
           collectionId: colId,
           tags,
           isFavorite,
