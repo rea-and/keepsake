@@ -249,6 +249,7 @@ function KeepsakeDashboard({ store }: KeepsakeDashboardProps) {
         onDropUrlOnCollection={handleDropUrlOnCollection}
         onDropBookmarksOnCollection={handleDropBookmarksOnCollection}
         onDropOnTag={store.addTagToBookmark}
+        onReorderCollections={store.reorderCollections}
       />
 
       {/* Main Content Area */}

@@ -298,6 +298,15 @@ app.post('/api/collections', (req: Request, res: Response) => {
   });
 });
 
+app.put('/api/collections/reorder', (req: Request, res: Response) => {
+  const { collectionIds } = req.body;
+  if (!Array.isArray(collectionIds)) {
+    return res.status(400).json({ error: 'Missing or invalid collectionIds array' });
+  }
+  const collections = serverStore.reorderCollections(collectionIds);
+  return res.json({ success: true, collections });
+});
+
 app.put('/api/collections/:id', (req: Request, res: Response) => {
   const existing = serverStore.getCollection(req.params.id);
   if (!existing) {

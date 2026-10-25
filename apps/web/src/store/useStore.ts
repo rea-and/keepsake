@@ -1053,6 +1053,37 @@ export function useKeepsakeStore() {
     [activeCollectionId]
   );
 
+  const reorderCollections = useCallback(
+    (newOrder: Collection[]) => {
+      const now = new Date().toISOString();
+      const systemCols = store.collections.filter((c) => c.isSystem || c.id === 'unsorted');
+      const customCols = newOrder.filter((c) => !c.isSystem && c.id !== 'unsorted');
+
+      const updatedCustomCols = customCols.map((col, index) => ({
+        ...col,
+        sortOrder: index + 1,
+        updatedAt: now
+      }));
+
+      const finalCollections = [...systemCols, ...updatedCustomCols];
+
+      setStore((prev) => ({
+        ...prev,
+        lastModified: now,
+        collections: finalCollections
+      }));
+
+      fetch('/api/collections/reorder', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          collectionIds: updatedCustomCols.map((c) => c.id)
+        })
+      }).catch((e) => console.warn('[Keepsake Web] reorderCollections server persist error:', e));
+    },
+    [store.collections]
+  );
+
   // Derived: All unique tags with counts
   const allTags = useMemo(() => {
     const tagMap = new Map<string, number>();
@@ -1277,6 +1308,7 @@ export function useKeepsakeStore() {
     addCollection,
     updateCollection,
     deleteCollection,
+    reorderCollections,
     importData
   };
 }

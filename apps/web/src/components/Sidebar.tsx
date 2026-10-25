@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef, useMemo } from 'react';
 import {
   Bookmark as BookmarkIcon,
   Inbox,
@@ -25,7 +25,8 @@ import {
   Music,
   Video,
   FileText,
-  LogOut
+  LogOut,
+  GripVertical
 } from 'lucide-react';
 import {
   Collection,
@@ -74,6 +75,7 @@ interface SidebarProps {
   onDropUrlOnCollection?: (url: string, collectionId: string, initialTitle?: string) => void;
   onDropBookmarksOnCollection?: (items: Array<{ url: string; title?: string }>, collectionId: string) => void;
   onDropOnTag?: (bookmarkId: string, tag: string) => void;
+  onReorderCollections?: (newOrder: Collection[]) => void;
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({
@@ -102,12 +104,112 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onDropOnCollection,
   onDropUrlOnCollection,
   onDropBookmarksOnCollection,
-  onDropOnTag
+  onDropOnTag,
+  onReorderCollections
 }) => {
   const [collectionMenuId, setCollectionMenuId] = useState<string | null>(null);
   const [dragOverTarget, setDragOverTarget] = useState<string | null>(null);
 
+  // Category drag-to-reorder state
+  const [draggingCollectionId, setDraggingCollectionId] = useState<string | null>(null);
+  const [dragOverCollectionId, setDragOverCollectionId] = useState<string | null>(null);
+  const [collectionDropPosition, setCollectionDropPosition] = useState<'above' | 'below' | null>(null);
+  const isDraggingCollectionRef = useRef(false);
+
+  // Sorted custom collections (excluding system collections like Unsorted)
+  const customCollections = useMemo(() => {
+    return collections
+      .filter((col) => !col.isSystem && col.id !== 'unsorted')
+      .sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0));
+  }, [collections]);
+
+  const handleCollectionDragStart = (e: React.DragEvent, colId: string) => {
+    isDraggingCollectionRef.current = true;
+    setDraggingCollectionId(colId);
+    e.dataTransfer.setData('keepsake/collection-id', colId);
+    e.dataTransfer.effectAllowed = 'move';
+  };
+
+  const handleCollectionDragEnd = () => {
+    setDraggingCollectionId(null);
+    setDragOverCollectionId(null);
+    setCollectionDropPosition(null);
+    setTimeout(() => {
+      isDraggingCollectionRef.current = false;
+    }, 150);
+  };
+
+  const handleCollectionDragOver = (e: React.DragEvent, targetColId: string) => {
+    // 1. If dragging a collection for reordering:
+    if (e.dataTransfer.types.includes('keepsake/collection-id')) {
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'move';
+      const rect = e.currentTarget.getBoundingClientRect();
+      const isBelow = e.clientY > rect.top + rect.height / 2;
+      setCollectionDropPosition(isBelow ? 'below' : 'above');
+      if (dragOverCollectionId !== targetColId) {
+        setDragOverCollectionId(targetColId);
+      }
+      return;
+    }
+
+    // 2. Otherwise it's dropping bookmark(s) or external URLs into this collection
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'copy';
+    if (dragOverTarget !== `col:${targetColId}`) {
+      setDragOverTarget(`col:${targetColId}`);
+    }
+  };
+
+  const handleCollectionDragLeave = (e: React.DragEvent, targetColId: string) => {
+    const related = e.relatedTarget as Node | null;
+    if (e.currentTarget.contains(related)) {
+      return;
+    }
+    if (dragOverCollectionId === targetColId) {
+      setDragOverCollectionId(null);
+      setCollectionDropPosition(null);
+    }
+    if (dragOverTarget === `col:${targetColId}`) {
+      setDragOverTarget(null);
+    }
+  };
+
+  const handleCollectionDrop = (e: React.DragEvent, targetColId: string) => {
+    e.preventDefault();
+    setDragOverTarget(null);
+
+    // 1. Check if it's a collection reorder drop
+    const sourceColId = e.dataTransfer.getData('keepsake/collection-id');
+    if (sourceColId) {
+      if (sourceColId !== targetColId && onReorderCollections) {
+        const list = [...customCollections];
+        const fromIndex = list.findIndex((c) => c.id === sourceColId);
+        if (fromIndex >= 0) {
+          const [moved] = list.splice(fromIndex, 1);
+          const targetIndex = list.findIndex((c) => c.id === targetColId);
+          const insertIndex = collectionDropPosition === 'below' ? targetIndex + 1 : targetIndex;
+          list.splice(insertIndex, 0, moved);
+          onReorderCollections(list);
+        }
+      }
+      setDragOverCollectionId(null);
+      setCollectionDropPosition(null);
+      setDraggingCollectionId(null);
+      return;
+    }
+
+    // 2. Otherwise it's a bookmark / URL drop into this collection
+    handleItemDrop(e, targetColId);
+  };
+
   const handleNavClick = (e: React.MouseEvent, collectionId: string, customPath?: string, titleName?: string) => {
+    // If just finished dragging a collection, suppress accidental click navigation
+    if (isDraggingCollectionRef.current) {
+      e.preventDefault();
+      return;
+    }
+
     // Allow Cmd/Ctrl/Shift/Alt click or middle click to open natively in a new tab
     if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0) {
       return;
@@ -322,41 +424,55 @@ export const Sidebar: React.FC<SidebarProps> = ({
             </div>
 
             <div className="space-y-0.5">
-              {collections
-                .filter((col) => !col.isSystem)
-                .map((col) => {
-                  const isActive = activeCollectionId === col.id && !activeTag;
-                  const colPath = getCollectionPath(col);
-                  return (
-                    <div key={col.id} className="relative group">
-                      <a
-                        href={colPath}
-                        onClick={(e) => handleNavClick(e, col.id, colPath, col.title)}
-                        onDragOver={(e) => {
-                          e.preventDefault();
-                          e.dataTransfer.dropEffect = 'copy';
-                          if (dragOverTarget !== `col:${col.id}`) setDragOverTarget(`col:${col.id}`);
-                        }}
-                        onDragLeave={() => {
-                          if (dragOverTarget === `col:${col.id}`) setDragOverTarget(null);
-                        }}
-                        onDrop={(e) => handleItemDrop(e, col.id)}
-                        className={`w-full flex items-center justify-between px-3 py-2 pr-8 rounded-lg text-sm transition-all text-left ${
-                          dragOverTarget === `col:${col.id}`
-                            ? 'bg-sky-100 dark:bg-sky-950/70 ring-2 ring-sky-500 text-sky-700 dark:text-sky-300 scale-[1.02] shadow-sm font-semibold'
-                            : isActive
-                            ? 'bg-sky-50 dark:bg-sky-950/40 text-sky-600 dark:text-sky-400 font-semibold'
-                            : 'text-neutral-700 dark:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-800/60'
-                        }`}
-                      >
-                        <div className="flex items-center gap-2.5 truncate">
-                          <span
-                            className="w-2.5 h-2.5 rounded-full shrink-0"
-                            style={{ backgroundColor: col.color || '#38bdf8' }}
-                          />
-                          <span className="truncate">{col.title}</span>
-                        </div>
-                      </a>
+              {customCollections.map((col) => {
+                const isActive = activeCollectionId === col.id && !activeTag;
+                const colPath = getCollectionPath(col);
+                const isDragging = draggingCollectionId === col.id;
+                const isDragOver = dragOverCollectionId === col.id;
+
+                return (
+                  <div
+                    key={col.id}
+                    className={`relative group transition-opacity duration-150 ${
+                      isDragging ? 'opacity-30' : 'opacity-100'
+                    }`}
+                    draggable={true}
+                    onDragStart={(e) => handleCollectionDragStart(e, col.id)}
+                    onDragEnd={handleCollectionDragEnd}
+                    onDragOver={(e) => handleCollectionDragOver(e, col.id)}
+                    onDragLeave={(e) => handleCollectionDragLeave(e, col.id)}
+                    onDrop={(e) => handleCollectionDrop(e, col.id)}
+                  >
+                    {/* Reorder Drop Insertion Line (Above) */}
+                    {isDragOver && collectionDropPosition === 'above' && (
+                      <div className="absolute -top-1 left-2 right-2 h-0.5 bg-sky-500 rounded-full z-20 shadow-sm shadow-sky-500/50 pointer-events-none" />
+                    )}
+
+                    <a
+                      href={colPath}
+                      onClick={(e) => handleNavClick(e, col.id, colPath, col.title)}
+                      className={`w-full flex items-center justify-between px-2.5 py-2 pr-8 rounded-lg text-sm transition-all text-left select-none cursor-pointer ${
+                        dragOverTarget === `col:${col.id}`
+                          ? 'bg-sky-100 dark:bg-sky-950/70 ring-2 ring-sky-500 text-sky-700 dark:text-sky-300 scale-[1.02] shadow-sm font-semibold'
+                          : isActive
+                          ? 'bg-sky-50 dark:bg-sky-950/40 text-sky-600 dark:text-sky-400 font-semibold'
+                          : 'text-neutral-700 dark:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-800/60'
+                      }`}
+                    >
+                      <div className="flex items-center gap-2 truncate">
+                        <GripVertical className="w-3.5 h-3.5 text-neutral-300 dark:text-neutral-600 opacity-0 group-hover:opacity-100 transition-opacity shrink-0 cursor-grab active:cursor-grabbing" />
+                        <span
+                          className="w-2.5 h-2.5 rounded-full shrink-0"
+                          style={{ backgroundColor: col.color || '#38bdf8' }}
+                        />
+                        <span className="truncate">{col.title}</span>
+                      </div>
+                    </a>
+
+                    {/* Reorder Drop Insertion Line (Below) */}
+                    {isDragOver && collectionDropPosition === 'below' && (
+                      <div className="absolute -bottom-1 left-2 right-2 h-0.5 bg-sky-500 rounded-full z-20 shadow-sm shadow-sky-500/50 pointer-events-none" />
+                    )}
 
                       <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center">
                         <button
