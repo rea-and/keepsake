@@ -255,6 +255,231 @@ class KeepsakeRepository(private val context: Context) {
         }
     }
 
+    suspend fun createCollection(
+        title: String,
+        description: String? = null,
+        color: String? = null,
+        icon: String? = null,
+        serverUrl: String
+    ): Collection? = withContext(Dispatchers.IO) {
+        val cleanTitle = title.trim()
+        if (cleanTitle.isEmpty()) return@withContext null
+
+        val newId = "col_" + UUID.randomUUID().toString().replace("-", "").take(9)
+        val now = nowIso()
+        val newCol = Collection(
+            id = newId,
+            title = cleanTitle,
+            description = description?.trim()?.ifEmpty { null },
+            color = color ?: "#38BDF8",
+            icon = icon ?: "Folder",
+            isSystem = false,
+            sortOrder = collections.size,
+            createdAt = now,
+            updatedAt = now
+        )
+
+        collections.add(newCol)
+        saveToCache()
+
+        val payload = newCol.toJson()
+        val res = httpPost("${serverUrl.removeSuffix("/")}/api/collections", payload.toString())
+        if (res != null) {
+            val serverCol = res.optJSONObject("collection")?.let { Collection.fromJson(it) }
+            if (serverCol != null) {
+                val index = collections.indexOfFirst { it.id == newId }
+                if (index != -1) {
+                    collections[index] = serverCol
+                    saveToCache()
+                    return@withContext serverCol
+                }
+            }
+        }
+        return@withContext newCol
+    }
+
+    suspend fun updateCollection(
+        id: String,
+        title: String,
+        description: String? = null,
+        color: String? = null,
+        icon: String? = null,
+        serverUrl: String
+    ): Boolean = withContext(Dispatchers.IO) {
+        val cleanTitle = title.trim()
+        if (cleanTitle.isEmpty()) return@withContext false
+
+        val index = collections.indexOfFirst { it.id == id }
+        if (index == -1) return@withContext false
+
+        val current = collections[index]
+        val updated = current.copy(
+            title = cleanTitle,
+            description = description?.trim()?.ifEmpty { null },
+            color = color ?: current.color,
+            icon = icon ?: current.icon,
+            updatedAt = nowIso()
+        )
+        collections[index] = updated
+        saveToCache()
+
+        val payload = JSONObject().apply {
+            put("id", id)
+            put("title", updated.title)
+            put("description", updated.description ?: JSONObject.NULL)
+            put("color", updated.color ?: JSONObject.NULL)
+            put("icon", updated.icon ?: JSONObject.NULL)
+        }
+        httpPut("${serverUrl.removeSuffix("/")}/api/collections/$id", payload.toString())
+        true
+    }
+
+    suspend fun deleteCollection(id: String, serverUrl: String): Boolean = withContext(Dispatchers.IO) {
+        if (id == "unsorted") return@withContext false
+        val index = collections.indexOfFirst { it.id == id }
+        if (index == -1) return@withContext false
+
+        collections.removeAt(index)
+
+        val now = nowIso()
+        for (i in 0 until bookmarks.size) {
+            if (bookmarks[i].collectionId == id) {
+                bookmarks[i] = bookmarks[i].copy(collectionId = null, updatedAt = now)
+            }
+        }
+        saveToCache()
+
+        httpDelete("${serverUrl.removeSuffix("/")}/api/collections/$id")
+        true
+    }
+
+    suspend fun updateBookmarkTags(bookmarkId: String, newTags: List<String>, serverUrl: String) = withContext(Dispatchers.IO) {
+        val cleanTags = newTags.map { it.trim().lowercase().removePrefix("#") }.filter { it.isNotEmpty() }.distinct()
+        val index = bookmarks.indexOfFirst { it.id == bookmarkId }
+        if (index != -1) {
+            val updated = bookmarks[index].copy(tags = cleanTags, updatedAt = nowIso())
+            bookmarks[index] = updated
+            saveToCache()
+
+            val tagsArr = JSONArray()
+            cleanTags.forEach { tagsArr.put(it) }
+            httpPut("${serverUrl.removeSuffix("/")}/api/bookmarks/$bookmarkId", JSONObject().apply {
+                put("tags", tagsArr)
+            }.toString())
+        }
+    }
+
+    suspend fun renameTag(oldTag: String, newTag: String, serverUrl: String): Int = withContext(Dispatchers.IO) {
+        val cleanOld = oldTag.trim().lowercase().removePrefix("#")
+        val cleanNew = newTag.trim().lowercase().removePrefix("#")
+        if (cleanOld.isEmpty() || cleanNew.isEmpty() || cleanOld == cleanNew) return@withContext 0
+
+        var count = 0
+        val now = nowIso()
+        for (i in 0 until bookmarks.size) {
+            val bm = bookmarks[i]
+            if (bm.tags.any { it.equals(cleanOld, ignoreCase = true) }) {
+                val nextTags = bm.tags.map { if (it.equals(cleanOld, ignoreCase = true)) cleanNew else it }.distinct()
+                val updated = bm.copy(tags = nextTags, updatedAt = now)
+                bookmarks[i] = updated
+                count++
+
+                val tagsArr = JSONArray()
+                nextTags.forEach { tagsArr.put(it) }
+                httpPut("${serverUrl.removeSuffix("/")}/api/bookmarks/${bm.id}", JSONObject().apply {
+                    put("tags", tagsArr)
+                }.toString())
+            }
+        }
+        if (count > 0) {
+            saveToCache()
+        }
+        count
+    }
+
+    suspend fun deleteTag(tag: String, serverUrl: String): Int = withContext(Dispatchers.IO) {
+        val cleanTag = tag.trim().lowercase().removePrefix("#")
+        if (cleanTag.isEmpty()) return@withContext 0
+
+        var count = 0
+        val now = nowIso()
+        for (i in 0 until bookmarks.size) {
+            val bm = bookmarks[i]
+            if (bm.tags.any { it.equals(cleanTag, ignoreCase = true) }) {
+                val nextTags = bm.tags.filterNot { it.equals(cleanTag, ignoreCase = true) }
+                val updated = bm.copy(tags = nextTags, updatedAt = now)
+                bookmarks[i] = updated
+                count++
+
+                val tagsArr = JSONArray()
+                nextTags.forEach { tagsArr.put(it) }
+                httpPut("${serverUrl.removeSuffix("/")}/api/bookmarks/${bm.id}", JSONObject().apply {
+                    put("tags", tagsArr)
+                }.toString())
+            }
+        }
+        if (count > 0) {
+            saveToCache()
+        }
+        count
+    }
+
+    suspend fun updateBookmark(
+        bookmarkId: String,
+        url: String,
+        title: String,
+        description: String? = null,
+        collectionId: String? = null,
+        tags: List<String>,
+        isFavorite: Boolean,
+        serverUrl: String
+    ): Boolean = withContext(Dispatchers.IO) {
+        val index = bookmarks.indexOfFirst { it.id == bookmarkId }
+        if (index == -1) return@withContext false
+
+        val cleanTags = tags.map { it.trim().lowercase().removePrefix("#") }.filter { it.isNotEmpty() }.distinct()
+        val current = bookmarks[index]
+        val updated = current.copy(
+            url = url.trim(),
+            title = title.trim(),
+            description = description?.trim()?.ifEmpty { null },
+            collectionId = collectionId,
+            tags = cleanTags,
+            isFavorite = isFavorite,
+            updatedAt = nowIso()
+        )
+        bookmarks[index] = updated
+        saveToCache()
+
+        val tagsArr = JSONArray()
+        cleanTags.forEach { tagsArr.put(it) }
+        val payload = JSONObject().apply {
+            put("url", updated.url)
+            put("title", updated.title)
+            put("description", updated.description ?: JSONObject.NULL)
+            put("collectionId", updated.collectionId ?: JSONObject.NULL)
+            put("tags", tagsArr)
+            put("isFavorite", updated.isFavorite)
+        }
+        httpPut("${serverUrl.removeSuffix("/")}/api/bookmarks/$bookmarkId", payload.toString())
+        true
+    }
+
+    private fun httpDelete(urlString: String): Boolean {
+        return try {
+            val url = URL(urlString)
+            val conn = (url.openConnection() as HttpURLConnection).apply {
+                requestMethod = "DELETE"
+                connectTimeout = 6000
+                readTimeout = 6000
+            }
+            conn.responseCode in 200..299
+        } catch (e: Exception) {
+            e.printStackTrace()
+            false
+        }
+    }
+
     private fun httpPut(urlString: String, jsonBody: String) {
         try {
             val url = URL(urlString)

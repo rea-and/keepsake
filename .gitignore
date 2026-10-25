@@ -15,6 +15,9 @@ node_modules/
 Thumbs.db
 
 # Android build outputs & local config
+.idea/
+*.iml
+apps/android/.idea/
 apps/android/.gradle/
 apps/android/build/
 apps/android/app/build/

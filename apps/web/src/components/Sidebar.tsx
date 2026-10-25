@@ -27,7 +27,7 @@ import {
   FileText,
   LogOut
 } from 'lucide-react';
-import { Collection, AuthSession, SyncStatus } from '@keepsake/shared';
+import { Collection, AuthSession, SyncStatus, getCollectionPath } from '@keepsake/shared';
 
 const ICON_MAP: Record<string, React.ReactNode> = {
   Folder: <Folder className="w-4 h-4" />,
@@ -95,6 +95,17 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const [collectionMenuId, setCollectionMenuId] = useState<string | null>(null);
   const [dragOverTarget, setDragOverTarget] = useState<string | null>(null);
 
+  const handleNavClick = (e: React.MouseEvent, collectionId: string) => {
+    // Allow Cmd/Ctrl/Shift/Alt click or middle click to open natively in a new tab
+    if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0) {
+      return;
+    }
+    e.preventDefault();
+    onSelectCollection(collectionId);
+    onSelectTag(null);
+    onCloseMobile();
+  };
+
   return (
     <>
       {/* Mobile Backdrop */}
@@ -134,12 +145,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
         <div className="flex-1 overflow-y-auto px-3 py-4 space-y-6">
           {/* System Nav */}
           <div className="space-y-0.5">
-            <button
-              onClick={() => {
-                onSelectCollection('all');
-                onSelectTag(null);
-                onCloseMobile();
-              }}
+            <a
+              href="/"
+              onClick={(e) => handleNavClick(e, 'all')}
               className={`w-full flex items-center justify-between px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
                 activeCollectionId === 'all' && !activeTag
                   ? 'bg-sky-50 dark:bg-sky-950/40 text-sky-600 dark:text-sky-400 font-semibold'
@@ -153,14 +161,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
               <span className="text-xs px-2 py-0.5 rounded-full bg-neutral-100 dark:bg-neutral-800 text-neutral-500 dark:text-neutral-400">
                 {counts.allCount}
               </span>
-            </button>
+            </a>
 
-            <button
-              onClick={() => {
-                onSelectCollection('unsorted');
-                onSelectTag(null);
-                onCloseMobile();
-              }}
+            <a
+              href="/unsorted/"
+              onClick={(e) => handleNavClick(e, 'unsorted')}
               onDragOver={(e) => {
                 e.preventDefault();
                 e.dataTransfer.dropEffect = 'move';
@@ -192,14 +197,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
               <span className="text-xs px-2 py-0.5 rounded-full bg-neutral-100 dark:bg-neutral-800 text-neutral-500 dark:text-neutral-400">
                 {counts.unsortedCount}
               </span>
-            </button>
+            </a>
 
-            <button
-              onClick={() => {
-                onSelectCollection('favorites');
-                onSelectTag(null);
-                onCloseMobile();
-              }}
+            <a
+              href="/favorites/"
+              onClick={(e) => handleNavClick(e, 'favorites')}
               onDragOver={(e) => {
                 e.preventDefault();
                 e.dataTransfer.dropEffect = 'move';
@@ -231,14 +233,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
               <span className="text-xs px-2 py-0.5 rounded-full bg-neutral-100 dark:bg-neutral-800 text-neutral-500 dark:text-neutral-400">
                 {counts.favoritesCount}
               </span>
-            </button>
+            </a>
 
-            <button
-              onClick={() => {
-                onSelectCollection('trash');
-                onSelectTag(null);
-                onCloseMobile();
-              }}
+            <a
+              href="/trash/"
+              onClick={(e) => handleNavClick(e, 'trash')}
               onDragOver={(e) => {
                 e.preventDefault();
                 e.dataTransfer.dropEffect = 'move';
@@ -270,7 +269,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
               <span className="text-xs px-2 py-0.5 rounded-full bg-neutral-100 dark:bg-neutral-800 text-neutral-500 dark:text-neutral-400">
                 {counts.trashCount}
               </span>
-            </button>
+            </a>
           </div>
 
           {/* Collections List */}
@@ -295,12 +294,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   const isActive = activeCollectionId === col.id && !activeTag;
                   return (
                     <div key={col.id} className="relative group">
-                      <button
-                        onClick={() => {
-                          onSelectCollection(col.id);
-                          onSelectTag(null);
-                          onCloseMobile();
-                        }}
+                      <a
+                        href={getCollectionPath(col)}
+                        onClick={(e) => handleNavClick(e, col.id)}
                         onDragOver={(e) => {
                           e.preventDefault();
                           e.dataTransfer.dropEffect = 'move';
@@ -317,7 +313,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                             onDropOnCollection(id, col.id);
                           }
                         }}
-                        className={`w-full flex items-center justify-between px-3 py-2 rounded-lg text-sm transition-all text-left ${
+                        className={`w-full flex items-center justify-between px-3 py-2 pr-8 rounded-lg text-sm transition-all text-left ${
                           dragOverTarget === `col:${col.id}`
                             ? 'bg-sky-100 dark:bg-sky-950/70 ring-2 ring-sky-500 text-sky-700 dark:text-sky-300 scale-[1.02] shadow-sm font-semibold'
                             : isActive
@@ -332,19 +328,20 @@ export const Sidebar: React.FC<SidebarProps> = ({
                           />
                           <span className="truncate">{col.title}</span>
                         </div>
+                      </a>
 
-                        <div className="flex items-center gap-1">
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setCollectionMenuId(collectionMenuId === col.id ? null : col.id);
-                            }}
-                            className="opacity-0 group-hover:opacity-100 p-1 rounded hover:bg-neutral-200 dark:hover:bg-neutral-700 text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-200 transition-all"
-                          >
-                            <MoreVertical className="w-3.5 h-3.5" />
-                          </button>
-                        </div>
-                      </button>
+                      <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center">
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            e.preventDefault();
+                            setCollectionMenuId(collectionMenuId === col.id ? null : col.id);
+                          }}
+                          className="opacity-0 group-hover:opacity-100 p-1 rounded hover:bg-neutral-200 dark:hover:bg-neutral-700 text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-200 transition-all"
+                        >
+                          <MoreVertical className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
 
                       {/* Dropdown Options */}
                       {collectionMenuId === col.id && (

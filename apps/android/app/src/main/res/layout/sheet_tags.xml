@@ -16,19 +16,53 @@
         android:layout_marginBottom="14dp"
         android:background="@drawable/bg_drag_handle" />
 
+    <!-- Header Row -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:layout_marginBottom="4dp">
+
+        <TextView
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="Tags"
+            android:textColor="#F8FAFC"
+            android:textSize="18sp"
+            android:textStyle="bold" />
+
+        <Button
+            android:id="@+id/btnAddNewTag"
+            android:layout_width="wrap_content"
+            android:layout_height="34dp"
+            android:background="@drawable/bg_button_primary"
+            android:text="+ New Tag"
+            android:textColor="#FFFFFF"
+            android:textSize="12sp"
+            android:textStyle="bold"
+            android:paddingStart="12dp"
+            android:paddingEnd="12dp" />
+    </LinearLayout>
+
     <TextView
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:layout_marginBottom="14dp"
-        android:text="Tags"
-        android:textColor="#F8FAFC"
-        android:textSize="18sp"
-        android:textStyle="bold" />
+        android:text="Tap to filter • Tap ✎ or long-press to edit or rename"
+        android:textColor="#64748B"
+        android:textSize="12sp"
+        android:layout_marginBottom="14dp" />
 
     <!-- Tags Flex / Container -->
-    <com.google.android.material.chip.ChipGroup
-        android:id="@+id/chipGroupTags"
+    <androidx.core.widget.NestedScrollView
         android:layout_width="match_parent"
-        android:layout_height="wrap_content" />
+        android:layout_height="wrap_content">
+
+        <com.google.android.material.chip.ChipGroup
+            android:id="@+id/chipGroupTags"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content" />
+    </androidx.core.widget.NestedScrollView>
 
 </LinearLayout>

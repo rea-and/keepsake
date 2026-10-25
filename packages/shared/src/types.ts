@@ -44,6 +44,7 @@ export interface Bookmark {
 export interface Collection {
   id: string;
   title: string;
+  slug?: string; // Optional URL slug e.g. "mac-apps"
   description?: string;
   parentId?: string | null; // For nested sub-collections
   icon?: string; // Lucide icon name or emoji e.g. "Folder", "BookOpen", "Code", "🎨"

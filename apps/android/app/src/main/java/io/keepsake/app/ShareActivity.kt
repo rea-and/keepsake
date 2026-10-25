@@ -96,6 +96,10 @@ class ShareActivity : AppCompatActivity() {
         binding.btnClose.setOnClickListener { finish() }
         binding.btnCancel.setOnClickListener { finish() }
 
+        binding.btnShareNewCollection.setOnClickListener {
+            showCreateCollectionDialog()
+        }
+
         binding.btnFavorite.setOnClickListener {
             isFavorite = !isFavorite
             updateFavoriteIcon()
@@ -201,6 +205,55 @@ class ShareActivity : AppCompatActivity() {
                 // Ignore collection load error, fallback to Unsorted
             }
         }
+    }
+
+    private fun showCreateCollectionDialog() {
+        val input = android.widget.EditText(this).apply {
+            hint = "e.g. Design, Reading, Recipes"
+            setBackgroundResource(R.drawable.bg_input)
+            setTextColor(android.graphics.Color.WHITE)
+            setHintTextColor(0xFF64748B.toInt())
+            setPadding(36, 24, 36, 24)
+        }
+
+        androidx.appcompat.app.AlertDialog.Builder(this)
+            .setTitle("New Collection")
+            .setView(input)
+            .setPositiveButton("Create") { _, _ ->
+                val title = input.text.toString().trim()
+                if (title.isNotEmpty()) {
+                    val serverUrl = getServerUrl()
+                    lifecycleScope.launch(Dispatchers.IO) {
+                        val payload = JSONObject().apply {
+                            put("title", title)
+                            put("color", "#38BDF8")
+                            put("icon", "Folder")
+                            put("isSystem", false)
+                        }
+                        val (code, resp) = httpPost("$serverUrl/api/collections", payload.toString(), serverUrl)
+                        if (code in 200..299 && resp != null) {
+                            val resObj = JSONObject(resp)
+                            val colObj = resObj.optJSONObject("collection")
+                            val newId = colObj?.optString("id") ?: ""
+                            val newTitle = colObj?.optString("title") ?: title
+
+                            withContext(Dispatchers.Main) {
+                                val newOption = CollectionOption(newId, newTitle)
+                                collectionList.add(newOption)
+                                (binding.spinnerCollection.adapter as? ArrayAdapter<*>)?.notifyDataSetChanged()
+                                binding.spinnerCollection.setSelection(collectionList.size - 1)
+                                Toast.makeText(this@ShareActivity, "Collection \"$newTitle\" created!", Toast.LENGTH_SHORT).show()
+                            }
+                        } else {
+                            withContext(Dispatchers.Main) {
+                                Toast.makeText(this@ShareActivity, "Failed to create collection", Toast.LENGTH_SHORT).show()
+                            }
+                        }
+                    }
+                }
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
     }
 
     private fun fetchScrapedMetadataAsync(targetToScrape: String = targetUrl) {

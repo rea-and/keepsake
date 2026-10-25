@@ -24,7 +24,11 @@ import {
   getYouTubeVideoId,
   isRedditUrl,
   parseRedditUrl,
-  cleanRedditTitle
+  cleanRedditTitle,
+  getCollectionSlug,
+  getCollectionPath,
+  findCollectionBySlug,
+  slugify
 } from '@keepsake/shared';
 
 const LOCAL_STORAGE_KEY = 'keepsake_local_store_v1';
@@ -76,8 +80,20 @@ export function useKeepsakeStore() {
     return null;
   });
 
-  // Navigation & Filtering State
-  const [activeCollectionId, setActiveCollectionId] = useState<string>('all');
+  // Navigation & Filtering State (initialized from URL pathname if present)
+  const [activeCollectionId, setActiveCollectionId] = useState<string>(() => {
+    if (typeof window !== 'undefined') {
+      try {
+        const raw = localStorage.getItem(LOCAL_STORAGE_KEY);
+        const initialCols: Collection[] = raw ? JSON.parse(raw)?.collections || [] : [];
+        const matched = findCollectionBySlug(initialCols, window.location.pathname);
+        if (matched) {
+          return typeof matched === 'string' ? matched : matched.id;
+        }
+      } catch {}
+    }
+    return 'all';
+  });
   const [activeTag, setActiveTag] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [selectedType, setSelectedType] = useState<BookmarkType | 'all'>('all');
@@ -287,6 +303,77 @@ export function useKeepsakeStore() {
       (window as any).KeepsakeAndroid?.onLogout();
     } catch {}
   }, []);
+
+  // Synchronize browser URL bar and document title when activeCollectionId changes
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+
+    let targetPath = '/';
+    let title = 'Keepsake — All-in-one Bookmark Manager';
+
+    if (activeCollectionId === 'all') {
+      targetPath = '/';
+      title = 'All Bookmarks — Keepsake';
+    } else if (activeCollectionId === 'unsorted') {
+      targetPath = '/unsorted/';
+      title = 'Unsorted Inbox — Keepsake';
+    } else if (activeCollectionId === 'favorites') {
+      targetPath = '/favorites/';
+      title = 'Favorites — Keepsake';
+    } else if (activeCollectionId === 'trash') {
+      targetPath = '/trash/';
+      title = 'Trash — Keepsake';
+    } else {
+      const col = store.collections.find((c) => c.id === activeCollectionId);
+      if (col) {
+        targetPath = getCollectionPath(col);
+        title = `${col.title} — Keepsake`;
+      }
+    }
+
+    const currentNorm = window.location.pathname.replace(/^\/+|\/+$/g, '');
+    const targetNorm = targetPath.replace(/^\/+|\/+$/g, '');
+
+    if (currentNorm !== targetNorm) {
+      window.history.pushState({ collectionId: activeCollectionId }, title, targetPath);
+    }
+    document.title = title;
+  }, [activeCollectionId, store.collections]);
+
+  // Handle browser Back / Forward navigation (popstate)
+  useEffect(() => {
+    const handlePopState = () => {
+      const path = window.location.pathname;
+      const matched = findCollectionBySlug(store.collections, path);
+      if (matched) {
+        const targetId = typeof matched === 'string' ? matched : matched.id;
+        setActiveCollectionId(targetId);
+        setActiveTag(null);
+      } else if (path === '/' || path === '') {
+        setActiveCollectionId('all');
+        setActiveTag(null);
+      }
+    };
+
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, [store.collections]);
+
+  // When store.collections loads or syncs, resolve any initial URL deep link (e.g. /mac-apps/)
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const path = window.location.pathname;
+    const clean = path.replace(/^\/+|\/+$/g, '');
+    if (!clean) return;
+
+    const matched = findCollectionBySlug(store.collections, path);
+    if (matched) {
+      const targetId = typeof matched === 'string' ? matched : matched.id;
+      if (activeCollectionId !== targetId) {
+        setActiveCollectionId(targetId);
+      }
+    }
+  }, [store.collections]);
 
   // Auto-switch viewMode if current collection has a defaultViewMode
   useEffect(() => {

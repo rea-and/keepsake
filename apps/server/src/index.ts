@@ -435,6 +435,9 @@ const webDistPath = path.resolve(__dirname, '../../web/dist');
 if (fs.existsSync(webDistPath)) {
   app.use(express.static(webDistPath));
   app.get('*', (req: Request, res: Response) => {
+    if (req.path.startsWith('/api')) {
+      return res.status(404).json({ error: 'Endpoint not found' });
+    }
     res.sendFile(path.join(webDistPath, 'index.html'));
   });
 }

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Collection, ViewMode } from '@keepsake/shared';
+import { Collection, ViewMode, getCollectionSlug } from '@keepsake/shared';
 import { X, Folder, BookOpen, Code, Sparkles, Music, Video, FileText } from 'lucide-react';
 
 interface CollectionModalProps {
@@ -111,6 +111,11 @@ export const CollectionModal: React.FC<CollectionModalProps> = ({
               className="w-full px-3.5 py-2 text-sm bg-neutral-50 dark:bg-[#1c1c20] border border-neutral-200 dark:border-neutral-800 rounded-xl focus:border-sky-500 focus:outline-none transition-colors"
               autoFocus
             />
+            {title.trim() && (
+              <p className="mt-1.5 text-[11px] text-neutral-500 dark:text-neutral-400 font-mono">
+                URL: <span className="text-sky-600 dark:text-sky-400">/{getCollectionSlug({ id: '', title })}/</span>
+              </p>
+            )}
           </div>
 
           <div>

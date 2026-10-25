@@ -459,3 +459,133 @@ export function parseNetscapeHtml(html: string): Array<{
 
   return results;
 }
+
+/**
+ * Converts a string into a clean, URL-friendly slug.
+ * Handles diacritics, symbols, spaces, and repeated dashes.
+ * Example: "Mac App" -> "mac-app"
+ */
+export function slugify(text: string): string {
+  if (!text) return '';
+  return text
+    .toString()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '') // remove diacritics
+    .toLowerCase()
+    .trim()
+    .replace(/\s+/g, '-')
+    .replace(/[^\w\-]+/g, '')
+    .replace(/\-\-+/g, '-')
+    .replace(/^-+/, '')
+    .replace(/-+$/, '');
+}
+
+/**
+ * Returns the URL slug for a collection / category.
+ * If the collection has a custom slug, it uses that.
+ * Otherwise, it generates a clean slug from the title.
+ * Specially maps "Mac App" -> "mac-apps" as requested.
+ */
+export function getCollectionSlug(collection: { id: string; title: string; slug?: string }): string {
+  if (collection.slug && collection.slug.trim()) {
+    return slugify(collection.slug);
+  }
+  if (collection.id === 'all') return '';
+  if (collection.id === 'unsorted') return 'unsorted';
+  if (collection.id === 'favorites') return 'favorites';
+  if (collection.id === 'trash') return 'trash';
+
+  const base = slugify(collection.title);
+  // Specifically map "Mac App" to "mac-apps" as in example
+  if (base === 'mac-app') {
+    return 'mac-apps';
+  }
+  return base || collection.id;
+}
+
+/**
+ * Returns the full web path for a collection (with trailing slash).
+ * Examples:
+ * - "all" -> "/"
+ * - "unsorted" -> "/unsorted/"
+ * - "favorites" -> "/favorites/"
+ * - "trash" -> "/trash/"
+ * - "Mac App" -> "/mac-apps/"
+ */
+export function getCollectionPath(collectionOrId: Collection | string): string {
+  if (typeof collectionOrId === 'string') {
+    if (collectionOrId === 'all') return '/';
+    if (collectionOrId === 'unsorted') return '/unsorted/';
+    if (collectionOrId === 'favorites') return '/favorites/';
+    if (collectionOrId === 'trash') return '/trash/';
+    return `/${collectionOrId}/`;
+  }
+
+  if (collectionOrId.id === 'all') return '/';
+  if (collectionOrId.id === 'unsorted') return '/unsorted/';
+  if (collectionOrId.id === 'favorites') return '/favorites/';
+  if (collectionOrId.id === 'trash') return '/trash/';
+
+  const slug = getCollectionSlug(collectionOrId);
+  return slug ? `/${slug}/` : '/';
+}
+
+/**
+ * Resolves a URL path or slug back to a collection or system collection ID.
+ * Supports:
+ * - Direct ID match
+ * - Slug match ("mac-apps")
+ * - Singular / Plural flexibility ("mac-apps" <-> "Mac App")
+ * - Case-insensitive and punctuation-tolerant matching
+ */
+export function findCollectionBySlug(
+  collections: Collection[],
+  rawPath: string
+): Collection | 'all' | 'unsorted' | 'favorites' | 'trash' | null {
+  if (!rawPath) return 'all';
+
+  const clean = rawPath.trim().replace(/^\/+|\/+$/g, '').toLowerCase();
+  if (clean === '' || clean === 'all') return 'all';
+  if (clean === 'unsorted') return 'unsorted';
+  if (clean === 'favorites') return 'favorites';
+  if (clean === 'trash') return 'trash';
+
+  // 1. Direct ID match
+  const byId = collections.find((c) => c.id.toLowerCase() === clean);
+  if (byId) return byId;
+
+  // 2. Custom slug or getCollectionSlug match
+  const bySlug = collections.find((c) => getCollectionSlug(c).toLowerCase() === clean);
+  if (bySlug) return bySlug;
+
+  // 3. Direct title slugify match
+  const byTitleSlug = collections.find((c) => slugify(c.title).toLowerCase() === clean);
+  if (byTitleSlug) return byTitleSlug;
+
+  // 4. Singular / Plural flexibility (e.g. "mac-apps" vs "mac-app")
+  const byPlural = collections.find((c) => {
+    const s = slugify(c.title).toLowerCase();
+    return (
+      s + 's' === clean ||
+      clean + 's' === s ||
+      s.replace(/s$/, '') === clean.replace(/s$/, '')
+    );
+  });
+  if (byPlural) return byPlural;
+
+  // 5. Alphanumeric match ignoring hyphens/symbols
+  const cleanAlpha = clean.replace(/[^a-z0-9]/g, '');
+  const byAlpha = collections.find((c) => {
+    const titleAlpha = c.title.toLowerCase().replace(/[^a-z0-9]/g, '');
+    return (
+      titleAlpha === cleanAlpha ||
+      titleAlpha + 's' === cleanAlpha ||
+      cleanAlpha + 's' === titleAlpha ||
+      titleAlpha.replace(/s$/, '') === cleanAlpha.replace(/s$/, '')
+    );
+  });
+  if (byAlpha) return byAlpha;
+
+  return null;
+}
+
