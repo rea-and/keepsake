@@ -101,32 +101,35 @@ export function useKeepsakeStore() {
       setActiveTag(null);
 
       let targetPath = '/';
-      let title = 'Keepsake — All-in-one Bookmark Manager';
+      let title = 'Keepsake';
 
       if (id === 'all') {
         targetPath = '/';
-        title = 'All Bookmarks — Keepsake';
+        title = 'Keepsake > All Bookmarks';
       } else if (id === 'unsorted') {
         targetPath = '/unsorted/';
-        title = 'Unsorted Inbox — Keepsake';
+        title = 'Keepsake > Unsorted';
       } else if (id === 'favorites') {
         targetPath = '/favorites/';
-        title = 'Favorites — Keepsake';
+        title = 'Keepsake > Favorites';
       } else if (id === 'trash') {
         targetPath = '/trash/';
-        title = 'Trash — Keepsake';
+        title = 'Keepsake > Trash';
       } else {
         const col = store.collections.find((c) => c.id === id);
         if (col) {
           targetPath = getCollectionPath(col);
-          title = `${col.title} — Keepsake`;
+          title = `Keepsake > ${col.title}`;
         } else {
           targetPath = `/${id}/`;
+          title = `Keepsake > ${id}`;
         }
       }
 
-      if (typeof window !== 'undefined' && window.location.pathname !== targetPath) {
-        window.history.pushState({ collectionId: id }, title, targetPath);
+      if (typeof window !== 'undefined') {
+        if (window.location.pathname !== targetPath) {
+          window.history.pushState({ collectionId: id }, title, targetPath);
+        }
         document.title = title;
       }
     },
@@ -347,27 +350,28 @@ export function useKeepsakeStore() {
     if (typeof window === 'undefined') return;
 
     let targetPath = '/';
-    let title = 'Keepsake — All-in-one Bookmark Manager';
+    let title = 'Keepsake';
 
     if (activeCollectionId === 'all') {
       targetPath = '/';
-      title = 'All Bookmarks — Keepsake';
+      title = 'Keepsake > All Bookmarks';
     } else if (activeCollectionId === 'unsorted') {
       targetPath = '/unsorted/';
-      title = 'Unsorted Inbox — Keepsake';
+      title = 'Keepsake > Unsorted';
     } else if (activeCollectionId === 'favorites') {
       targetPath = '/favorites/';
-      title = 'Favorites — Keepsake';
+      title = 'Keepsake > Favorites';
     } else if (activeCollectionId === 'trash') {
       targetPath = '/trash/';
-      title = 'Trash — Keepsake';
+      title = 'Keepsake > Trash';
     } else {
       const col = store.collections.find((c) => c.id === activeCollectionId);
       if (col) {
         targetPath = getCollectionPath(col);
-        title = `${col.title} — Keepsake`;
+        title = `Keepsake > ${col.title}`;
       } else {
         targetPath = `/${activeCollectionId}/`;
+        title = `Keepsake > ${activeCollectionId}`;
       }
     }
 

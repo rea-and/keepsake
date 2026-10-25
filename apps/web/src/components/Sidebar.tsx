@@ -95,7 +95,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const [collectionMenuId, setCollectionMenuId] = useState<string | null>(null);
   const [dragOverTarget, setDragOverTarget] = useState<string | null>(null);
 
-  const handleNavClick = (e: React.MouseEvent, collectionId: string, customPath?: string) => {
+  const handleNavClick = (e: React.MouseEvent, collectionId: string, customPath?: string, titleName?: string) => {
     // Allow Cmd/Ctrl/Shift/Alt click or middle click to open natively in a new tab
     if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0) {
       return;
@@ -106,8 +106,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
       (e.currentTarget as HTMLAnchorElement).getAttribute('href') ||
       '/';
 
-    if (typeof window !== 'undefined' && window.location.pathname !== targetUrl) {
-      window.history.pushState({ collectionId }, '', targetUrl);
+    const pageTitle = titleName ? `Keepsake > ${titleName}` : 'Keepsake';
+
+    if (typeof window !== 'undefined') {
+      if (window.location.pathname !== targetUrl) {
+        window.history.pushState({ collectionId }, pageTitle, targetUrl);
+      }
+      document.title = pageTitle;
     }
 
     onSelectCollection(collectionId);
@@ -156,7 +161,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
           <div className="space-y-0.5">
             <a
               href="/"
-              onClick={(e) => handleNavClick(e, 'all', '/')}
+              onClick={(e) => handleNavClick(e, 'all', '/', 'All Bookmarks')}
               className={`w-full flex items-center justify-between px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
                 activeCollectionId === 'all' && !activeTag
                   ? 'bg-sky-50 dark:bg-sky-950/40 text-sky-600 dark:text-sky-400 font-semibold'
@@ -174,7 +179,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
             <a
               href="/unsorted/"
-              onClick={(e) => handleNavClick(e, 'unsorted', '/unsorted/')}
+              onClick={(e) => handleNavClick(e, 'unsorted', '/unsorted/', 'Unsorted')}
               onDragOver={(e) => {
                 e.preventDefault();
                 e.dataTransfer.dropEffect = 'move';
@@ -210,7 +215,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
             <a
               href="/favorites/"
-              onClick={(e) => handleNavClick(e, 'favorites', '/favorites/')}
+              onClick={(e) => handleNavClick(e, 'favorites', '/favorites/', 'Favorites')}
               onDragOver={(e) => {
                 e.preventDefault();
                 e.dataTransfer.dropEffect = 'move';
@@ -246,7 +251,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
             <a
               href="/trash/"
-              onClick={(e) => handleNavClick(e, 'trash', '/trash/')}
+              onClick={(e) => handleNavClick(e, 'trash', '/trash/', 'Trash')}
               onDragOver={(e) => {
                 e.preventDefault();
                 e.dataTransfer.dropEffect = 'move';
@@ -306,7 +311,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                     <div key={col.id} className="relative group">
                       <a
                         href={colPath}
-                        onClick={(e) => handleNavClick(e, col.id, colPath)}
+                        onClick={(e) => handleNavClick(e, col.id, colPath, col.title)}
                         onDragOver={(e) => {
                           e.preventDefault();
                           e.dataTransfer.dropEffect = 'move';
