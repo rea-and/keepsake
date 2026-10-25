@@ -12,8 +12,8 @@ import { CollectionModal } from './components/CollectionModal';
 import { ReaderModal } from './components/ReaderModal';
 import { SettingsModal } from './components/SettingsModal';
 import { LoginScreen } from './components/LoginScreen';
-import { Bookmark, Collection, extractUrlFromDataTransfer } from '@keepsake/shared';
-import { BookmarkPlus, Inbox, Link2, CheckCircle2 } from 'lucide-react';
+import { Bookmark, Collection, extractUrlFromDataTransfer, extractBookmarksFromDataTransfer } from '@keepsake/shared';
+import { BookmarkPlus, Inbox, Link2, FolderDown, CheckCircle2 } from 'lucide-react';
 
 interface KeepsakeDashboardProps {
   store: ReturnType<typeof useKeepsakeStore>;
@@ -134,28 +134,41 @@ function KeepsakeDashboard({ store }: KeepsakeDashboardProps) {
     };
   }, []);
 
-  const showDropToast = (url: string, collectionTitle: string) => {
+  const showDropToast = (titleMessage: string, detail: string) => {
     if (toastTimeoutRef.current) {
       clearTimeout(toastTimeoutRef.current);
     }
     setDragDropToast({
-      message: `Saved to ${collectionTitle}!`,
-      url
+      message: titleMessage,
+      url: detail
     });
     toastTimeoutRef.current = setTimeout(() => {
       setDragDropToast(null);
-    }, 4000);
+    }, 4500);
   };
 
-  const handleDropUrlOnCollection = async (url: string, targetColId: string, initialTitle?: string) => {
+  const handleDropBookmarksOnCollection = async (
+    items: Array<{ url: string; title?: string }>,
+    targetColId: string
+  ) => {
     const colName =
       targetColId === 'unsorted'
         ? 'Unsorted'
         : targetColId === 'favorites'
         ? 'Favorites'
         : store.collections.find((c) => c.id === targetColId)?.title || 'Unsorted';
-    showDropToast(url, colName);
-    await store.saveUrlToCollection(url, targetColId, initialTitle);
+
+    if (items.length === 1) {
+      showDropToast(`Saved to ${colName}!`, items[0].title || items[0].url);
+    } else {
+      showDropToast(`Imported ${items.length} bookmarks into ${colName}!`, `${items.length} items added`);
+    }
+
+    await store.saveBookmarksToCollection(items, targetColId);
+  };
+
+  const handleDropUrlOnCollection = async (url: string, targetColId: string, initialTitle?: string) => {
+    await handleDropBookmarksOnCollection([{ url, title: initialTitle }], targetColId);
   };
 
   const handleViewportDragEnter = (e: React.DragEvent) => {
@@ -190,13 +203,13 @@ function KeepsakeDashboard({ store }: KeepsakeDashboardProps) {
     dragCounterRef.current = 0;
     setIsDraggingOverPage(false);
 
-    const dropped = extractUrlFromDataTransfer(e.dataTransfer);
-    if (dropped?.url) {
+    const droppedItems = await extractBookmarksFromDataTransfer(e.dataTransfer);
+    if (droppedItems.length > 0) {
       const targetColId =
         store.activeCollectionId === 'all' || store.activeCollectionId === 'trash'
           ? 'unsorted'
           : store.activeCollectionId;
-      await handleDropUrlOnCollection(dropped.url, targetColId, dropped.title);
+      await handleDropBookmarksOnCollection(droppedItems, targetColId);
     }
   };
 
@@ -234,6 +247,7 @@ function KeepsakeDashboard({ store }: KeepsakeDashboardProps) {
         onLogout={store.logout}
         onDropOnCollection={store.moveBookmarkToCollection}
         onDropUrlOnCollection={handleDropUrlOnCollection}
+        onDropBookmarksOnCollection={handleDropBookmarksOnCollection}
         onDropOnTag={store.addTagToBookmark}
       />
 
@@ -273,17 +287,17 @@ function KeepsakeDashboard({ store }: KeepsakeDashboardProps) {
           onDragLeave={handleViewportDragLeave}
           onDrop={handleViewportDrop}
         >
-          {/* Visual Dropzone Overlay when dragging an external link/page over the category page */}
+          {/* Visual Dropzone Overlay when dragging an external link/folder over the category page */}
           {isDraggingOverPage && (
             <div className="absolute inset-0 z-50 bg-sky-500/10 dark:bg-sky-500/15 backdrop-blur-sm border-2 border-dashed border-sky-500 rounded-2xl m-4 flex flex-col items-center justify-center pointer-events-none transition-all animate-in fade-in zoom-in-95 duration-150">
               <div className="w-16 h-16 rounded-2xl bg-sky-500 text-white shadow-xl shadow-sky-500/30 flex items-center justify-center mb-4 transform scale-110">
-                <Link2 className="w-8 h-8 stroke-[2.5]" />
+                <FolderDown className="w-8 h-8 stroke-[2.2]" />
               </div>
               <h3 className="text-xl font-bold text-neutral-900 dark:text-white">
-                Drop link to save to {currentTitle}
+                Drop bookmark or folder to import into {currentTitle}
               </h3>
               <p className="text-sm text-neutral-600 dark:text-neutral-400 mt-1 max-w-sm text-center">
-                Release to automatically fetch metadata and save this page to {currentTitle}
+                Release to automatically import all bookmarks into {currentTitle}
               </p>
             </div>
           )}

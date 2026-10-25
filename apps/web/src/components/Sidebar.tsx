@@ -27,7 +27,15 @@ import {
   FileText,
   LogOut
 } from 'lucide-react';
-import { Collection, AuthSession, SyncStatus, getCollectionPath, extractUrlFromDataTransfer } from '@keepsake/shared';
+import {
+  Collection,
+  AuthSession,
+  SyncStatus,
+  getCollectionPath,
+  extractUrlFromDataTransfer,
+  extractBookmarksFromDataTransfer,
+  ExtractedBookmark
+} from '@keepsake/shared';
 
 const ICON_MAP: Record<string, React.ReactNode> = {
   Folder: <Folder className="w-4 h-4" />,
@@ -64,6 +72,7 @@ interface SidebarProps {
   onLogout?: () => void;
   onDropOnCollection?: (bookmarkId: string, collectionId: string) => void;
   onDropUrlOnCollection?: (url: string, collectionId: string, initialTitle?: string) => void;
+  onDropBookmarksOnCollection?: (items: Array<{ url: string; title?: string }>, collectionId: string) => void;
   onDropOnTag?: (bookmarkId: string, tag: string) => void;
 }
 
@@ -92,6 +101,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onLogout,
   onDropOnCollection,
   onDropUrlOnCollection,
+  onDropBookmarksOnCollection,
   onDropOnTag
 }) => {
   const [collectionMenuId, setCollectionMenuId] = useState<string | null>(null);
@@ -122,7 +132,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
     onCloseMobile();
   };
 
-  const handleItemDrop = (e: React.DragEvent, targetCollectionId: string) => {
+  const handleItemDrop = async (e: React.DragEvent, targetCollectionId: string) => {
     e.preventDefault();
     setDragOverTarget(null);
 
@@ -133,10 +143,14 @@ export const Sidebar: React.FC<SidebarProps> = ({
       return;
     }
 
-    // 2. Check if it's an external URL dropped from Chrome
-    const dropped = extractUrlFromDataTransfer(e.dataTransfer);
-    if (dropped?.url && onDropUrlOnCollection) {
-      onDropUrlOnCollection(dropped.url, targetCollectionId, dropped.title);
+    // 2. Check if it's external bookmark(s) or folder dropped from Chrome / files
+    const droppedItems = await extractBookmarksFromDataTransfer(e.dataTransfer);
+    if (droppedItems.length > 0) {
+      if (onDropBookmarksOnCollection) {
+        onDropBookmarksOnCollection(droppedItems, targetCollectionId);
+      } else if (onDropUrlOnCollection) {
+        onDropUrlOnCollection(droppedItems[0].url, targetCollectionId, droppedItems[0].title);
+      }
       return;
     }
 

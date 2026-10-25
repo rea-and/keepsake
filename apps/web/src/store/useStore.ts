@@ -29,7 +29,9 @@ import {
   getCollectionPath,
   findCollectionBySlug,
   slugify,
-  extractUrlFromDataTransfer
+  extractUrlFromDataTransfer,
+  extractBookmarksFromDataTransfer,
+  ExtractedBookmark
 } from '@keepsake/shared';
 
 const LOCAL_STORAGE_KEY = 'keepsake_local_store_v1';
@@ -627,12 +629,13 @@ export function useKeepsakeStore() {
     }).catch((e) => console.warn('[Keepsake Web] updateBookmark server persist error:', e));
   }, []);
 
-  const saveUrlToCollection = useCallback(
-    async (rawUrl: string, targetCollectionId?: string, initialTitle?: string): Promise<Bookmark> => {
-      const cleanUrl = normalizeUrl(rawUrl);
-      const domain = extractDomain(cleanUrl);
+  const saveBookmarksToCollection = useCallback(
+    async (
+      items: Array<{ url: string; title?: string }>,
+      targetCollectionId?: string
+    ): Promise<Bookmark[]> => {
+      if (!items || items.length === 0) return [];
 
-      // Determine the target collection:
       let colId = targetCollectionId || 'unsorted';
       let isFavorite = false;
       if (colId === 'all' || colId === 'trash') {
@@ -642,41 +645,95 @@ export function useKeepsakeStore() {
         isFavorite = true;
       }
 
-      // Create bookmark immediately with instant domain favicon
-      const initialFavicon = getFaviconUrl(domain);
-      const newBm = addBookmark({
-        url: cleanUrl,
-        title: initialTitle || domain,
-        description: '',
-        collectionId: colId,
-        tags: [],
-        isFavorite,
-        isTrash: false,
-        type: 'link',
-        favicon: initialFavicon
-      });
+      const now = new Date().toISOString();
+      const newBookmarks: Bookmark[] = [];
 
-      // Background scrape to enrich title, description, cover image, and reader content
-      try {
-        const res = await fetch(`/api/scrape?url=${encodeURIComponent(cleanUrl)}`);
-        if (res.ok) {
-          const meta = await res.json();
-          updateBookmark(newBm.id, {
-            title: meta.title || newBm.title,
-            description: meta.description || newBm.description,
-            cover: meta.cover,
-            favicon: meta.favicon || newBm.favicon,
-            type: meta.type || newBm.type,
-            readerContent: meta.readerContent
-          });
+      for (let i = 0; i < items.length; i++) {
+        const item = items[i];
+        const cleanUrl = normalizeUrl(item.url);
+        const domain = extractDomain(cleanUrl);
+        const ytThumb = getYouTubeThumbnail(cleanUrl);
+        const isVideo = !!getYouTubeVideoId(cleanUrl);
+        let cover = ytThumb || undefined;
+        let favicon = getFaviconUrl(domain);
+        let title = item.title || domain;
+        let tags: string[] = [];
+
+        if (isRedditUrl(cleanUrl)) {
+          title = cleanRedditTitle(title) || title;
+          const rInfo = parseRedditUrl(cleanUrl);
+          if (rInfo?.subreddit) tags = [rInfo.subreddit.toLowerCase()];
+          favicon = 'https://www.redditstatic.com/shreddit/assets/favicon/192x192.png';
         }
-      } catch (err) {
-        console.warn('[Keepsake Web] Auto-scrape on drop failed:', err);
+
+        const newBm: Bookmark = {
+          id: 'bm_' + Math.random().toString(36).substring(2, 9) + Date.now().toString(36) + i.toString(36),
+          url: cleanUrl,
+          title,
+          description: '',
+          collectionId: colId,
+          tags,
+          isFavorite,
+          isTrash: false,
+          type: isVideo ? 'video' : 'link',
+          favicon,
+          cover,
+          createdAt: now,
+          updatedAt: now
+        };
+        newBookmarks.push(newBm);
       }
 
-      return newBm;
+      // Add all to store in one atomic update
+      setStore((prev) => ({
+        ...prev,
+        lastModified: now,
+        bookmarks: [...newBookmarks, ...prev.bookmarks]
+      }));
+
+      // Persist to server
+      for (const bm of newBookmarks) {
+        fetch('/api/bookmarks', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(bm)
+        }).catch((e) => console.warn('[Keepsake Web] addBookmark server persist error:', e));
+      }
+
+      // Background scrape metadata for dropped items
+      (async () => {
+        const toScrape = newBookmarks.slice(0, 20);
+        for (const bm of toScrape) {
+          try {
+            const res = await fetch(`/api/scrape?url=${encodeURIComponent(bm.url)}`);
+            if (res.ok) {
+              const meta = await res.json();
+              updateBookmark(bm.id, {
+                title: meta.title || bm.title,
+                description: meta.description || bm.description,
+                cover: meta.cover || bm.cover,
+                favicon: meta.favicon || bm.favicon,
+                type: meta.type || bm.type,
+                readerContent: meta.readerContent
+              });
+            }
+          } catch (err) {
+            console.warn('[Keepsake Web] Auto-scrape on drop failed:', err);
+          }
+        }
+      })();
+
+      return newBookmarks;
     },
-    [addBookmark, updateBookmark]
+    [updateBookmark]
+  );
+
+  const saveUrlToCollection = useCallback(
+    async (rawUrl: string, targetCollectionId?: string, initialTitle?: string): Promise<Bookmark> => {
+      const res = await saveBookmarksToCollection([{ url: rawUrl, title: initialTitle }], targetCollectionId);
+      return res[0];
+    },
+    [saveBookmarksToCollection]
   );
 
   const toggleFavorite = useCallback((id: string) => {
@@ -1203,6 +1260,7 @@ export function useKeepsakeStore() {
     syncWithServer,
     addBookmark,
     saveUrlToCollection,
+    saveBookmarksToCollection,
     updateBookmark,
     toggleFavorite,
     moveToTrash,

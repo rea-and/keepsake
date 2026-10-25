@@ -592,12 +592,240 @@ export function findCollectionBySlug(
 export interface DragDataTransferLike {
   getData: (format: string) => string;
   types?: readonly string[] | string[];
+  files?: FileList | File[] | readonly File[];
+  items?: DataTransferItemList | any[] | readonly any[];
+}
+
+export interface ExtractedBookmark {
+  url: string;
+  title?: string;
+  collectionName?: string;
+}
+
+async function traverseFileTree(entry: any): Promise<File[]> {
+  const files: File[] = [];
+  if (entry.isFile) {
+    await new Promise<void>((resolve) => {
+      entry.file(
+        (file: File) => {
+          files.push(file);
+          resolve();
+        },
+        () => resolve()
+      );
+    });
+  } else if (entry.isDirectory) {
+    const dirReader = entry.createReader();
+    const readEntries = async (): Promise<void> => {
+      const entries: any[] = await new Promise((resolve) => {
+        dirReader.readEntries(
+          (results: any[]) => resolve(results || []),
+          () => resolve([])
+        );
+      });
+      if (entries.length > 0) {
+        for (const child of entries) {
+          const childFiles = await traverseFileTree(child);
+          files.push(...childFiles);
+        }
+        await readEntries();
+      }
+    };
+    await readEntries();
+  }
+  return files;
+}
+
+function parseAnchorsFromHtml(html: string, addBookmark: (url: string, title?: string) => void) {
+  if (typeof window !== 'undefined' && typeof DOMParser !== 'undefined') {
+    try {
+      const doc = new DOMParser().parseFromString(html, 'text/html');
+      const anchors = doc.querySelectorAll('a[href]');
+      for (const a of Array.from(anchors)) {
+        const href = a.getAttribute('href');
+        if (href && /^https?:\/\//i.test(href)) {
+          const title = a.textContent?.trim();
+          addBookmark(href, title);
+        }
+      }
+      return;
+    } catch {}
+  }
+
+  // Regex fallback if DOMParser is unavailable
+  const regex = /<a\s+[^>]*href=["']([^"']+)["'][^>]*>(.*?)<\/a>/gi;
+  let match;
+  while ((match = regex.exec(html)) !== null) {
+    if (/^https?:\/\//i.test(match[1])) {
+      const rawTitle = match[2].replace(/<[^>]+>/g, '').trim();
+      addBookmark(match[1], rawTitle);
+    }
+  }
 }
 
 /**
- * Extracts a valid HTTP/HTTPS URL and optional title from a browser drag-and-drop event.
- * Supports text/uri-list, text/html (anchor tags), and text/plain.
- * Automatically ignores internal Keepsake bookmark drags.
+ * Extracts all valid HTTP/HTTPS bookmarks from a browser drag-and-drop event.
+ * Handles:
+ * - Single bookmarks dragged from Chrome tab, URL bar, or bookmark bar.
+ * - Entire bookmark folders or multi-selected bookmarks dragged from Chrome bookmark bar / manager.
+ * - Dropped bookmark HTML export files (Netscape bookmark format).
+ * - Dropped folders or .webloc / .url files.
+ * Automatically ignores internal Keepsake bookmark dragging.
+ */
+export async function extractBookmarksFromDataTransfer(
+  dt: DragDataTransferLike
+): Promise<ExtractedBookmark[]> {
+  if (!dt) return [];
+
+  // Ignore internal Keepsake bookmark dragging
+  const types = Array.from(dt.types || []);
+  if (types.includes('keepsake/bookmark-id')) {
+    return [];
+  }
+
+  const results: ExtractedBookmark[] = [];
+  const seenUrls = new Set<string>();
+
+  const addBookmark = (url: string, title?: string, collectionName?: string) => {
+    const trimmed = (url || '').trim();
+    if (!trimmed || !/^https?:\/\//i.test(trimmed)) return;
+    try {
+      const normalized = normalizeUrl(trimmed);
+      if (!seenUrls.has(normalized)) {
+        seenUrls.add(normalized);
+        const cleanTitle = title?.trim();
+        results.push({
+          url: normalized,
+          title: cleanTitle && cleanTitle !== normalized ? cleanTitle : undefined,
+          collectionName: collectionName?.trim() || undefined
+        });
+      }
+    } catch {
+      if (!seenUrls.has(trimmed)) {
+        seenUrls.add(trimmed);
+        results.push({
+          url: trimmed,
+          title: title?.trim() || undefined,
+          collectionName: collectionName?.trim() || undefined
+        });
+      }
+    }
+  };
+
+  // 1. Process Dropped Files and Directories (e.g. bookmarks.html or desktop folder with bookmarks)
+  try {
+    const filesToRead: File[] = [];
+    if (dt.items && dt.items.length > 0) {
+      for (let i = 0; i < dt.items.length; i++) {
+        const item: any = dt.items[i];
+        if (typeof item.webkitGetAsEntry === 'function') {
+          const entry = item.webkitGetAsEntry();
+          if (entry) {
+            const entryFiles = await traverseFileTree(entry);
+            filesToRead.push(...entryFiles);
+            continue;
+          }
+        }
+        if (item.kind === 'file') {
+          const f = typeof item.getAsFile === 'function' ? item.getAsFile() : null;
+          if (f) filesToRead.push(f);
+        }
+      }
+    } else if (dt.files && dt.files.length > 0) {
+      filesToRead.push(...Array.from(dt.files));
+    }
+
+    for (const file of filesToRead) {
+      const name = file.name.toLowerCase();
+      if (name.endsWith('.html') || name.endsWith('.htm') || file.type === 'text/html') {
+        const text = await file.text();
+        const parsed = parseNetscapeHtml(text);
+        if (parsed.length > 0) {
+          for (const item of parsed) {
+            addBookmark(item.url, item.title, item.collectionName);
+          }
+        } else {
+          parseAnchorsFromHtml(text, addBookmark);
+        }
+      } else if (name.endsWith('.webloc')) {
+        const text = await file.text();
+        const match = text.match(/<string>(https?:\/\/[^<]+)<\/string>/i) || text.match(/(https?:\/\/[^\s<"']+)/i);
+        if (match) {
+          const fallbackTitle = file.name.replace(/\.webloc$/i, '');
+          addBookmark(match[1], fallbackTitle);
+        }
+      } else if (name.endsWith('.url')) {
+        const text = await file.text();
+        const match = text.match(/URL=(https?:\/\/[^\r\n]+)/i);
+        if (match) {
+          const fallbackTitle = file.name.replace(/\.url$/i, '');
+          addBookmark(match[1], fallbackTitle);
+        }
+      }
+    }
+  } catch (err) {
+    console.warn('[Keepsake] File extraction error:', err);
+  }
+
+  // If dropped files yielded bookmarks, return immediately
+  if (results.length > 0) {
+    return results;
+  }
+
+  // 2. Process text/html (contains multiple <a href="..."> tags when dragging bookmark folders or multi-selected bookmarks)
+  try {
+    const html = dt.getData('text/html');
+    if (html && html.trim()) {
+      if (/<H3/i.test(html) || /<DL/i.test(html)) {
+        const parsed = parseNetscapeHtml(html);
+        for (const item of parsed) {
+          addBookmark(item.url, item.title, item.collectionName);
+        }
+      }
+      parseAnchorsFromHtml(html, addBookmark);
+    }
+  } catch {}
+
+  // 3. Process text/uri-list (multiple lines of URLs when dragging bookmarks or folder)
+  try {
+    const uriList = dt.getData('text/uri-list');
+    if (uriList) {
+      const lines = uriList
+        .split(/\r?\n/)
+        .map((l) => l.trim())
+        .filter((l) => l && !l.startsWith('#'));
+      for (const line of lines) {
+        if (/^https?:\/\//i.test(line)) {
+          addBookmark(line);
+        }
+      }
+    }
+  } catch {}
+
+  // 4. Process text/plain (single or multiple URLs, one per line or embedded)
+  try {
+    const text = dt.getData('text/plain') || dt.getData('Text');
+    if (text) {
+      const lines = text.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+      for (const line of lines) {
+        if (/^https?:\/\//i.test(line)) {
+          addBookmark(line);
+        } else {
+          const matches = line.matchAll(/(https?:\/\/[^\s"'<>]+)/gi);
+          for (const m of matches) {
+            addBookmark(m[1]);
+          }
+        }
+      }
+    }
+  } catch {}
+
+  return results;
+}
+
+/**
+ * Extracts a single valid HTTP/HTTPS URL and optional title from a browser drag-and-drop event.
+ * Synchronous helper for backward compatibility.
  */
 export function extractUrlFromDataTransfer(
   dt: DragDataTransferLike
