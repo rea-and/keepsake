@@ -31,13 +31,13 @@ WORKDIR /app
 ENV NODE_ENV=production
 ENV PORT=3000
 
-# Copy root package and server package
+# Copy built artifacts from builder stage
 COPY package.json ./
 COPY packages/shared/package.json ./packages/shared/
-COPY packages/shared/dist ./packages/shared/dist
+COPY --from=builder /app/packages/shared/dist ./packages/shared/dist
 COPY apps/server/package.json ./apps/server/
-COPY apps/server/dist ./apps/server/dist
-COPY apps/web/dist ./apps/web/dist
+COPY --from=builder /app/apps/server/dist ./apps/server/dist
+COPY --from=builder /app/apps/web/dist ./apps/web/dist
 
 # Install only production dependencies
 RUN npm install --omit=dev
