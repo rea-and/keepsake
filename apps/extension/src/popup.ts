@@ -17,6 +17,7 @@ interface ExtensionStorage {
   bookmarks?: Bookmark[];
   collections?: Collection[];
   authSession?: any;
+  lastCollectionId?: string;
 }
 
 let currentBookmark: Bookmark | null = null;
@@ -73,16 +74,23 @@ function addTag(rawTag: string) {
   tagInput.value = '';
 }
 
-function renderCollectionOptions(cols: Collection[]) {
+function renderCollectionOptions(cols: Collection[], preferredId?: string) {
+  const currentVal = preferredId || collectionSelect.value || 'unsorted';
   collectionSelect.innerHTML = '<option value="unsorted">📥 Unsorted</option>';
   cols
-    .filter((c) => !c.isSystem)
+    .filter((c) => !c.isSystem && c.id !== 'unsorted' && c.id !== 'all' && c.id !== 'trash' && c.id !== 'favorites')
+    .sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0))
     .forEach((col) => {
       const opt = document.createElement('option');
       opt.value = col.id;
       opt.textContent = `📁 ${col.title}`;
       collectionSelect.appendChild(opt);
     });
+
+  const hasOption = Array.from(collectionSelect.options).some((o) => o.value === currentVal);
+  if (hasOption) {
+    collectionSelect.value = currentVal;
+  }
 }
 
 function populateBookmarkUI(bm: Bookmark) {
@@ -174,15 +182,17 @@ async function init() {
   }
 
   // Load storage
-  chrome.storage.local.get(['serverUrl', 'bookmarks', 'collections'], async (res: ExtensionStorage) => {
+  chrome.storage.local.get(['serverUrl', 'bookmarks', 'collections', 'lastCollectionId'], async (res: ExtensionStorage) => {
     if (res.serverUrl) {
       activeServerUrl = res.serverUrl.replace(/\/+$/, '');
     }
     serverUrlInput.value = activeServerUrl;
 
+    const savedLastCollectionId = res.lastCollectionId;
+
     if (res.collections && res.collections.length > 0) {
       collections = res.collections;
-      renderCollectionOptions(collections);
+      renderCollectionOptions(collections, savedLastCollectionId);
     }
 
     // Try to fetch latest collections from server
@@ -194,7 +204,8 @@ async function init() {
           if (colData.collections && colData.collections.length > 0) {
             collections = colData.collections;
             chrome.storage.local.set({ collections });
-            renderCollectionOptions(collections);
+            const preferred = currentBookmark?.collectionId || collectionSelect.value || savedLastCollectionId;
+            renderCollectionOptions(collections, preferred);
           }
         }
       } catch (err) {
@@ -233,11 +244,24 @@ async function init() {
       statusBadge.classList.remove('saved');
       saveBtn.textContent = 'Save to Keepsake';
       deleteBtn.style.display = 'none';
+
+      if (savedLastCollectionId) {
+        const hasOption = Array.from(collectionSelect.options).some((o) => o.value === savedLastCollectionId);
+        if (hasOption) {
+          collectionSelect.value = savedLastCollectionId;
+        }
+      }
     }
   });
 }
 
 // Event Listeners
+collectionSelect.addEventListener('change', () => {
+  const chosen = collectionSelect.value;
+  if (chosen) {
+    chrome.storage.local.set({ lastCollectionId: chosen });
+  }
+});
 tagInput.addEventListener('keydown', (e) => {
   if (e.key === 'Enter' || e.key === ',') {
     e.preventDefault();
@@ -329,7 +353,7 @@ saveBtn.addEventListener('click', async () => {
       ? bookmarks.map((b) => (b.id === newBm.id ? newBm : b))
       : [newBm, ...bookmarks.filter((b) => b.url !== currentUrl)];
 
-    chrome.storage.local.set({ bookmarks: updatedList }, () => {
+    chrome.storage.local.set({ bookmarks: updatedList, lastCollectionId: collectionSelect.value || 'unsorted' }, () => {
       saveBtn.textContent = 'Saved ✓';
       statusBadge.textContent = 'Saved ✓';
       statusBadge.classList.add('saved');
