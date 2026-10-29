@@ -33,6 +33,7 @@ import io.keepsake.app.models.Bookmark
 import io.keepsake.app.models.Collection
 import io.keepsake.app.utils.ImageLoader
 import io.keepsake.app.utils.flattenCollections
+import io.keepsake.app.utils.canSetCollectionParent
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -907,6 +908,7 @@ class MainActivity : AppCompatActivity() {
         val btnClose = view.findViewById<ImageButton>(R.id.btnCloseCollectionDialog)
         val etTitle = view.findViewById<EditText>(R.id.etCollectionTitle)
         val etDesc = view.findViewById<EditText>(R.id.etCollectionDescription)
+        val spinnerParent = view.findViewById<Spinner>(R.id.spinnerCollectionParent)
         val llPalette = view.findViewById<LinearLayout>(R.id.llColorPalette)
         val btnDelete = view.findViewById<Button>(R.id.btnDeleteCollection)
         val btnCancel = view.findViewById<Button>(R.id.btnCancelCollection)
@@ -914,6 +916,16 @@ class MainActivity : AppCompatActivity() {
 
         tvTitle.text = if (col == null) "New Collection" else "Edit Collection"
         btnSave.text = if (col == null) "Create" else "Save Changes"
+
+        val parentOptions = mutableListOf<Pair<String?, String>>(null to "None (top level)")
+        flattenCollections(repository.collections)
+            .filter { canSetCollectionParent(repository.collections, col?.id, it.collection.id) }
+            .forEach { parentOptions.add(it.collection.id to it.label) }
+        spinnerParent.adapter = ArrayAdapter(this, R.layout.item_spinner_selected, parentOptions.map { it.second }).apply {
+            setDropDownViewResource(R.layout.item_spinner)
+        }
+        val initialParent = col?.parentId ?: if (col == null && parentOptions.any { it.first == activeFilterId }) activeFilterId else null
+        spinnerParent.setSelection(parentOptions.indexOfFirst { it.first == initialParent }.coerceAtLeast(0))
 
         if (col != null) {
             etTitle.setText(col.title)
@@ -1002,6 +1014,7 @@ class MainActivity : AppCompatActivity() {
                 return@setOnClickListener
             }
             val desc = etDesc.text.toString().trim().ifEmpty { null }
+            val parentId = parentOptions[spinnerParent.selectedItemPosition.coerceAtLeast(0)].first
 
             btnSave.isEnabled = false
             lifecycleScope.launch {
@@ -1011,6 +1024,7 @@ class MainActivity : AppCompatActivity() {
                         description = desc,
                         color = selectedColor,
                         icon = "Folder",
+                        parentId = parentId,
                         serverUrl = getServerUrl()
                     )
                     if (created != null) {
@@ -1025,6 +1039,7 @@ class MainActivity : AppCompatActivity() {
                         description = desc,
                         color = selectedColor,
                         icon = col.icon ?: "Folder",
+                        parentId = parentId,
                         serverUrl = getServerUrl()
                     )
                     if (updated) {

@@ -3,6 +3,7 @@ package io.keepsake.app.data
 import android.content.Context
 import io.keepsake.app.models.Bookmark
 import io.keepsake.app.models.Collection
+import io.keepsake.app.utils.canSetCollectionParent
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
@@ -267,10 +268,11 @@ class KeepsakeRepository(private val context: Context) {
         description: String? = null,
         color: String? = null,
         icon: String? = null,
+        parentId: String? = null,
         serverUrl: String
     ): Collection? = withContext(Dispatchers.IO) {
         val cleanTitle = title.trim()
-        if (cleanTitle.isEmpty()) return@withContext null
+        if (cleanTitle.isEmpty() || !canSetCollectionParent(collections, null, parentId)) return@withContext null
 
         val newId = "col_" + UUID.randomUUID().toString().replace("-", "").take(9)
         val now = nowIso()
@@ -278,6 +280,7 @@ class KeepsakeRepository(private val context: Context) {
             id = newId,
             title = cleanTitle,
             description = description?.trim()?.ifEmpty { null },
+            parentId = parentId,
             color = color ?: "#38BDF8",
             icon = icon ?: "Folder",
             isSystem = false,
@@ -312,10 +315,11 @@ class KeepsakeRepository(private val context: Context) {
         description: String? = null,
         color: String? = null,
         icon: String? = null,
+        parentId: String? = null,
         serverUrl: String
     ): Boolean = withContext(Dispatchers.IO) {
         val cleanTitle = title.trim()
-        if (cleanTitle.isEmpty()) return@withContext false
+        if (cleanTitle.isEmpty() || !canSetCollectionParent(collections, id, parentId)) return@withContext false
 
         val index = collections.indexOfFirst { it.id == id }
         if (index == -1) return@withContext false
@@ -324,6 +328,7 @@ class KeepsakeRepository(private val context: Context) {
         val updated = current.copy(
             title = cleanTitle,
             description = description?.trim()?.ifEmpty { null },
+            parentId = parentId,
             color = color ?: current.color,
             icon = icon ?: current.icon,
             updatedAt = nowIso()
@@ -335,6 +340,7 @@ class KeepsakeRepository(private val context: Context) {
             put("id", id)
             put("title", updated.title)
             put("description", updated.description ?: JSONObject.NULL)
+            put("parentId", updated.parentId ?: JSONObject.NULL)
             put("color", updated.color ?: JSONObject.NULL)
             put("icon", updated.icon ?: JSONObject.NULL)
         }

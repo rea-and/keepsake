@@ -6,6 +6,20 @@ data class CollectionTreeItem(val collection: Collection, val depth: Int) {
     val label: String get() = "— ".repeat(depth.coerceAtMost(8)) + collection.title
 }
 
+fun canSetCollectionParent(collections: List<Collection>, collectionId: String?, parentId: String?): Boolean {
+    if (parentId == null) return true
+    val byId = collections.associateBy { it.id }
+    val seen = mutableSetOf<String>()
+    var current: String? = parentId
+    while (current != null) {
+        if (current == collectionId || !seen.add(current)) return false
+        val parent = byId[current] ?: return false
+        if (parent.isSystem || parent.id == "unsorted") return false
+        current = parent.parentId
+    }
+    return true
+}
+
 fun flattenCollections(collections: List<Collection>): List<CollectionTreeItem> {
     val custom = collections.filter { !it.isSystem && it.id != "unsorted" }
         .sortedWith(compareBy<Collection> { it.sortOrder }.thenBy { it.id })
