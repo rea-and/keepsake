@@ -50,7 +50,7 @@ const RETRY_ALARM = 'keepsake_retry_captures';
 let retryInProgress = false;
 
 async function queueCapture(serverUrl: string, bookmark: Bookmark): Promise<void> {
-  await chrome.storage.local.set({ [PENDING_PREFIX + bookmark.id]: { serverUrl, bookmark } });
+  await chrome.storage.local.set({ [PENDING_PREFIX + bookmark.id]: { serverUrl, bookmark, revision: crypto.randomUUID() } });
   await chrome.alarms.create(RETRY_ALARM, { periodInMinutes: 1 });
 }
 
@@ -64,7 +64,8 @@ async function retryCaptures(): Promise<void> {
     for (const [key, value] of entries) {
       if (!value?.serverUrl || !value?.bookmark?.url) continue;
       if (await postBookmarkToServer(value.serverUrl, value.bookmark)) {
-        await chrome.storage.local.remove(key);
+        const current = await chrome.storage.local.get(key);
+        if (current[key]?.revision === value.revision) await chrome.storage.local.remove(key);
         savedAny = true;
       }
     }
@@ -201,6 +202,21 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       if (tabs[0]?.id) showSuccessBadge(tabs[0].id);
     });
     notifyKeepsakeTabs();
+  } else if (message.action === 'QUEUE_POPUP_CAPTURE') {
+    if (!message.serverUrl || !message.bookmark?.id || !message.bookmark?.url) {
+      sendResponse({ success: false, error: 'Missing bookmark data' });
+      return false;
+    }
+    queueCapture(message.serverUrl, message.bookmark)
+      .then(() => sendResponse({ success: true }))
+      .catch(() => sendResponse({ success: false, error: 'Unable to queue bookmark' }));
+    return true;
+  } else if (message.action === 'CLEAR_PENDING_CAPTURE') {
+    if (!message.id) { sendResponse({ success: false }); return false; }
+    chrome.storage.local.remove(PENDING_PREFIX + message.id)
+      .then(() => sendResponse({ success: true }))
+      .catch(() => sendResponse({ success: false }));
+    return true;
   } else if (message.action === 'COLLECTION_CREATED') {
     notifyKeepsakeTabs();
   } else if (message.action === 'SAVE_BOOKMARK_FROM_FEED') {

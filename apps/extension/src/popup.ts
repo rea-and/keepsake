@@ -247,6 +247,12 @@ async function init() {
 
     if (currentBookmark) {
       populateBookmarkUI(currentBookmark);
+      const pendingKey = `keepsake_pending_capture_${currentBookmark.id}`;
+      const pending = await chrome.storage.local.get(pendingKey);
+      if (pending[pendingKey]) {
+        statusBadge.textContent = 'Sync pending';
+        statusBadge.classList.remove('saved');
+      }
     } else {
       statusBadge.textContent = 'New Link';
       statusBadge.classList.remove('saved');
@@ -405,6 +411,7 @@ saveBtn.addEventListener('click', async () => {
   };
 
   // 1. Post to Server if activeServerUrl is configured
+  let serverSaved = false;
   if (activeServerUrl) {
     try {
       const serverRes = await fetch(`${activeServerUrl}/api/bookmarks`, {
@@ -417,6 +424,7 @@ saveBtn.addEventListener('click', async () => {
         const data = await serverRes.json();
         if (data.bookmark) {
           newBm = data.bookmark;
+          serverSaved = true;
         }
       }
     } catch (err) {
@@ -424,24 +432,31 @@ saveBtn.addEventListener('click', async () => {
     }
   }
 
-  // 2. Also save to chrome.storage.local
-  chrome.storage.local.get(['bookmarks'], (res) => {
+  try {
+    if (!serverSaved) {
+      const queued = await chrome.runtime.sendMessage({ action: 'QUEUE_POPUP_CAPTURE', serverUrl: activeServerUrl, bookmark: newBm });
+      if (!queued?.success) throw new Error(queued?.error || 'Unable to queue bookmark');
+    } else {
+      const result = await chrome.runtime.sendMessage({ action: 'CLEAR_PENDING_CAPTURE', id: currentBookmark?.id || newBm.id });
+      if (!result?.success) throw new Error('Could not clear the pending save');
+    }
+    // 2. Also save to chrome.storage.local
+    const res = await chrome.storage.local.get(['bookmarks']);
     const bookmarks: Bookmark[] = res.bookmarks || [];
-    const updatedList = currentBookmark
-      ? bookmarks.map((b) => (b.id === newBm.id ? newBm : b))
-      : [newBm, ...bookmarks.filter((b) => b.url !== currentUrl)];
-
-    chrome.storage.local.set({ bookmarks: updatedList, lastCollectionId: collectionSelect.value || 'unsorted' }, () => {
-      saveBtn.textContent = 'Saved ✓';
-      statusBadge.textContent = 'Saved ✓';
-      statusBadge.classList.add('saved');
-
-      // Forward to background script for badge update & tab broadcast
-      chrome.runtime.sendMessage({ action: 'BOOKMARK_SAVED', bookmark: newBm });
-
-      setTimeout(() => window.close(), 600);
-    });
-  });
+    const updatedList = [newBm, ...bookmarks.filter((b) => b.id !== newBm.id && normalizeUrl(b.url) !== normalizeUrl(currentUrl))];
+    await chrome.storage.local.set({ bookmarks: updatedList, lastCollectionId: collectionSelect.value || 'unsorted' });
+    saveBtn.textContent = serverSaved ? 'Saved ✓' : 'Queued for sync';
+    statusBadge.textContent = serverSaved ? 'Saved ✓' : 'Sync pending';
+    statusBadge.classList.toggle('saved', serverSaved);
+    if (serverSaved) chrome.runtime.sendMessage({ action: 'BOOKMARK_SAVED', bookmark: newBm }).catch(() => {});
+    setTimeout(() => window.close(), serverSaved ? 600 : 1500);
+  } catch (error) {
+    statusBadge.textContent = serverSaved ? 'Saved on server' : 'Save failed';
+    statusBadge.classList.toggle('saved', serverSaved);
+    saveBtn.textContent = serverSaved ? 'Saved on server' : 'Retry save';
+    saveBtn.disabled = false;
+    collectionMessage.textContent = serverSaved ? 'Saved on the server, but the extension could not finish updating its local state.' : 'Could not save or queue this bookmark. Try again.';
+  }
 });
 
 // Delete Bookmark
@@ -453,11 +468,18 @@ deleteBtn.addEventListener('click', async () => {
   // 1. Delete on server if configured
   if (activeServerUrl) {
     try {
-      await fetch(`${activeServerUrl}/api/bookmarks/${currentBookmark.id}`, {
+      const response = await fetch(`${activeServerUrl}/api/bookmarks/${currentBookmark.id}`, {
         method: 'DELETE'
       });
+      if (!response.ok) throw new Error(`Server returned ${response.status}`);
     } catch (err) {
       console.error('[Keepsake Extension] Server delete failed:', err);
+      deleteBtn.disabled = false;
+      deleteBtn.textContent = 'Retry removal';
+      statusBadge.textContent = 'Removal failed';
+      statusBadge.classList.remove('saved');
+      collectionMessage.textContent = 'Could not remove the bookmark from the server. Try again when connected.';
+      return;
     }
   }
 

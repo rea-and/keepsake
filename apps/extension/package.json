@@ -6,7 +6,8 @@
   "scripts": {
     "build": "npm run build:chrome && npm run build:firefox",
     "build:chrome": "vite build --outDir dist/chrome && node scripts/prepare-manifest.js chrome",
-    "build:firefox": "vite build --outDir dist/firefox && node scripts/prepare-manifest.js firefox"
+    "build:firefox": "vite build --outDir dist/firefox && node scripts/prepare-manifest.js firefox",
+    "test": "npm run build && node --test test/*.test.mjs"
   },
   "dependencies": {
     "@keepsake/shared": "*"
