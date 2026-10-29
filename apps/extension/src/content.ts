@@ -32,7 +32,6 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
       document.querySelector('meta[name="description"]')?.getAttribute('content') ||
       '';
 
-    const selectedText = window.getSelection()?.toString().trim() || '';
     const suggestedTags: string[] = [];
     let isVideo = !!getYouTubeVideoId(pageUrl);
     let isImage = false;
@@ -128,7 +127,6 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
       url: pageUrl,
       description: ogDesc || '',
       cover: ogImage || '',
-      selectedText,
       tags: suggestedTags,
       isVideo,
       isImage

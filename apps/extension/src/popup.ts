@@ -162,7 +162,8 @@ async function init() {
     coverImg.style.display = 'block';
   }
 
-  // Ask content script for rich DOM metadata & selected text
+  // Ask content script for rich DOM metadata. Selected text is only captured
+  // through the explicit “Save Selection as Note” context-menu command.
   try {
     const meta = await chrome.tabs.sendMessage(tab.id!, { action: 'GET_PAGE_METADATA' });
     if (meta) {
@@ -184,9 +185,6 @@ async function init() {
         currentCover = ytInitialThumb;
         coverImg.src = currentCover;
         coverImg.style.display = 'block';
-      }
-      if (meta.selectedText && !noteInput.value) {
-        noteInput.value = `> ${meta.selectedText}\n\n`;
       }
       // Auto-populate suggested tags (e.g. subreddit name)
       if (meta.tags && Array.isArray(meta.tags) && currentTags.length === 0) {
