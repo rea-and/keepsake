@@ -117,7 +117,7 @@ export const CardsView: React.FC<CardsViewProps> = ({
             </button>
 
             {/* Actions: Done Tick + Favorite Star */}
-            <div className="absolute top-2.5 right-2.5 flex items-center gap-1.5 z-10">
+            <>
               {/* Done Tick */}
               <button
                 onClick={(e) => {
@@ -125,7 +125,8 @@ export const CardsView: React.FC<CardsViewProps> = ({
                   onToggleDone(bm.id);
                 }}
                 title={bm.isDone ? 'Done (click to mark as pending)' : 'Mark as Done'}
-                className={`p-1.5 rounded-full backdrop-blur shadow transition-all ${
+                style={{ top: `${(bm.cover ? { small: 112, medium: 176, large: 240 } : { small: 64, medium: 80, large: 112 })[cardSize] - 38}px` }}
+                className={`absolute left-2.5 z-10 p-1.5 rounded-full backdrop-blur shadow transition-all ${
                   bm.isDone
                     ? 'opacity-100 bg-emerald-500 text-white shadow-emerald-500/25 ring-2 ring-emerald-400/30'
                     : 'opacity-0 group-hover:opacity-100 bg-white/90 dark:bg-[#1a1a1e]/90 text-neutral-400 hover:text-emerald-500 hover:scale-105'
@@ -141,13 +142,13 @@ export const CardsView: React.FC<CardsViewProps> = ({
                   onToggleFavorite(bm.id);
                 }}
                 title={bm.isFavorite ? 'Starred' : 'Favorite'}
-                className={`p-1.5 rounded-full bg-white/90 dark:bg-[#1a1a1e]/90 backdrop-blur shadow transition-all ${
+                className={`absolute top-2.5 right-2.5 z-10 p-1.5 rounded-full bg-white/90 dark:bg-[#1a1a1e]/90 backdrop-blur shadow transition-all ${
                   bm.isFavorite ? 'opacity-100 text-yellow-400' : 'opacity-0 group-hover:opacity-100 text-neutral-400 hover:text-yellow-400'
                 }`}
               >
                 <Star className={`w-3.5 h-3.5 ${bm.isFavorite ? 'fill-yellow-400' : ''}`} />
               </button>
-            </div>
+            </>
 
             {/* Card Body */}
             <div className={`${paddingClass} flex-1 flex flex-col justify-between`}>
