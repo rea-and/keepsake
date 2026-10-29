@@ -181,6 +181,7 @@ app.put('/api/bookmarks/:id', (req, res) => {
         return res.status(404).json({ error: 'Bookmark not found' });
     }
     const updated = serverStore.addOrUpdateBookmark({
+        ...existing,
         ...req.body,
         id: req.params.id,
         url: req.body.url || existing.url

@@ -75,7 +75,6 @@ class BookmarkAdapter(
         private val btnDone: ImageButton = itemView.findViewById(R.id.btnDone)
         private val btnMore: ImageButton = itemView.findViewById(R.id.btnMore)
         private val readerBadge: View = itemView.findViewById(R.id.readerBadge)
-        private val tvDoneBadge: TextView? = itemView.findViewById(R.id.tvDoneBadge)
 
         fun bind(bm: Bookmark) {
             tvTitle.text = bm.title.ifEmpty { bm.url }
@@ -99,15 +98,9 @@ class BookmarkAdapter(
             if (bm.isDone) {
                 btnDone.setImageResource(R.drawable.ic_check_circle)
                 btnDone.setBackgroundResource(R.drawable.bg_badge_done)
-                tvDoneBadge?.visibility = View.VISIBLE
-                tvTitle.paintFlags = tvTitle.paintFlags or android.graphics.Paint.STRIKE_THRU_TEXT_FLAG
-                tvTitle.alpha = 0.7f
             } else {
                 btnDone.setImageResource(R.drawable.ic_circle_empty)
                 btnDone.setBackgroundResource(R.drawable.bg_badge)
-                tvDoneBadge?.visibility = View.GONE
-                tvTitle.paintFlags = tvTitle.paintFlags and android.graphics.Paint.STRIKE_THRU_TEXT_FLAG.inv()
-                tvTitle.alpha = 1.0f
             }
 
             // Cover Image
@@ -130,7 +123,6 @@ class BookmarkAdapter(
         private val btnFavorite: ImageButton = itemView.findViewById(R.id.btnFavorite)
         private val btnDone: ImageButton = itemView.findViewById(R.id.btnDone)
         private val btnMore: ImageButton = itemView.findViewById(R.id.btnMore)
-        private val tvDoneBadge: TextView? = itemView.findViewById(R.id.tvDoneBadge)
 
         fun bind(bm: Bookmark) {
             tvTitle.text = bm.title.ifEmpty { bm.url }
@@ -146,14 +138,8 @@ class BookmarkAdapter(
 
             if (bm.isDone) {
                 btnDone.setImageResource(R.drawable.ic_check_circle)
-                tvDoneBadge?.visibility = View.VISIBLE
-                tvTitle.paintFlags = tvTitle.paintFlags or android.graphics.Paint.STRIKE_THRU_TEXT_FLAG
-                tvTitle.alpha = 0.7f
             } else {
                 btnDone.setImageResource(R.drawable.ic_circle_empty)
-                tvDoneBadge?.visibility = View.GONE
-                tvTitle.paintFlags = tvTitle.paintFlags and android.graphics.Paint.STRIKE_THRU_TEXT_FLAG.inv()
-                tvTitle.alpha = 1.0f
             }
 
             val thumbUrl = bm.cover ?: bm.favicon

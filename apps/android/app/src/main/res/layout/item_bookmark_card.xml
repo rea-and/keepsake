@@ -125,23 +125,6 @@
                     android:textSize="11sp"
                     tools:text="reddit.com" />
 
-                <TextView
-                    android:id="@+id/tvDoneBadge"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:layout_marginStart="6dp"
-                    android:layout_marginEnd="6dp"
-                    android:background="@drawable/bg_badge_done"
-                    android:paddingStart="6dp"
-                    android:paddingEnd="6dp"
-                    android:paddingTop="2dp"
-                    android:paddingBottom="2dp"
-                    android:text="DONE"
-                    android:textColor="#34D399"
-                    android:textSize="9sp"
-                    android:textStyle="bold"
-                    android:visibility="gone" />
-
                 <ImageButton
                     android:id="@+id/btnMore"
                     android:layout_width="28dp"

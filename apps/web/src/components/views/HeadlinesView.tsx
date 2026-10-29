@@ -61,21 +61,10 @@ export const HeadlinesView: React.FC<HeadlinesViewProps> = ({
               href={bm.url}
               target="_blank"
               rel="noopener noreferrer"
-              className={`font-medium truncate ${
-                bm.isDone
-                  ? 'text-neutral-500 dark:text-neutral-400 line-through'
-                  : 'text-neutral-900 dark:text-neutral-100 hover:text-sky-600 dark:hover:text-sky-400'
-              }`}
+              className="font-medium truncate text-neutral-900 dark:text-neutral-100 hover:text-sky-600 dark:hover:text-sky-400"
             >
               {bm.title || bm.url}
             </a>
-
-            {bm.isDone && (
-              <span className="shrink-0 inline-flex items-center gap-0.5 px-1.5 py-0.2 rounded text-[10px] font-semibold bg-emerald-100 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300">
-                <Check className="w-2.5 h-2.5 stroke-[2.5]" />
-                Done
-              </span>
-            )}
           </div>
 
           <div className="flex items-center gap-2 shrink-0">

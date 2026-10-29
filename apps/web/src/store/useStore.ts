@@ -772,46 +772,48 @@ export function useKeepsakeStore() {
 
   const toggleFavorite = useCallback((id: string) => {
     const now = new Date().toISOString();
-    let nextFavorite = false;
+    let updatedBm: Bookmark | null = null;
     setStore((prev) => {
       const bm = prev.bookmarks.find((b) => b.id === id);
-      nextFavorite = bm ? !bm.isFavorite : false;
+      if (!bm) return prev;
+      updatedBm = { ...bm, isFavorite: !bm.isFavorite, updatedAt: now };
       return {
         ...prev,
         lastModified: now,
-        bookmarks: prev.bookmarks.map((b) =>
-          b.id === id ? { ...b, isFavorite: nextFavorite, updatedAt: now } : b
-        )
+        bookmarks: prev.bookmarks.map((b) => (b.id === id ? updatedBm! : b))
       };
     });
 
-    fetch(`/api/bookmarks/${id}`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ isFavorite: nextFavorite })
-    }).catch((e) => console.warn('[Keepsake Web] toggleFavorite server persist error:', e));
+    if (updatedBm) {
+      fetch(`/api/bookmarks/${id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(updatedBm)
+      }).catch((e) => console.warn('[Keepsake Web] toggleFavorite server persist error:', e));
+    }
   }, []);
 
   const toggleDone = useCallback((id: string) => {
     const now = new Date().toISOString();
-    let nextDone = false;
+    let updatedBm: Bookmark | null = null;
     setStore((prev) => {
       const bm = prev.bookmarks.find((b) => b.id === id);
-      nextDone = bm ? !bm.isDone : true;
+      if (!bm) return prev;
+      updatedBm = { ...bm, isDone: !bm.isDone, updatedAt: now };
       return {
         ...prev,
         lastModified: now,
-        bookmarks: prev.bookmarks.map((b) =>
-          b.id === id ? { ...b, isDone: nextDone, updatedAt: now } : b
-        )
+        bookmarks: prev.bookmarks.map((b) => (b.id === id ? updatedBm! : b))
       };
     });
 
-    fetch(`/api/bookmarks/${id}`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ isDone: nextDone })
-    }).catch((e) => console.warn('[Keepsake Web] toggleDone server persist error:', e));
+    if (updatedBm) {
+      fetch(`/api/bookmarks/${id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(updatedBm)
+      }).catch((e) => console.warn('[Keepsake Web] toggleDone server persist error:', e));
+    }
   }, []);
 
   const moveToTrash = useCallback((id: string) => {

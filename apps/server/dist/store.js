@@ -118,35 +118,6 @@ class ServerStoreManager {
     addOrUpdateBookmark(data) {
         const now = new Date().toISOString();
         const cleanUrl = normalizeUrl(data.url);
-        const domain = data.domain || extractDomain(cleanUrl);
-        let favicon = data.favicon || getFaviconUrl(domain);
-        let title = data.title || domain;
-        let tags = data.tags !== undefined ? data.tags : [];
-        // Auto-detect YouTube thumbnail and video type
-        const ytThumb = getYouTubeThumbnail(cleanUrl);
-        const isVideo = !!getYouTubeVideoId(cleanUrl);
-        let cover = data.cover;
-        if (ytThumb && (!cover || cover.includes('yt_1200.png') || cover.includes('youtube.com/img/desktop'))) {
-            cover = ytThumb;
-        }
-        // Auto-detect Reddit posts: clean title, extract subreddit tag, set Reddit favicon, clean media
-        if (isRedditUrl(cleanUrl)) {
-            title = cleanRedditTitle(title) || title;
-            const rInfo = parseRedditUrl(cleanUrl);
-            if (rInfo?.subreddit && tags.length === 0) {
-                tags = [rInfo.subreddit.toLowerCase()];
-            }
-            if (!data.favicon || data.favicon.includes('google.com')) {
-                favicon = 'https://www.redditstatic.com/shreddit/assets/favicon/192x192.png';
-            }
-            if (cover) {
-                cover = cleanRedditMediaUrl(cover);
-            }
-            if (cover && isGenericRedditMedia(cover)) {
-                cover = undefined;
-            }
-        }
-        const bookmarkType = isVideo ? 'video' : (data.type || (cover ? 'image' : 'link'));
         let existingIndex = -1;
         if (data.id) {
             existingIndex = this.store.bookmarks.findIndex((b) => b.id === data.id);
@@ -156,26 +127,58 @@ class ServerStoreManager {
         }
         let savedBm;
         if (existingIndex >= 0) {
-            // Update existing
+            // Update existing - preserve all existing fields unless explicitly updated
             const existing = this.store.bookmarks[existingIndex];
+            const isVideo = !!getYouTubeVideoId(cleanUrl);
+            const updatedCover = data.cover !== undefined ? data.cover : existing.cover;
+            const updatedType = data.type !== undefined ? data.type : (isVideo ? 'video' : existing.type);
             savedBm = {
                 ...existing,
                 ...data,
                 id: existing.id,
                 url: cleanUrl,
-                title: title || existing.title,
-                domain,
-                favicon: favicon || existing.favicon,
-                cover: cover !== undefined ? cover : existing.cover,
-                type: bookmarkType,
+                title: data.title !== undefined ? data.title : existing.title,
+                domain: data.domain || existing.domain || extractDomain(cleanUrl),
+                favicon: data.favicon !== undefined ? data.favicon : existing.favicon,
+                cover: updatedCover,
+                type: updatedType,
                 isDone: data.isDone !== undefined ? Boolean(data.isDone) : (existing.isDone || false),
-                tags: data.tags !== undefined ? tags : existing.tags,
+                tags: data.tags !== undefined ? data.tags : existing.tags,
                 updatedAt: now
             };
             this.store.bookmarks[existingIndex] = savedBm;
         }
         else {
             // Create new
+            const domain = data.domain || extractDomain(cleanUrl);
+            let favicon = data.favicon || getFaviconUrl(domain);
+            let title = data.title || domain;
+            let tags = data.tags !== undefined ? data.tags : [];
+            // Auto-detect YouTube thumbnail and video type
+            const ytThumb = getYouTubeThumbnail(cleanUrl);
+            const isVideo = !!getYouTubeVideoId(cleanUrl);
+            let cover = data.cover;
+            if (ytThumb && (!cover || cover.includes('yt_1200.png') || cover.includes('youtube.com/img/desktop'))) {
+                cover = ytThumb;
+            }
+            // Auto-detect Reddit posts: clean title, extract subreddit tag, set Reddit favicon, clean media
+            if (isRedditUrl(cleanUrl)) {
+                title = cleanRedditTitle(title) || title;
+                const rInfo = parseRedditUrl(cleanUrl);
+                if (rInfo?.subreddit && tags.length === 0) {
+                    tags = [rInfo.subreddit.toLowerCase()];
+                }
+                if (!data.favicon || data.favicon.includes('google.com')) {
+                    favicon = 'https://www.redditstatic.com/shreddit/assets/favicon/192x192.png';
+                }
+                if (cover) {
+                    cover = cleanRedditMediaUrl(cover);
+                }
+                if (cover && isGenericRedditMedia(cover)) {
+                    cover = undefined;
+                }
+            }
+            const bookmarkType = isVideo ? 'video' : (data.type || (cover ? 'image' : 'link'));
             savedBm = {
                 id: data.id ||
                     'bm_' + Math.random().toString(36).substring(2, 9) + Date.now().toString(36),

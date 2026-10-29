@@ -128,9 +128,7 @@ class KeepsakeRepository(private val context: Context) {
             saveToCache()
 
             // Persist to server
-            httpPut("${serverUrl.removeSuffix("/")}/api/bookmarks/$bookmarkId", JSONObject().apply {
-                put("isFavorite", updated.isFavorite)
-            }.toString())
+            httpPut("${serverUrl.removeSuffix("/")}/api/bookmarks/$bookmarkId", updated.toJson().toString())
         }
     }
 
@@ -143,9 +141,7 @@ class KeepsakeRepository(private val context: Context) {
             saveToCache()
 
             // Persist to server
-            httpPut("${serverUrl.removeSuffix("/")}/api/bookmarks/$bookmarkId", JSONObject().apply {
-                put("isDone", updated.isDone)
-            }.toString())
+            httpPut("${serverUrl.removeSuffix("/")}/api/bookmarks/$bookmarkId", updated.toJson().toString())
         }
     }
 

@@ -85,23 +85,13 @@ export const MoodboardView: React.FC<MoodboardViewProps> = ({
                 onError={(e) => ((e.target as HTMLElement).style.display = 'none')}
               />
               <span className="truncate">{bm.domain}</span>
-              {bm.isDone && (
-                <span className="ml-auto inline-flex items-center gap-0.5 px-1.5 py-0.2 rounded text-[10px] font-semibold bg-emerald-100 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300">
-                  <Check className="w-2.5 h-2.5 stroke-[2.5]" />
-                  Done
-                </span>
-              )}
             </div>
 
             <a
               href={bm.url}
               target="_blank"
               rel="noopener noreferrer"
-              className={`block text-xs font-semibold hover:text-sky-500 line-clamp-2 mb-2 leading-tight ${
-                bm.isDone
-                  ? 'text-neutral-500 dark:text-neutral-400 line-through'
-                  : 'text-neutral-900 dark:text-neutral-100'
-              }`}
+              className="block text-xs font-semibold hover:text-sky-500 line-clamp-2 mb-2 leading-tight text-neutral-900 dark:text-neutral-100"
             >
               {bm.title || bm.url}
             </a>

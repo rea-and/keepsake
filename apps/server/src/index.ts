@@ -240,6 +240,7 @@ app.put('/api/bookmarks/:id', (req: Request, res: Response) => {
   }
 
   const updated = serverStore.addOrUpdateBookmark({
+    ...existing,
     ...req.body,
     id: req.params.id,
     url: req.body.url || existing.url
