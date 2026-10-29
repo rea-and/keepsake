@@ -15,6 +15,7 @@ import androidx.lifecycle.lifecycleScope
 import io.keepsake.app.databinding.ActivityShareBinding
 import io.keepsake.app.models.Collection
 import io.keepsake.app.utils.flattenCollections
+import io.keepsake.app.utils.applyApiToken
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
@@ -425,6 +426,7 @@ class ShareActivity : AppCompatActivity() {
         return try {
             val url = URL(urlString)
             conn = url.openConnection() as HttpURLConnection
+            applyApiToken(this, conn, url)
             conn.requestMethod = "GET"
             conn.connectTimeout = 6000
             conn.readTimeout = 6000
@@ -456,6 +458,7 @@ class ShareActivity : AppCompatActivity() {
         return try {
             val url = URL(urlString)
             conn = url.openConnection() as HttpURLConnection
+            applyApiToken(this, conn, url)
             conn.requestMethod = "POST"
             conn.connectTimeout = 8000
             conn.readTimeout = 8000

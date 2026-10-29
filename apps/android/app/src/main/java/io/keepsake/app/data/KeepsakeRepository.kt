@@ -4,6 +4,7 @@ import android.content.Context
 import io.keepsake.app.models.Bookmark
 import io.keepsake.app.models.Collection
 import io.keepsake.app.utils.canSetCollectionParent
+import io.keepsake.app.utils.applyApiToken
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
@@ -85,6 +86,7 @@ class KeepsakeRepository(private val context: Context) {
             if (!retryPendingOperations()) return@withContext false
             val url = URL("${serverUrl.removeSuffix("/")}/api/sync")
             val conn = (url.openConnection() as HttpURLConnection).apply {
+                applyApiToken(context, this, url)
                 requestMethod = "GET"
                 connectTimeout = 8000
                 readTimeout = 8000
@@ -507,6 +509,7 @@ class KeepsakeRepository(private val context: Context) {
         return try {
             val url = URL(urlString)
             val conn = (url.openConnection() as HttpURLConnection).apply {
+                applyApiToken(context, this, url)
                 requestMethod = method
                 connectTimeout = 6000
                 readTimeout = 6000
@@ -568,6 +571,7 @@ class KeepsakeRepository(private val context: Context) {
         return try {
             val url = URL(urlString)
             val conn = (url.openConnection() as HttpURLConnection).apply {
+                applyApiToken(context, this, url)
                 requestMethod = "POST"
                 connectTimeout = 8000
                 readTimeout = 8000

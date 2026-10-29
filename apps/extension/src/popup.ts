@@ -12,6 +12,7 @@ import {
   isValidMediaUrl,
   flattenCollections
 } from '@keepsake/shared';
+import { apiFetch } from './apiFetch';
 
 interface ExtensionStorage {
   serverUrl?: string;
@@ -19,6 +20,7 @@ interface ExtensionStorage {
   collections?: Collection[];
   authSession?: any;
   lastCollectionId?: string;
+  apiToken?: string;
 }
 
 let currentBookmark: Bookmark | null = null;
@@ -55,6 +57,7 @@ const deleteBtn = document.getElementById('deleteBtn') as HTMLButtonElement;
 const toggleSettings = document.getElementById('toggleSettings') as HTMLAnchorElement;
 const settingsPanel = document.getElementById('settingsPanel') as HTMLDivElement;
 const serverUrlInput = document.getElementById('serverUrlInput') as HTMLInputElement;
+const apiTokenInput = document.getElementById('apiTokenInput') as HTMLInputElement;
 const saveSettingsBtn = document.getElementById('saveSettingsBtn') as HTMLButtonElement;
 
 // Render Tag Chips
@@ -189,11 +192,12 @@ async function init() {
   }
 
   // Load storage
-  chrome.storage.local.get(['serverUrl', 'bookmarks', 'collections', 'lastCollectionId'], async (res: ExtensionStorage) => {
+  chrome.storage.local.get(['serverUrl', 'apiToken', 'bookmarks', 'collections', 'lastCollectionId'], async (res: ExtensionStorage) => {
     if (res.serverUrl) {
       activeServerUrl = res.serverUrl.replace(/\/+$/, '');
     }
     serverUrlInput.value = activeServerUrl;
+    apiTokenInput.value = res.apiToken || '';
 
     const savedLastCollectionId = res.lastCollectionId;
 
@@ -205,7 +209,7 @@ async function init() {
     // Try to fetch latest collections from server
     if (activeServerUrl) {
       try {
-        const colRes = await fetch(`${activeServerUrl}/api/collections`);
+        const colRes = await apiFetch(`${activeServerUrl}/api/collections`);
         if (colRes.ok) {
           const colData = await colRes.json();
           if (colData.collections && colData.collections.length > 0) {
@@ -226,7 +230,7 @@ async function init() {
 
     if (activeServerUrl) {
       try {
-        const checkRes = await fetch(`${activeServerUrl}/api/bookmarks?url=${encodeURIComponent(currentUrl)}`);
+        const checkRes = await apiFetch(`${activeServerUrl}/api/bookmarks?url=${encodeURIComponent(currentUrl)}`);
         if (checkRes.ok) {
           const checkData = await checkRes.json();
           if (checkData.bookmarks && checkData.bookmarks.length > 0) {
@@ -329,7 +333,7 @@ createCollectionBtn.addEventListener('click', async () => {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 10000);
   try {
-    const response = await fetch(`${activeServerUrl}/api/collections`, {
+    const response = await apiFetch(`${activeServerUrl}/api/collections`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ title, parentId }), signal: controller.signal
     });
@@ -379,7 +383,7 @@ toggleSettings.addEventListener('click', () => {
 saveSettingsBtn.addEventListener('click', () => {
   const url = serverUrlInput.value.trim().replace(/\/+$/, '');
   activeServerUrl = url || 'http://localhost:3000';
-  chrome.storage.local.set({ serverUrl: activeServerUrl }, () => {
+  chrome.storage.local.set({ serverUrl: activeServerUrl, apiToken: apiTokenInput.value.trim() }, () => {
     saveSettingsBtn.textContent = 'Saved!';
     setTimeout(() => {
       saveSettingsBtn.textContent = 'Save Settings';
@@ -428,7 +432,7 @@ saveBtn.addEventListener('click', async () => {
   let serverSaved = false;
   if (activeServerUrl) {
     try {
-      const serverRes = await fetch(`${activeServerUrl}/api/bookmarks`, {
+      const serverRes = await apiFetch(`${activeServerUrl}/api/bookmarks`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(newBm)
@@ -482,7 +486,7 @@ deleteBtn.addEventListener('click', async () => {
   // 1. Delete on server if configured
   if (activeServerUrl) {
     try {
-      const response = await fetch(`${activeServerUrl}/api/bookmarks/${currentBookmark.id}`, {
+      const response = await apiFetch(`${activeServerUrl}/api/bookmarks/${currentBookmark.id}`, {
         method: 'DELETE'
       });
       if (!response.ok) throw new Error(`Server returned ${response.status}`);

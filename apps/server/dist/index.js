@@ -8,6 +8,7 @@ import { authRouter } from './auth.js';
 import { scrapeUrl } from './scraper.js';
 import { serverStore } from './store.js';
 import { hasBookmarkConflict } from './conflicts.js';
+import { createApiAuth } from './apiAuth.js';
 import { exportToNetscapeHtml, parseNetscapeHtml, extractDomain, getFaviconUrl, isGenericRedditMedia, isRedditUrl, isSparseTitle, canSetCollectionParent } from '@keepsake/shared';
 dotenv.config();
 const __filename = fileURLToPath(import.meta.url);
@@ -30,6 +31,9 @@ app.use(cors({
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With']
 }));
+// OAuth and the health probe remain public; all library and scraping APIs
+// require the deployment's shared access token.
+app.use('/api', createApiAuth(process.env.KEEPSAKE_API_TOKEN || ''));
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 // Health Check
@@ -393,7 +397,10 @@ app.use((err, req, res, next) => {
     console.error('Server error:', err);
     res.status(500).json({ error: 'Internal Server Error', message: err.message });
 });
-app.listen(PORT, () => {
-    console.log(`✨ Keepsake Server running on port ${PORT}`);
-    console.log(`👉 http://localhost:${PORT}`);
-});
+export { app };
+if (process.argv[1] && path.resolve(process.argv[1]) === __filename) {
+    app.listen(PORT, () => {
+        console.log(`✨ Keepsake Server running on port ${PORT}`);
+        console.log(`👉 http://localhost:${PORT}`);
+    });
+}

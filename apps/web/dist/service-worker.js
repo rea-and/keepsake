@@ -1,5 +1,5 @@
-const CACHE_NAME = "keepsake-shell-60852574baa523c3";
-const PRECACHE = ["/assets/index-B5N67oh8.js","/assets/index-B7snRGTg.css","/index.html"];
+const CACHE_NAME = "keepsake-shell-161a62f2bd348842";
+const PRECACHE = ["/assets/index-B7snRGTg.css","/assets/index-Drel2ChD.js","/index.html"];
 
 self.addEventListener('install', (event) => {
   event.waitUntil(caches.open(CACHE_NAME).then((cache) => cache.addAll(PRECACHE)));

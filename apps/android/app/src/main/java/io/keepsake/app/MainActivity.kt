@@ -55,6 +55,7 @@ class MainActivity : AppCompatActivity() {
     companion object {
         const val PREFS_NAME = "keepsake_prefs"
         const val KEY_SERVER_URL = "server_url"
+        const val KEY_API_TOKEN = "api_token"
         const val KEY_AUTH_SESSION = "auth_session"
         const val KEY_VIEW_MODE = "is_grid_view"
         const val DEFAULT_SERVER_URL = "http://10.0.2.2:3000"
@@ -1502,16 +1503,25 @@ class MainActivity : AppCompatActivity() {
             setPadding(36, 24, 36, 24)
         }
 
+        val tokenInput = EditText(this).apply {
+            setText(getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).getString(KEY_API_TOKEN, ""))
+            hint = "Server API token"
+            inputType = android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD
+            setPadding(36, 24, 36, 24)
+        }
+        val fields = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; addView(input); addView(tokenInput) }
+
         AlertDialog.Builder(this)
             .setTitle("Keepsake Server URL")
             .setMessage("Configure your Keepsake server address:")
-            .setView(input)
+            .setView(fields)
             .setPositiveButton("Connect") { _, _ ->
                 val newUrl = input.text.toString().trim().removeSuffix("/")
                 if (newUrl.isNotEmpty()) {
                     getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
                         .edit()
                         .putString(KEY_SERVER_URL, newUrl)
+                        .putString(KEY_API_TOKEN, tokenInput.text.toString().trim())
                         .apply()
                     binding.etServerUrl.setText(newUrl)
                     if (binding.nativeAppContainer.visibility == View.VISIBLE) {

@@ -7,6 +7,7 @@ import {
   getYouTubeVideoId,
   isGenericRedditMedia
 } from '@keepsake/shared';
+import { apiFetch } from './apiFetch';
 
 // Setup Context Menus on Installation
 chrome.runtime.onInstalled.addListener(() => {
@@ -33,7 +34,7 @@ chrome.runtime.onInstalled.addListener(() => {
 async function postBookmarkToServer(serverUrl: string, bookmark: Bookmark, precondition?: string | null): Promise<'saved' | 'conflict' | 'failed'> {
   const cleanUrl = serverUrl.replace(/\/+$/, '');
   try {
-    const response = await fetch(`${cleanUrl}/api/bookmarks`, {
+    const response = await apiFetch(`${cleanUrl}/api/bookmarks`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(precondition === undefined ? bookmark : { ...bookmark, ifUnmodifiedSince: precondition })

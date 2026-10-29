@@ -30,6 +30,8 @@ function KeepsakeDashboard({ store }: KeepsakeDashboardProps) {
   const [readerBookmark, setReaderBookmark] = useState<Bookmark | null>(null);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
+  const [showApiToken, setShowApiToken] = useState(false);
+  const [apiTokenInput, setApiTokenInput] = useState('');
   const [undoTrash, setUndoTrash] = useState<string[]>([]);
   const undoTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => () => { if (undoTimerRef.current) clearTimeout(undoTimerRef.current); }, []);
@@ -47,7 +49,7 @@ function KeepsakeDashboard({ store }: KeepsakeDashboardProps) {
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
-      if (isBookmarkModalOpen || isCollectionModalOpen || readerBookmark || isSettingsOpen) return;
+      if (isBookmarkModalOpen || isCollectionModalOpen || readerBookmark || isSettingsOpen || showApiToken) return;
       const target = event.target as HTMLElement | null;
       if (target?.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(target?.tagName || '')) return;
       if (event.key === '/' && !event.ctrlKey && !event.metaKey && !event.altKey) {
@@ -61,7 +63,7 @@ function KeepsakeDashboard({ store }: KeepsakeDashboardProps) {
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [isBookmarkModalOpen, isCollectionModalOpen, readerBookmark, isSettingsOpen]);
+  }, [isBookmarkModalOpen, isCollectionModalOpen, readerBookmark, isSettingsOpen, showApiToken]);
 
   // Ingest shared link from Android or Browser intent URL parameters
   useEffect(() => {
@@ -293,7 +295,8 @@ function KeepsakeDashboard({ store }: KeepsakeDashboardProps) {
 
       {/* Main Content Area */}
       <div className="flex-1 flex flex-col min-w-0 h-full overflow-hidden">
-        {store.serverSyncError && <div role="status" className="px-4 py-2 bg-amber-100 dark:bg-amber-950 text-amber-900 dark:text-amber-100 text-xs flex items-center justify-between gap-3"><span>Server sync unavailable. {store.localPersistenceError ? 'Browser storage is also unavailable.' : 'Changes saved in this browser will retry automatically.'} {store.serverSyncError}</span><button className="font-semibold underline" onClick={() => store.syncWithServer()}>Retry</button></div>}
+        {store.serverSyncError && <div role="status" className="px-4 py-2 bg-amber-100 dark:bg-amber-950 text-amber-900 dark:text-amber-100 text-xs flex items-center justify-between gap-3"><span>Server sync unavailable. {store.localPersistenceError ? 'Browser storage is also unavailable.' : 'Changes saved in this browser will retry automatically.'} {store.serverSyncError}</span><div className="flex gap-3">{store.serverSyncError.includes('401') && <button className="font-semibold underline" onClick={() => { setApiTokenInput(''); setShowApiToken(true); }}>Enter API token</button>}<button className="font-semibold underline" onClick={() => store.syncWithServer()}>Retry</button></div></div>}
+        {showApiToken && <form className="flex items-center gap-2 px-4 py-2 bg-amber-50 dark:bg-neutral-900" onSubmit={(event) => { event.preventDefault(); localStorage.setItem('keepsake_api_token', apiTokenInput.trim()); setApiTokenInput(''); setShowApiToken(false); void store.syncWithServer(); }}><label htmlFor="api-token" className="text-xs dark:text-white">API token</label><input id="api-token" type="password" autoComplete="off" autoFocus value={apiTokenInput} onChange={(event) => setApiTokenInput(event.target.value)} className="flex-1 min-w-0 rounded border px-2 py-1 dark:bg-neutral-800 dark:text-white" required /><button type="submit" className="text-xs text-sky-600">Save</button><button type="button" className="text-xs dark:text-white" onClick={() => { setApiTokenInput(''); setShowApiToken(false); }}>Cancel</button></form>}
         {store.localPersistenceError && <div role="alert" className="px-4 py-2 bg-rose-100 dark:bg-rose-950 text-rose-900 dark:text-rose-100 text-xs">Browser storage is full or unavailable. Recent changes may not survive closing this tab; export a backup or restore storage access.</div>}
         {/* Header Bar */}
         <Header

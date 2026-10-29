@@ -21,6 +21,16 @@ This guide provides the complete set of instructions to:
 
 ---
 
+## Server API access token
+
+The server requires `KEEPSAKE_API_TOKEN` (at least 32 characters) and will not start without it. Generate a token with `openssl rand -hex 32`, put it in the server's `.env`, and restart the server. Use HTTPS whenever clients connect over a network; a bearer token sent over plain HTTP can be intercepted. Treat the token as a password.
+
+Existing installations must configure this token before upgrading. After signing in on the web, use **Enter API token** in the sync warning. In the browser extension, enter it under **Server Settings**. In Android, open the server settings dialog and enter it with the server URL. The same token grants access to the entire library; Google sign-in alone does not authorize API calls. Rotate the token in `.env` and update each client to revoke the old one.
+
+The public health check and Google OAuth endpoints remain accessible without the token. Do not expose the Node server outside your trusted network without HTTPS and an appropriate reverse proxy.
+
+---
+
 ## 1. Building All Targets
 
 Keepsake is organized as an npm workspaces monorepo:
