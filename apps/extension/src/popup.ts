@@ -61,6 +61,11 @@ const serverUrlInput = document.getElementById('serverUrlInput') as HTMLInputEle
 const apiTokenInput = document.getElementById('apiTokenInput') as HTMLInputElement;
 const saveSettingsBtn = document.getElementById('saveSettingsBtn') as HTMLButtonElement;
 
+function revealServerSettings() {
+  settingsPanel.style.display = 'block';
+  requestAnimationFrame(() => saveSettingsBtn.scrollIntoView({ block: 'nearest' }));
+}
+
 // Render Tag Chips
 function renderTags() {
   tagsContainer.innerHTML = '';
@@ -290,7 +295,7 @@ async function init() {
       statusBadge.textContent = 'API token required';
       statusBadge.classList.remove('saved');
       collectionMessage.textContent = 'The server rejected this extension’s API token (401). Open Server Settings, enter the matching token, save, then retry this bookmark.';
-      settingsPanel.style.display = 'block';
+      revealServerSettings();
     }
   });
 }
@@ -493,7 +498,7 @@ saveBtn.addEventListener('click', async () => {
     statusBadge.classList.toggle('saved', serverSaved);
     if (serverStatus === 401) {
       serverAuthRequired = true;
-      settingsPanel.style.display = 'block';
+      revealServerSettings();
       collectionMessage.textContent = 'This save is queued in Chrome, but the server rejected the API token (401). Enter the matching server token in Settings, save, then retry.';
       saveBtn.disabled = false;
       return;
