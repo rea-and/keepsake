@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { useDialog } from './useDialog';
 import {
   Bookmark,
   Collection,
@@ -7,6 +8,7 @@ import {
   getFaviconUrl,
   normalizeUrl,
   isSparseTitle,
+  flattenCollections,
   getYouTubeThumbnail
 } from '@keepsake/shared';
 import { X, Loader2, Sparkles, Star, Tag as TagIcon, Folder, Link as LinkIcon, CheckCircle2 } from 'lucide-react';
@@ -18,6 +20,9 @@ interface BookmarkModalProps {
   bookmarkToEdit?: Bookmark | null;
   collections: Collection[];
   availableTags: Array<{ name: string; count: number }>;
+  existingBookmarks: Bookmark[];
+  onEditExisting: (bookmark: Bookmark) => void;
+  onCreateCollection: (title: string) => Collection;
   defaultCollectionId?: string;
 }
 
@@ -28,8 +33,12 @@ export const BookmarkModal: React.FC<BookmarkModalProps> = ({
   bookmarkToEdit,
   collections,
   availableTags,
+  existingBookmarks,
+  onEditExisting,
+  onCreateCollection,
   defaultCollectionId
 }) => {
+  const dialogRef = useDialog(isOpen, onClose);
   const [url, setUrl] = useState('');
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
@@ -37,6 +46,9 @@ export const BookmarkModal: React.FC<BookmarkModalProps> = ({
   const [cover, setCover] = useState('');
   const [favicon, setFavicon] = useState('');
   const [collectionId, setCollectionId] = useState('unsorted');
+  const [showNewCollection, setShowNewCollection] = useState(false);
+  const [newCollectionName, setNewCollectionName] = useState('');
+  const [collectionMessage, setCollectionMessage] = useState('');
   const [tags, setTags] = useState<string[]>([]);
   const [tagInput, setTagInput] = useState('');
   const [isFavorite, setIsFavorite] = useState(false);
@@ -46,6 +58,10 @@ export const BookmarkModal: React.FC<BookmarkModalProps> = ({
   const [readerContent, setReaderContent] = useState<any>(undefined);
 
   useEffect(() => {
+    setTagInput('');
+    setShowNewCollection(false);
+    setNewCollectionName('');
+    setCollectionMessage('');
     if (bookmarkToEdit) {
       setUrl(bookmarkToEdit.url);
       setTitle(bookmarkToEdit.title);
@@ -77,9 +93,9 @@ export const BookmarkModal: React.FC<BookmarkModalProps> = ({
 
   const scrapeAbortControllerRef = useRef<AbortController | null>(null);
 
-  const fetchMetadata = async (rawUrl: string) => {
+  const fetchMetadata = async (rawUrl: string, refresh = false, replaceCover = false) => {
     const clean = rawUrl.trim();
-    if (!clean || !/^https?:\/\//i.test(clean) || bookmarkToEdit) return;
+    if (!clean || !/^https?:\/\//i.test(clean) || (bookmarkToEdit?.id && !refresh)) return;
 
     const domain = extractDomain(clean);
     if (!favicon) {
@@ -111,7 +127,7 @@ export const BookmarkModal: React.FC<BookmarkModalProps> = ({
         if (data.description && !description) {
           setDescription(data.description);
         }
-        if (data.cover && !cover) {
+        if (data.cover && (!cover || replaceCover)) {
           setCover(data.cover);
         }
         if (data.favicon) {
@@ -137,7 +153,7 @@ export const BookmarkModal: React.FC<BookmarkModalProps> = ({
 
   // Debounced auto-fetch when URL is typed or pasted
   useEffect(() => {
-    if (!isOpen || bookmarkToEdit || !url.trim() || !/^https?:\/\//i.test(url.trim())) return;
+    if (!isOpen || bookmarkToEdit?.id || !url.trim() || !/^https?:\/\//i.test(url.trim())) return;
     if (title && cover) return;
     const timer = setTimeout(() => {
       fetchMetadata(url.trim());
@@ -157,11 +173,27 @@ export const BookmarkModal: React.FC<BookmarkModalProps> = ({
     setTags(tags.filter((t) => t !== tagToRemove));
   };
 
+  const createCollection = () => {
+    const name = newCollectionName.trim();
+    if (!name) { setCollectionMessage('Enter a collection name.'); return; }
+    const existing = collections.find((col) => col.title.trim().toLowerCase() === name.toLowerCase());
+    const collection = existing || onCreateCollection(name);
+    setCollectionId(collection.id);
+    setShowNewCollection(false);
+    setNewCollectionName('');
+    setCollectionMessage(existing ? 'Existing collection selected.' : 'Collection created and selected.');
+  };
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!url.trim()) return;
 
     const cleanUrl = normalizeUrl(url.trim());
+    try {
+      const parsed = new URL(cleanUrl);
+      if (!['http:', 'https:'].includes(parsed.protocol)) return;
+    } catch { return; }
+    if (existingBookmarks.some((item) => !item.isTrash && item.id !== bookmarkToEdit?.id && normalizeUrl(item.url) === cleanUrl)) return;
     const domain = extractDomain(cleanUrl);
 
     onSave({
@@ -172,7 +204,7 @@ export const BookmarkModal: React.FC<BookmarkModalProps> = ({
       cover: cover.trim() || undefined,
       favicon: favicon.trim() || getFaviconUrl(domain),
       collectionId,
-      tags,
+      tags: tagInput.trim() ? Array.from(new Set([...tags, tagInput.trim().toLowerCase().replace(/^#/, '')].filter(Boolean))) : tags,
       isFavorite,
       isDone,
       type,
@@ -184,14 +216,16 @@ export const BookmarkModal: React.FC<BookmarkModalProps> = ({
 
   if (!isOpen) return null;
 
+  const duplicate = url.trim() ? existingBookmarks.find((item) => !item.isTrash && item.id !== bookmarkToEdit?.id && normalizeUrl(item.url) === normalizeUrl(url)) : undefined;
+
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm animate-in fade-in duration-200">
+    <div ref={dialogRef} role="dialog" aria-modal="true" aria-label={bookmarkToEdit?.id ? 'Edit bookmark' : 'Add bookmark'} tabIndex={-1} className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm animate-in fade-in duration-200">
       <div className="w-full max-w-lg bg-white dark:bg-[#151518] rounded-2xl shadow-2xl border border-neutral-200 dark:border-neutral-800 overflow-hidden flex flex-col max-h-[90vh]">
         {/* Header */}
         <div className="px-6 py-4 border-b border-neutral-100 dark:border-neutral-800 flex items-center justify-between">
           <h2 className="font-bold text-base text-neutral-900 dark:text-white flex items-center gap-2">
             <LinkIcon className="w-4 h-4 text-sky-500" />
-            {bookmarkToEdit ? 'Edit Bookmark' : 'Add New Bookmark'}
+            {bookmarkToEdit?.id ? 'Edit Bookmark' : 'Add New Bookmark'}
           </h2>
           <button
             onClick={onClose}
@@ -221,13 +255,13 @@ export const BookmarkModal: React.FC<BookmarkModalProps> = ({
                   }
                 }}
                 onBlur={() => {
-                  if (url.trim() && !bookmarkToEdit) {
+                  if (url.trim() && !bookmarkToEdit?.id) {
                     fetchMetadata(url.trim());
                   }
                 }}
                 placeholder="https://example.com/article"
                 className="w-full px-3.5 py-2 text-sm bg-neutral-50 dark:bg-[#1c1c20] border border-neutral-200 dark:border-neutral-800 rounded-xl focus:border-sky-500 focus:outline-none transition-colors"
-                autoFocus={!bookmarkToEdit}
+                autoFocus={!bookmarkToEdit?.id}
               />
               {isScraping && (
                 <div className="absolute right-3 top-2.5 flex items-center gap-1.5 text-xs text-sky-500 font-medium">
@@ -236,6 +270,7 @@ export const BookmarkModal: React.FC<BookmarkModalProps> = ({
                 </div>
               )}
             </div>
+            {duplicate && <p role="status" className="mt-2 text-xs text-amber-700 dark:text-amber-400">Already saved as “{duplicate.title}”. <button type="button" className="underline font-semibold" onClick={() => onEditExisting(duplicate)}>Edit existing bookmark</button></p>}
           </div>
 
           {/* Title */}
@@ -278,14 +313,19 @@ export const BookmarkModal: React.FC<BookmarkModalProps> = ({
                 className="w-full px-3 py-2 text-sm bg-neutral-50 dark:bg-[#1c1c20] border border-neutral-200 dark:border-neutral-800 rounded-xl focus:border-sky-500 focus:outline-none transition-colors"
               >
                 <option value="unsorted">📥 Unsorted</option>
-                {collections
-                  .filter((c) => !c.isSystem)
-                  .map((col) => (
+                {flattenCollections(collections)
+                  .map(({ collection: col, depth }) => (
                     <option key={col.id} value={col.id}>
-                      📁 {col.title}
+                      {'— '.repeat(depth)}📁 {col.title}
                     </option>
                   ))}
               </select>
+              <button type="button" onClick={() => { setShowNewCollection((open) => !open); setCollectionMessage(''); }} aria-expanded={showNewCollection} className="mt-1 text-xs text-sky-600 hover:underline">{showNewCollection ? 'Cancel' : '+ New collection'}</button>
+              {showNewCollection && <div className="flex gap-1 mt-2">
+                <input aria-label="New collection name" value={newCollectionName} onChange={(event) => setNewCollectionName(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') { event.preventDefault(); createCollection(); } }} maxLength={120} autoFocus className="min-w-0 w-full px-2 py-1 text-xs bg-neutral-50 dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-800 rounded-lg" placeholder="Collection name" />
+                <button type="button" onClick={createCollection} className="px-2 py-1 rounded-lg bg-sky-500 text-white text-xs">Create</button>
+              </div>}
+              {collectionMessage && <p role="status" className="mt-1 text-xs text-neutral-500">{collectionMessage}</p>}
             </div>
 
             <div>
@@ -302,6 +342,7 @@ export const BookmarkModal: React.FC<BookmarkModalProps> = ({
                 <option value="video">Video</option>
                 <option value="image">Image</option>
                 <option value="document">Document</option>
+                <option value="audio">Audio</option>
               </select>
             </div>
           </div>
@@ -346,7 +387,7 @@ export const BookmarkModal: React.FC<BookmarkModalProps> = ({
             {availableTags.length > 0 && (
               <div className="flex flex-wrap gap-1 mt-1.5">
                 <span className="text-[10px] text-neutral-400 mr-1 self-center">Suggestions:</span>
-                {availableTags.slice(0, 5).map((t) => (
+                {availableTags.filter((t) => !tags.includes(t.name) && t.name.toLowerCase().includes(tagInput.trim().toLowerCase().replace(/^#/, ''))).slice(0, 5).map((t) => (
                   <button
                     key={t.name}
                     type="button"
@@ -375,6 +416,12 @@ export const BookmarkModal: React.FC<BookmarkModalProps> = ({
           </div>
 
           {/* Cover & Favorite Options */}
+          <div>
+            <label htmlFor="bookmark-cover" className="block text-xs font-semibold text-neutral-600 dark:text-neutral-400 mb-1">Cover image URL</label>
+            <input id="bookmark-cover" type="url" value={cover} onChange={(e) => setCover(e.target.value)} placeholder="https://example.com/image.jpg" className="w-full px-3.5 py-2 text-sm bg-neutral-50 dark:bg-[#1c1c20] border border-neutral-200 dark:border-neutral-800 rounded-xl" />
+            <button type="button" disabled={isScraping || !url.trim()} onClick={() => fetchMetadata(url, true)} className="mt-2 text-xs text-sky-600 disabled:opacity-50">{isScraping ? 'Fetching details…' : 'Fetch missing details'}</button>
+            {cover && <button type="button" disabled={isScraping || !url.trim()} onClick={() => fetchMetadata(url, true, true)} className="mt-2 ml-3 text-xs text-sky-600 disabled:opacity-50">Refresh cover</button>}
+          </div>
           <div className="flex items-center justify-between pt-1">
             <div className="flex items-center gap-2">
               <button
@@ -431,9 +478,10 @@ export const BookmarkModal: React.FC<BookmarkModalProps> = ({
             </button>
             <button
               type="submit"
+              disabled={Boolean(duplicate)}
               className="px-5 py-2 rounded-xl text-xs font-semibold bg-sky-500 hover:bg-sky-600 text-white shadow-md shadow-sky-500/20 active:scale-95 transition-all"
             >
-              {bookmarkToEdit ? 'Save Changes' : 'Add Bookmark'}
+              {bookmarkToEdit?.id ? 'Save Changes' : 'Add Bookmark'}
             </button>
           </div>
         </form>

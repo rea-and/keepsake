@@ -28,7 +28,7 @@
 /* Reader mode typography */
 .reader-content p {
   margin-bottom: 1.5em;
-  line-height: 1.75;
+  line-height: inherit;
 }
 .reader-content h1, .reader-content h2, .reader-content h3 {
   font-weight: 700;

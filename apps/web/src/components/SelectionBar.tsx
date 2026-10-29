@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Collection } from '@keepsake/shared';
+import { Collection, flattenCollections } from '@keepsake/shared';
 import { FolderInput, Tag, Star, Trash2, X, Check, CheckCircle2 } from 'lucide-react';
 
 interface SelectionBarProps {
@@ -66,9 +66,8 @@ export const SelectionBar: React.FC<SelectionBarProps> = ({
               >
                 📥 Unsorted
               </button>
-              {collections
-                .filter((c) => !c.isSystem)
-                .map((col) => (
+              {flattenCollections(collections)
+                .map(({ collection: col, depth }) => (
                   <button
                     key={col.id}
                     onClick={() => {
@@ -77,7 +76,7 @@ export const SelectionBar: React.FC<SelectionBarProps> = ({
                     }}
                     className="w-full px-3 py-1.5 text-left hover:bg-neutral-100 dark:hover:bg-neutral-800 truncate"
                   >
-                    📁 {col.title}
+                    {'— '.repeat(depth)}📁 {col.title}
                   </button>
                 ))}
             </div>

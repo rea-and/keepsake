@@ -266,16 +266,6 @@ function cleanRedditMediaUrl(rawUrl) {
         }
         catch { }
     }
-    // Convert preview.redd.it to direct permanent i.redd.it link
-    const extMatch = url.match(/https:\/\/preview\.redd\.it\/([a-zA-Z0-9_\-\.]+)\.(jpe?g|png|webp|gif)/i);
-    if (extMatch) {
-        return `https://i.redd.it/${extMatch[1]}.${extMatch[2]}`;
-    }
-    const noExtMatch = url.match(/https:\/\/preview\.redd\.it\/([a-zA-Z0-9_\-]+)\?(?:[^"'\s]*&)?format=(p?jpe?g|png|webp|gif)/i);
-    if (noExtMatch) {
-        const ext = noExtMatch[2].toLowerCase() === 'pjpg' ? 'jpg' : noExtMatch[2].toLowerCase();
-        return `https://i.redd.it/${noExtMatch[1]}.${ext}`;
-    }
     if (isGenericRedditMedia(url)) {
         return undefined;
     }
@@ -301,6 +291,16 @@ function isValidMediaUrl(url) {
     if (!url)
         return false;
     const clean = url.trim().toLowerCase();
+    try {
+        const parsed = new URL(clean);
+        if (!['http:', 'https:'].includes(parsed.protocol) || parsed.username || parsed.password)
+            return false;
+        if (['opengraph.githubassets.com', 'repository-images.githubusercontent.com', 'user-images.githubusercontent.com', 'private-user-images.githubusercontent.com', 'avatars.githubusercontent.com'].includes(parsed.hostname))
+            return true;
+    }
+    catch {
+        return false;
+    }
     if (isGenericRedditMedia(clean))
         return false;
     if (clean.includes('v.redd.it'))
@@ -499,6 +499,9 @@ function getCollectionPath(collectionOrId) {
         return '/favorites/';
     if (collectionOrId.id === 'trash')
         return '/trash/';
+    // Nested collections may share a title with collections in other branches.
+    if (collectionOrId.parentId)
+        return `/${collectionOrId.id}/`;
     const slug = getCollectionSlug(collectionOrId);
     return slug ? `/${slug}/` : '/';
 }

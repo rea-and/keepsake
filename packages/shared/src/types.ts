@@ -90,6 +90,14 @@ export interface SyncTombstone {
   deletedAt: string;
 }
 
+export interface SavedSearch {
+  id: string;
+  name: string;
+  query: string;
+  updatedAt: string;
+  deletedAt?: string;
+}
+
 export interface KeepsakeDataStore {
   version: number;
   schemaVersion: number;
@@ -98,6 +106,7 @@ export interface KeepsakeDataStore {
   collections: Collection[];
   bookmarks: Bookmark[];
   tombstones: SyncTombstone[];
+  savedSearches?: SavedSearch[];
 }
 
 export interface SyncStatus {
@@ -122,6 +131,8 @@ export interface ScrapedMetadata {
 
 export interface ParsedSearchQuery {
   text: string;
+  terms?: string[];
+  excludedTerms?: string[];
   tags: string[];
   domain?: string;
   isFavorite?: boolean;

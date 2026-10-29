@@ -36,6 +36,7 @@ import {
   AuthSession,
   SyncStatus,
   getCollectionPath,
+  flattenCollections,
   extractUrlFromDataTransfer,
   extractBookmarksFromDataTransfer,
   ExtractedBookmark
@@ -68,6 +69,8 @@ interface SidebarProps {
   allTags: Array<{ name: string; count: number }>;
   activeTag: string | null;
   onSelectTag: (tag: string | null) => void;
+  onRenameTag: (oldTag: string, newTag: string) => void;
+  onRemoveTag: (tag: string) => void;
   authSession: AuthSession | null;
   syncStatus: SyncStatus;
   onSync: () => void;
@@ -100,6 +103,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
   allTags,
   activeTag,
   onSelectTag,
+  onRenameTag,
+  onRemoveTag,
   authSession,
   syncStatus,
   onSync,
@@ -131,11 +136,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const isDraggingCollectionRef = useRef(false);
 
   // Sorted custom collections (excluding system collections like Unsorted)
-  const customCollections = useMemo(() => {
-    return collections
-      .filter((col) => !col.isSystem && col.id !== 'unsorted')
-      .sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0));
-  }, [collections]);
+  const collectionTree = useMemo(() => flattenCollections(collections), [collections]);
+  const customCollections = useMemo(() => collectionTree.map((item) => item.collection), [collectionTree]);
 
   const handleCollectionDragStart = (e: React.DragEvent, colId: string) => {
     isDraggingCollectionRef.current = true;
@@ -499,7 +501,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
             </div>
 
             <div className="space-y-0.5">
-              {customCollections.map((col) => {
+              {collectionTree.map(({ collection: col, depth }) => {
                 const isActive = activeCollectionId === col.id && !activeTag;
                 const colPath = getCollectionPath(col);
                 const isDragging = draggingCollectionId === col.id;
@@ -508,6 +510,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 return (
                   <div
                     key={col.id}
+                    style={{ marginLeft: `${Math.min(depth, 8) * 12}px` }}
                     className={`relative group transition-opacity duration-150 ${
                       isDragging ? 'opacity-30' : 'opacity-100'
                     }`}
@@ -583,7 +586,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                             onClick={(e) => {
                               e.stopPropagation();
                               setCollectionMenuId(null);
-                              if (confirm(`Delete collection "${col.title}"? Bookmarks will move to Unsorted.`)) {
+                              if (confirm(`Delete collection "${col.title}"? Its bookmarks will move to Unsorted and its subcollections will move up one level.`)) {
                                 onDeleteCollection(col.id);
                               }
                             }}
@@ -621,8 +624,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 {allTags.map((tag) => {
                   const isTagActive = activeTag === tag.name;
                   return (
+                    <div key={tag.name} className="flex items-center gap-1">
                     <button
-                      key={tag.name}
                       onClick={() => {
                         onSelectTag(isTagActive ? null : tag.name);
                         onCloseMobile();
@@ -654,6 +657,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
                       <span>#{tag.name}</span>
                       <span className="text-[10px] opacity-60">({tag.count})</span>
                     </button>
+                    <button aria-label={`Manage tag ${tag.name}`} title={`Manage #${tag.name}`} className="text-neutral-500 hover:text-sky-500 text-xs px-1" onClick={() => {
+                      const next = window.prompt(`Rename #${tag.name}. Leave empty to remove this tag from all bookmarks.`, tag.name);
+                      if (next === null) return;
+                      if (!next.trim()) { if (window.confirm(`Remove #${tag.name} from all bookmarks?`)) onRemoveTag(tag.name); }
+                      else onRenameTag(tag.name, next);
+                    }}>⋯</button>
+                    </div>
                   );
                 })}
               </div>

@@ -18,7 +18,8 @@ import {
   isSparseTitle,
   Bookmark,
   Collection,
-  KeepsakeDataStore
+  KeepsakeDataStore,
+  canSetCollectionParent
 } from '@keepsake/shared';
 
 dotenv.config();
@@ -38,10 +39,12 @@ app.use((req: Request, res: Response, next: NextFunction) => {
   next();
 });
 
-// Enable CORS for web app, extensions, and mobile clients
+// Allow deployments to restrict browser origins, while preserving the existing
+// permissive default for self-hosted installations and extensions.
+const configuredOrigins = (process.env.CORS_ORIGIN || '*').split(',').map((origin) => origin.trim()).filter(Boolean);
 app.use(
   cors({
-    origin: '*',
+    origin: configuredOrigins.includes('*') ? '*' : configuredOrigins,
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With']
   })
@@ -186,16 +189,16 @@ app.post('/api/bookmarks', async (req: Request, res: Response) => {
     scrapeUrl(saved.url)
       .then((meta) => {
         if (meta && (meta.cover || meta.description || meta.title || meta.url)) {
+          const current = serverStore.getBookmark(saved.id);
+          if (!current || current.isTrash || current.url !== saved.url) return;
           // If we already have a valid non-generic cover, preserve it!
-          const resolvedCover = needsCover
-            ? (!isGenericRedditMedia(meta.cover) ? meta.cover : saved.cover)
-            : saved.cover;
+          const resolvedCover = (!current.cover || isGenericRedditMedia(current.cover)) && meta.cover && !isGenericRedditMedia(meta.cover) ? meta.cover : current.cover;
 
           // Preserve user-specified custom title, but overwrite sparse/generic domain titles
-          const resolvedTitle = (!sparseTitle && saved.title) ? saved.title : (meta.title || saved.title);
+          const resolvedTitle = isSparseTitle(current.title, current.domain, current.url) ? (meta.title || current.title) : current.title;
 
           // Update tags with subreddit tag if no tags were provided
-          const existingTags = Array.isArray(saved.tags) ? saved.tags : [];
+          const existingTags = Array.isArray(current.tags) ? current.tags : [];
           let updatedTags = existingTags;
           if (existingTags.length === 0 && meta.siteName && meta.siteName.startsWith('r/')) {
             const subTag = meta.siteName.slice(2).trim().toLowerCase();
@@ -213,12 +216,12 @@ app.post('/api/bookmarks', async (req: Request, res: Response) => {
             url: resolvedUrl,
             domain: resolvedDomain,
             title: resolvedTitle,
-            description: saved.description || meta.description,
+            description: current.description || meta.description,
             cover: resolvedCover,
-            favicon: saved.favicon || meta.favicon,
-            type: (meta.type && meta.type !== 'link') ? meta.type : (resolvedCover ? 'image' : saved.type),
+            favicon: current.favicon || meta.favicon,
+            type: current.type === 'link' && meta.type ? meta.type : current.type,
             tags: updatedTags,
-            readerContent: meta.readerContent || saved.readerContent
+            readerContent: current.readerContent || meta.readerContent
           });
         }
       })
@@ -280,10 +283,11 @@ app.get('/api/collections/:id', (req: Request, res: Response) => {
 });
 
 app.post('/api/collections', (req: Request, res: Response) => {
-  const { title, description, icon, color, defaultViewMode, sortOrder, isSystem, id } = req.body;
+  const { title, description, icon, color, defaultViewMode, sortOrder, isSystem, id, parentId } = req.body;
   if (!title) {
     return res.status(400).json({ error: 'Missing required field: "title"' });
   }
+  if (parentId !== undefined && parentId !== null && (typeof parentId !== 'string' || !canSetCollectionParent(serverStore.listCollections(), id, parentId))) return res.status(400).json({ error: 'Invalid parent collection' });
 
   const collection = serverStore.addOrUpdateCollection({
     id,
@@ -293,7 +297,8 @@ app.post('/api/collections', (req: Request, res: Response) => {
     color,
     defaultViewMode,
     sortOrder,
-    isSystem
+    isSystem,
+    parentId
   });
 
   return res.status(201).json({
@@ -316,6 +321,8 @@ app.put('/api/collections/:id', (req: Request, res: Response) => {
   if (!existing) {
     return res.status(404).json({ error: 'Collection not found' });
   }
+
+  if (req.body.parentId !== undefined && req.body.parentId !== null && (typeof req.body.parentId !== 'string' || !canSetCollectionParent(serverStore.listCollections(), req.params.id, req.body.parentId))) return res.status(400).json({ error: 'Invalid parent collection' });
 
   const updated = serverStore.addOrUpdateCollection({
     ...req.body,
@@ -430,12 +437,8 @@ app.post('/api/export/json', (req: Request, res: Response) => {
   const store = serverStore.getStore();
   const data = {
     app: 'Keepsake',
-    version: store.version,
-    schemaVersion: store.schemaVersion,
-    exportedAt: new Date().toISOString(),
-    collections: store.collections,
-    bookmarks: store.bookmarks,
-    tombstones: store.tombstones
+    ...store,
+    exportedAt: new Date().toISOString()
   };
 
   res.setHeader('Content-Type', 'application/json');

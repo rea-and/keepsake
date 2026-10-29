@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test:offline": "npm run build && node --test test/offline.test.mjs"
   },
   "dependencies": {
     "@keepsake/shared": "*",

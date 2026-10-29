@@ -3,6 +3,7 @@ export const authRouter = Router();
 const GOOGLE_AUTH_ENDPOINT = 'https://accounts.google.com/o/oauth2/v2/auth';
 const GOOGLE_TOKEN_ENDPOINT = 'https://oauth2.googleapis.com/token';
 const GOOGLE_USERINFO_ENDPOINT = 'https://www.googleapis.com/oauth2/v3/userinfo';
+const jsonForInlineScript = (value) => JSON.stringify(value).replace(/[<>&\u2028\u2029]/g, (char) => `\\u${char.charCodeAt(0).toString(16).padStart(4, '0')}`);
 const SCOPES = [
     'openid',
     'profile',
@@ -56,6 +57,8 @@ authRouter.get('/google/url', (req, res) => {
  * Google OAuth Callback
  */
 authRouter.get('/google/callback', async (req, res) => {
+    res.setHeader('Cache-Control', 'no-store');
+    res.setHeader('Referrer-Policy', 'no-referrer');
     const { code, error, state } = req.query;
     if (error) {
         return res.status(400).type('text/plain').send('Google Login Error: ' + String(error));
@@ -144,7 +147,7 @@ authRouter.get('/google/callback', async (req, res) => {
   </div>
   <script>
     try {
-      localStorage.setItem('keepsake_auth_session', JSON.stringify(${JSON.stringify(authPayload)}));
+      localStorage.setItem('keepsake_auth_session', JSON.stringify(${jsonForInlineScript(authPayload)}));
     } catch(e) {}
     window.location.href = "${androidDeepLink}";
   </script>
@@ -171,7 +174,7 @@ authRouter.get('/google/callback', async (req, res) => {
     <p>Authentication complete. Redirecting you to your bookmarks.</p>
   </div>
   <script>
-    const payload = ${JSON.stringify(authPayload)};
+    const payload = ${jsonForInlineScript(authPayload)};
     try {
       localStorage.setItem('keepsake_auth_session', JSON.stringify(payload));
       if (window.opener && window.opener !== window) {

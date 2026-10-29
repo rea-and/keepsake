@@ -4,6 +4,8 @@ import { Star, ExternalLink, BookOpen, Trash2, Edit2, CheckCircle2, Check } from
 
 interface HeadlinesViewProps {
   bookmarks: Bookmark[];
+  selectedIds: Set<string>;
+  onToggleSelect: (id: string) => void;
   onToggleFavorite: (id: string) => void;
   onToggleDone: (id: string) => void;
   onEdit: (bm: Bookmark) => void;
@@ -13,6 +15,8 @@ interface HeadlinesViewProps {
 
 export const HeadlinesView: React.FC<HeadlinesViewProps> = ({
   bookmarks,
+  selectedIds,
+  onToggleSelect,
   onToggleFavorite,
   onToggleDone,
   onEdit,
@@ -33,6 +37,7 @@ export const HeadlinesView: React.FC<HeadlinesViewProps> = ({
           className="group flex items-center justify-between gap-4 px-4 py-2 hover:bg-neutral-50 dark:hover:bg-neutral-800/50 transition-colors text-sm cursor-grab active:cursor-grabbing"
         >
           <div className="flex items-center gap-3 min-w-0 flex-1">
+            <input type="checkbox" aria-label={`Select ${bm.title || bm.url}`} checked={selectedIds.has(bm.id)} onChange={() => onToggleSelect(bm.id)} />
             <button
               onClick={() => onToggleFavorite(bm.id)}
               title={bm.isFavorite ? 'Starred' : 'Favorite'}

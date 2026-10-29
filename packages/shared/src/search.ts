@@ -19,10 +19,19 @@ export function parseSearchQuery(query: string): ParsedSearchQuery {
     return result;
   }
 
-  const tokens = query.trim().split(/\s+/);
+  const tokens = query.trim().match(/-?"[^"]*"|\S+/g) || [];
   const textWords: string[] = [];
+  const excludedTerms: string[] = [];
 
   for (const token of tokens) {
+    if (token.startsWith('-') && token.length > 1) {
+      excludedTerms.push(token.slice(1).replace(/^"|"$/g, '').toLowerCase());
+      continue;
+    }
+    if (token.startsWith('"') && token.endsWith('"')) {
+      textWords.push(token.slice(1, -1).toLowerCase());
+      continue;
+    }
     const lowerToken = token.toLowerCase();
 
     // Check for #tag
@@ -90,6 +99,8 @@ export function parseSearchQuery(query: string): ParsedSearchQuery {
   }
 
   result.text = textWords.join(' ').toLowerCase();
+  result.terms = textWords.map((word) => word.toLowerCase()).filter(Boolean);
+  result.excludedTerms = excludedTerms.filter(Boolean);
   return result;
 }
 
@@ -141,14 +152,15 @@ export function matchesSearch(bookmark: Bookmark, parsed: ParsedSearchQuery): bo
   }
 
   // Filter free text
-  if (parsed.text) {
-    const searchTerms = parsed.text.split(' ').filter(Boolean);
+  if (parsed.text || parsed.excludedTerms?.length) {
+    const searchTerms = parsed.terms || parsed.text.split(' ').filter(Boolean);
     const searchableContent = [
       bookmark.title,
       bookmark.description,
       bookmark.domain,
       bookmark.url,
       bookmark.note || '',
+      bookmark.readerContent?.textContent || '',
       ...bookmark.tags
     ].join(' ').toLowerCase();
 
@@ -157,6 +169,7 @@ export function matchesSearch(bookmark: Bookmark, parsed: ParsedSearchQuery): bo
         return false;
       }
     }
+    if (parsed.excludedTerms?.some((term) => searchableContent.includes(term))) return false;
   }
 
   return true;

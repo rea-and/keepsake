@@ -34,13 +34,15 @@ function mergeStores(local, remote, currentDeviceId) {
     }
     // 2. Merge Collections
     const mergedCollectionsMap = new Map();
+    const localCollections = new Map(local.collections.map((c) => [c.id, c]));
+    const remoteCollections = new Map(remote.collections.map((c) => [c.id, c]));
     const allCollectionIds = new Set([
         ...local.collections.map((c) => c.id),
         ...remote.collections.map((c) => c.id)
     ]);
     for (const id of allCollectionIds) {
-        const localCol = local.collections.find((c) => c.id === id);
-        const remoteCol = remote.collections.find((c) => c.id === id);
+        const localCol = localCollections.get(id);
+        const remoteCol = remoteCollections.get(id);
         const tombstone = tombstoneMap.get(id);
         // If tombstoned after the latest update, discard
         const latestColUpdate = Math.max(localCol ? new Date(localCol.updatedAt).getTime() : 0, remoteCol ? new Date(remoteCol.updatedAt).getTime() : 0);
@@ -76,13 +78,15 @@ function mergeStores(local, remote, currentDeviceId) {
     }
     // 3. Merge Bookmarks
     const mergedBookmarksMap = new Map();
+    const localBookmarks = new Map(local.bookmarks.map((b) => [b.id, b]));
+    const remoteBookmarks = new Map(remote.bookmarks.map((b) => [b.id, b]));
     const allBookmarkIds = new Set([
         ...local.bookmarks.map((b) => b.id),
         ...remote.bookmarks.map((b) => b.id)
     ]);
     for (const id of allBookmarkIds) {
-        const localBm = local.bookmarks.find((b) => b.id === id);
-        const remoteBm = remote.bookmarks.find((b) => b.id === id);
+        const localBm = localBookmarks.get(id);
+        const remoteBm = remoteBookmarks.get(id);
         const tombstone = tombstoneMap.get(id);
         const latestBmUpdate = Math.max(localBm ? new Date(localBm.updatedAt).getTime() : 0, remoteBm ? new Date(remoteBm.updatedAt).getTime() : 0);
         if (tombstone && new Date(tombstone.deletedAt).getTime() >= latestBmUpdate) {
@@ -115,9 +119,14 @@ function mergeStores(local, remote, currentDeviceId) {
             }
         }
     }
-    // Prune tombstones older than 60 days
-    const sixtyDaysAgo = Date.now() - 60 * 24 * 60 * 60 * 1000;
-    const prunedTombstones = Array.from(tombstoneMap.values()).filter((t) => new Date(t.deletedAt).getTime() > sixtyDaysAgo);
+    // Retain deletions so a device returning after a long absence cannot resurrect them.
+    const prunedTombstones = Array.from(tombstoneMap.values());
+    const searches = new Map();
+    for (const item of [...(local.savedSearches || []), ...(remote.savedSearches || [])]) {
+        const existing = searches.get(item.id);
+        if (!existing || item.updatedAt > existing.updatedAt || (item.updatedAt === existing.updatedAt && JSON.stringify(item) > JSON.stringify(existing)))
+            searches.set(item.id, item);
+    }
     const mergedStore = {
         version: 1,
         schemaVersion: 1,
@@ -125,7 +134,8 @@ function mergeStores(local, remote, currentDeviceId) {
         deviceId: currentDeviceId,
         collections: Array.from(mergedCollectionsMap.values()).sort((a, b) => a.sortOrder - b.sortOrder),
         bookmarks: Array.from(mergedBookmarksMap.values()).sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()),
-        tombstones: prunedTombstones
+        tombstones: prunedTombstones,
+        savedSearches: Array.from(searches.values()).sort((a, b) => a.id.localeCompare(b.id))
     };
     return {
         mergedStore,
@@ -159,7 +169,8 @@ function createDefaultStore(deviceId) {
             }
         ],
         bookmarks: [],
-        tombstones: []
+        tombstones: [],
+        savedSearches: []
     };
 }
 //# sourceMappingURL=sync.js.map

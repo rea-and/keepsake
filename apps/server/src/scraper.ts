@@ -1,8 +1,9 @@
 import * as cheerio from 'cheerio';
 import { JSDOM } from 'jsdom';
 import { Readability } from '@mozilla/readability';
-import { isIP } from 'net';
+import { isIP, BlockList } from 'net';
 import dns from 'dns/promises';
+import { Agent } from 'undici';
 import {
   BookmarkType,
   ScrapedMetadata,
@@ -27,22 +28,36 @@ const REDDIT_BOT_UA = 'facebookexternalhit/1.3 (+http://www.facebook.com/externa
 // ==========================================
 // SSRF Defense: Validate URL & Private IP Checks
 // ==========================================
+const blockedAddresses = new BlockList();
+for (const [address, prefix] of [['0.0.0.0', 8], ['10.0.0.0', 8], ['100.64.0.0', 10], ['127.0.0.0', 8], ['169.254.0.0', 16], ['172.16.0.0', 12], ['192.168.0.0', 16], ['224.0.0.0', 4], ['240.0.0.0', 4]] as const) blockedAddresses.addSubnet(address, prefix, 'ipv4');
+for (const [address, prefix] of [['::', 128], ['::1', 128], ['fc00::', 7], ['fe80::', 10], ['ff00::', 8]] as const) blockedAddresses.addSubnet(address, prefix, 'ipv6');
 function isPrivateOrLoopbackIP(ip: string): boolean {
-  if (ip.startsWith('127.')) return true; // IPv4 loopback
-  if (ip.startsWith('10.')) return true; // 10.0.0.0/8
-  if (ip.startsWith('192.168.')) return true; // 192.168.0.0/16
-  if (/^172\.(1[6-9]|2[0-9]|3[0-1])\./.test(ip)) return true; // 172.16.0.0/12
-  if (ip.startsWith('169.254.')) return true; // Link-local / Cloud metadata (169.254.169.254)
-  if (ip.startsWith('0.')) return true;
-  if (ip === '255.255.255.255') return true;
-  if (ip === '::1' || ip === '::') return true;
-  if (ip.toLowerCase().startsWith('fc') || ip.toLowerCase().startsWith('fd')) return true; // Unique local IPv6
-  if (ip.toLowerCase().startsWith('fe80')) return true; // Link-local IPv6
-  if (ip.startsWith('::ffff:')) {
-    return isPrivateOrLoopbackIP(ip.substring(7));
-  }
-  return false;
+  const family = isIP(ip);
+  return family === 0 || blockedAddresses.check(ip, family === 4 ? 'ipv4' : 'ipv6');
 }
+
+// Resolve and validate at connection time; this prevents a hostname from passing
+// one DNS lookup and resolving to a private address during the actual request.
+const safeAgent = new Agent({
+  connect: {
+    lookup(hostname, options, callback) {
+      dns.lookup(hostname, { all: true, verbatim: true }).then((addresses) => {
+        if (!addresses.length || addresses.some((entry) => isPrivateOrLoopbackIP(entry.address))) {
+          callback(new Error('DNS address blocked by security policy'), '', 0);
+          return;
+        }
+        const compatible = options.family ? addresses.filter((entry) => entry.family === options.family) : addresses;
+        if (!compatible.length) {
+          callback(new Error('No compatible DNS address'), '', 0);
+        } else if (options.all) {
+          callback(null, compatible);
+        } else {
+          callback(null, compatible[0].address, compatible[0].family);
+        }
+      }).catch((error) => callback(error, '', 0));
+    }
+  }
+});
 
 export async function validateSafeUrl(urlString: string): Promise<boolean> {
   try {
@@ -51,7 +66,8 @@ export async function validateSafeUrl(urlString: string): Promise<boolean> {
       return false;
     }
 
-    const hostname = parsed.hostname.toLowerCase();
+    if (parsed.username || parsed.password) return false;
+    const hostname = parsed.hostname.toLowerCase().replace(/^\[|\]$/g, '');
     if (
       hostname === 'localhost' ||
       hostname === '0.0.0.0' ||
@@ -76,14 +92,107 @@ export async function validateSafeUrl(urlString: string): Promise<boolean> {
         }
       }
     } catch {
-      // DNS resolution failure will be handled by fetch
-      return true;
+      return false;
     }
 
     return true;
   } catch {
     return false;
   }
+}
+
+export async function fetchSafeUrl(input: string, init: RequestInit = {}): Promise<Response> {
+  let current = input;
+  for (let redirects = 0; redirects <= 5; redirects++) {
+    if (!(await validateSafeUrl(current))) throw new Error('URL blocked by security policy');
+    const response = await fetch(current, { ...init, redirect: 'manual', dispatcher: safeAgent } as RequestInit & { dispatcher: Agent });
+    if (![301, 302, 303, 307, 308].includes(response.status)) return response;
+    const location = response.headers.get('location');
+    if (!location) throw new Error('Redirect is missing a location');
+    await response.body?.cancel();
+    current = new URL(location, current).toString();
+  }
+  throw new Error('Too many redirects');
+}
+
+export async function readLimitedText(response: Response, maxBytes = 2 * 1024 * 1024): Promise<string> {
+  const declared = Number(response.headers.get('content-length'));
+  if (Number.isFinite(declared) && declared > maxBytes) {
+    await response.body?.cancel();
+    throw new Error('Response is too large');
+  }
+  if (!response.body) return '';
+  const reader = response.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  try {
+    const read = async () => {
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        total += value.byteLength;
+        if (total > maxBytes) throw new Error('Response is too large');
+        chunks.push(value);
+      }
+      return Buffer.concat(chunks).toString('utf8');
+    };
+    return await Promise.race([read(), new Promise<never>((_, reject) => { timeout = setTimeout(() => reject(new Error('Response body timed out')), 10000); })]);
+  } finally {
+    if (timeout) clearTimeout(timeout);
+    await reader.cancel().catch(() => {});
+  }
+}
+
+export function extractSocialPreview(html: string, pageUrl: string): string | undefined {
+  const $ = cheerio.load(html);
+  const selectors = [
+    'meta[property="og:image:secure_url"]', 'meta[property="og:image:url"]', 'meta[property="og:image"]',
+    'meta[name="og:image"]', 'meta[name="twitter:image"]', 'meta[property="twitter:image"]',
+    'meta[name="twitter:image:src"]', 'meta[property="twitter:image:src"]',
+    'meta[itemprop="image"]', 'link[rel="image_src"]'
+  ];
+  for (const selector of selectors) {
+    for (const element of $(selector).toArray()) {
+      const raw = $(element).attr('content') || $(element).attr('href');
+      if (!raw?.trim()) continue;
+      try {
+        const resolved = new URL(raw.trim(), pageUrl);
+        if (['http:', 'https:'].includes(resolved.protocol) && !resolved.username && !resolved.password && !isGenericRedditMedia(resolved.href)) return resolved.href;
+      } catch {}
+    }
+  }
+  try {
+    const page = new URL(pageUrl);
+    if (page.hostname.toLowerCase() === 'github.com') {
+      const parts = page.pathname.split('/').filter(Boolean);
+      const reserved = new Set(['features', 'topics', 'explore', 'marketplace', 'settings', 'login', 'search', 'organizations']);
+      if (parts.length >= 2 && !reserved.has(parts[0].toLowerCase()) && /^[\w.-]+$/.test(parts[0]) && /^[\w.-]+$/.test(parts[1])) {
+        return `https://opengraph.githubassets.com/1/${encodeURIComponent(parts[0])}/${encodeURIComponent(parts[1].replace(/\.git$/, ''))}`;
+      }
+    }
+  } catch {}
+  return undefined;
+}
+
+export function extractRedditPreview(data: any): string | undefined {
+  const post = Array.isArray(data) ? data[0]?.data?.children?.[0]?.data : data?.data?.children?.[0]?.data || data;
+  if (!post || typeof post !== 'object') return undefined;
+  const candidates: unknown[] = [];
+  for (const item of Array.isArray(post.gallery_data?.items) ? post.gallery_data.items : []) {
+    const media = post.media_metadata?.[item.media_id];
+    candidates.push(media?.s?.u, media?.s?.gif, media?.p?.[media.p.length - 1]?.u);
+  }
+  candidates.push(post.preview?.images?.[0]?.source?.url, post.secure_media?.reddit_video?.fallback_url, post.thumbnail, post.url_overridden_by_dest, post.url);
+  if (Array.isArray(post.crosspost_parent_list)) candidates.push(extractRedditPreview(post.crosspost_parent_list[0]));
+  for (const candidate of candidates) {
+    if (typeof candidate !== 'string') continue;
+    const cleaned = cleanRedditMediaUrl(candidate);
+    if (cleaned && isValidMediaUrl(cleaned)) {
+      try { const url = new URL(cleaned); if (url.protocol === 'https:' || url.protocol === 'http:') return url.href; } catch {}
+    }
+  }
+  return undefined;
 }
 
 // ==========================================
@@ -151,7 +260,7 @@ export async function scrapeUrl(rawUrl: string): Promise<ScrapedMetadata> {
       try {
         const controller = new AbortController();
         const timeout = setTimeout(() => controller.abort(), 6000);
-        const redirectRes = await fetch(canonicalUrl, {
+        const redirectRes = await fetchSafeUrl(canonicalUrl, {
           method: 'GET',
           redirect: 'follow',
           signal: controller.signal,
@@ -166,7 +275,7 @@ export async function scrapeUrl(rawUrl: string): Promise<ScrapedMetadata> {
             canonicalUrl = redirectRes.url;
             redditInfo = parseRedditUrl(canonicalUrl);
           }
-          initialHtml = await redirectRes.text();
+          initialHtml = await readLimitedText(redirectRes);
           // Extract canonical og:url if redirect didn't update url
           const ogUrlMatch = initialHtml.match(/<meta property=["']og:url["'] content=["']([^"']+)["']/i);
           if (ogUrlMatch?.[1]) {
@@ -193,7 +302,7 @@ export async function scrapeUrl(rawUrl: string): Promise<ScrapedMetadata> {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 10000); // 10s timeout
 
-    const res = await fetch(url, {
+    const res = await fetchSafeUrl(url, {
       signal: controller.signal,
       headers: {
         'User-Agent': USER_AGENT,
@@ -222,7 +331,7 @@ export async function scrapeUrl(rawUrl: string): Promise<ScrapedMetadata> {
       };
     }
 
-    const html = await res.text();
+    const html = await readLimitedText(res);
     const $ = cheerio.load(html);
 
     // 1. Title
@@ -247,17 +356,7 @@ export async function scrapeUrl(rawUrl: string): Promise<ScrapedMetadata> {
 
     // 4. Cover Image
     let cover: string | undefined;
-    const ogImage = $('meta[property="og:image"]').attr('content');
-    const twitterImage = $('meta[name="twitter:image"]').attr('content');
-    const rawCover = ogImage || twitterImage;
-
-    if (rawCover) {
-      try {
-        cover = new URL(rawCover, url).href;
-      } catch {
-        cover = rawCover;
-      }
-    }
+    cover = extractSocialPreview(html, res.url || url);
 
     // High quality YouTube thumbnail override
     const ytThumb = getYouTubeThumbnail(url);
@@ -353,6 +452,7 @@ function fallbackMetadata(url: string, domain: string, errorMsg?: string): Scrap
     description: errorMsg ? `Saved from ${domain}` : '',
     domain,
     favicon: getFaviconUrl(domain),
+    cover: extractSocialPreview('', url),
     type: 'link'
   };
 }
@@ -365,6 +465,26 @@ async function scrapeRedditPost(info: RedditPostInfo | null, canonicalUrl: strin
   let author = '';
   let type: BookmarkType = 'link';
 
+  if (info?.postId) {
+    try {
+      const endpoint = `https://www.reddit.com/comments/${encodeURIComponent(info.postId)}.json?raw_json=1&limit=1`;
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 5000);
+      try {
+        const response = await fetchSafeUrl(endpoint, { signal: controller.signal, headers: { 'User-Agent': USER_AGENT, Accept: 'application/json' } });
+        if (response.ok) {
+          const data = JSON.parse(await readLimitedText(response));
+          const post = data?.[0]?.data?.children?.[0]?.data;
+          cover = extractRedditPreview(data);
+          title = typeof post?.title === 'string' ? cleanRedditTitle(post.title) : '';
+          selftext = typeof post?.selftext === 'string' ? post.selftext : '';
+          author = typeof post?.author === 'string' ? post.author : '';
+          if (post?.is_video) type = 'video';
+        }
+      } finally { clearTimeout(timeout); }
+    } catch { /* Reddit may restrict its JSON endpoint; continue with public metadata. */ }
+  }
+
   // Strategy 0: Parse OpenGraph from initialHtml (e.g. from /s/ resolution)
   if (initialHtml) {
     const ogTitleMatch = initialHtml.match(/<meta property=["']og:title["'] content=["']([^"']+)["']/i);
@@ -375,10 +495,10 @@ async function scrapeRedditPost(info: RedditPostInfo | null, canonicalUrl: strin
     if (ogTitleMatch) {
       title = cleanRedditTitle(ogTitleMatch[1]);
     }
-    const rawImg = ogImageMatch?.[1] || twitterImageMatch?.[1];
+    const rawImg = extractSocialPreview(initialHtml, canonicalUrl) || ogImageMatch?.[1] || twitterImageMatch?.[1];
     if (rawImg) {
       const cleaned = cleanRedditMediaUrl(rawImg);
-      if (cleaned && isValidMediaUrl(cleaned)) {
+      if (!cover && cleaned && isValidMediaUrl(cleaned)) {
         cover = cleaned;
       }
     }
@@ -397,7 +517,7 @@ async function scrapeRedditPost(info: RedditPostInfo | null, canonicalUrl: strin
       const controller = new AbortController();
       const timeout = setTimeout(() => controller.abort(), 4000);
 
-      const oembedRes = await fetch(oembedUrl, {
+      const oembedRes = await fetchSafeUrl(oembedUrl, {
         signal: controller.signal,
         headers: {
           'User-Agent': REDDIT_BOT_UA
@@ -406,7 +526,7 @@ async function scrapeRedditPost(info: RedditPostInfo | null, canonicalUrl: strin
       clearTimeout(timeout);
 
       if (oembedRes.ok) {
-        const oembedData = (await oembedRes.json()) as any;
+        const oembedData = JSON.parse(await readLimitedText(oembedRes)) as any;
         if (oembedData.title) {
           title = cleanRedditTitle(oembedData.title);
         }
@@ -429,7 +549,7 @@ async function scrapeRedditPost(info: RedditPostInfo | null, canonicalUrl: strin
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 5000);
 
-    const res = await fetch(rssTarget, {
+    const res = await fetchSafeUrl(rssTarget, {
       signal: controller.signal,
       headers: {
         'User-Agent': REDDIT_BOT_UA,
@@ -439,7 +559,7 @@ async function scrapeRedditPost(info: RedditPostInfo | null, canonicalUrl: strin
     clearTimeout(timeout);
 
     if (res.ok) {
-      const xml = await res.text();
+      const xml = await readLimitedText(res);
 
       if (!title) {
         const titleMatch = xml.match(/<entry>[^]*?<title>([^<]+)<\/title>/i) || xml.match(/<title>([^<]+)<\/title>/i);
@@ -462,7 +582,7 @@ async function scrapeRedditPost(info: RedditPostInfo | null, canonicalUrl: strin
       const candidateRaw = directMatch?.[0] || mediaMatch?.[1] || previewMatch?.[0];
       if (candidateRaw) {
         const cleaned = cleanRedditMediaUrl(candidateRaw);
-        if (cleaned && isValidMediaUrl(cleaned)) {
+        if (!cover && cleaned && isValidMediaUrl(cleaned)) {
           cover = cleaned;
         }
       }
@@ -495,7 +615,7 @@ async function scrapeRedditPost(info: RedditPostInfo | null, canonicalUrl: strin
       const controller = new AbortController();
       const timeout = setTimeout(() => controller.abort(), 5000);
 
-      const ogRes = await fetch(canonicalUrl, {
+      const ogRes = await fetchSafeUrl(canonicalUrl, {
         signal: controller.signal,
         headers: {
           'User-Agent': REDDIT_BOT_UA,
@@ -505,7 +625,7 @@ async function scrapeRedditPost(info: RedditPostInfo | null, canonicalUrl: strin
       clearTimeout(timeout);
 
       if (ogRes.ok) {
-        const html = await ogRes.text();
+        const html = await readLimitedText(ogRes);
         const ogTitleMatch = html.match(/<meta property=["']og:title["'] content=["']([^"']+)["']/i);
         const ogDescMatch = html.match(/<meta property=["']og:description["'] content=["']([^"']+)["']/i);
         const ogImageMatch = html.match(/<meta property=["']og:image["'] content=["']([^"']+)["']/i);
@@ -515,7 +635,7 @@ async function scrapeRedditPost(info: RedditPostInfo | null, canonicalUrl: strin
           title = cleanRedditTitle(ogTitleMatch[1]);
         }
         if (!cover) {
-          const rawImg = ogImageMatch?.[1] || twitterImageMatch?.[1];
+          const rawImg = extractSocialPreview(html, ogRes.url || canonicalUrl) || ogImageMatch?.[1] || twitterImageMatch?.[1];
           if (rawImg) {
             const cleaned = cleanRedditMediaUrl(rawImg);
             if (cleaned && isValidMediaUrl(cleaned)) {
@@ -536,7 +656,7 @@ async function scrapeRedditPost(info: RedditPostInfo | null, canonicalUrl: strin
   }
 
   if (cover && isValidMediaUrl(cover)) {
-    type = 'image';
+    if (type !== 'video') type = 'image';
   } else {
     cover = undefined;
   }

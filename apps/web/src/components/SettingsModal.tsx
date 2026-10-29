@@ -1,5 +1,6 @@
 import React, { useState, useRef } from 'react';
-import { AuthSession, SyncStatus, Bookmark, Collection, exportToNetscapeHtml } from '@keepsake/shared';
+import { useDialog } from './useDialog';
+import { AuthSession, SyncStatus, Bookmark, Collection, KeepsakeDataStore, exportToNetscapeHtml } from '@keepsake/shared';
 import {
   X,
   Cloud,
@@ -29,7 +30,9 @@ interface SettingsModalProps {
   onSync: () => void;
   bookmarks: Bookmark[];
   collections: Collection[];
-  onImport: (content: string, format: 'html' | 'json') => { importedCount: number };
+  dataStore: KeepsakeDataStore;
+  onImport: (content: string, format: 'html' | 'json') => { importedCount: number; skippedCount?: number };
+  onRefreshMissingCovers: (bookmarks: Bookmark[]) => Promise<void>;
   themeMode: 'system' | 'light' | 'dark';
   effectiveTheme: 'light' | 'dark';
   onSelectThemeMode: (mode: 'system' | 'light' | 'dark') => void;
@@ -49,7 +52,9 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   onSync,
   bookmarks,
   collections,
+  dataStore,
   onImport,
+  onRefreshMissingCovers,
   themeMode,
   effectiveTheme,
   onSelectThemeMode,
@@ -59,8 +64,11 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   onToggleDriveSync,
   onLogout
 }) => {
+  const dialogRef = useDialog(isOpen, onClose);
   const [activeTab, setActiveTab] = useState<'appearance' | 'sync' | 'backup' | 'about'>('appearance');
   const [importStatus, setImportStatus] = useState<string | null>(null);
+  const [refreshingCovers, setRefreshingCovers] = useState(false);
+  const [coverStatus, setCoverStatus] = useState('');
   const [isDriveBackingUp, setIsDriveBackingUp] = useState(false);
   const [driveBackupSuccess, setDriveBackupSuccess] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -103,10 +111,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const handleExportJson = () => {
     const data = {
       app: 'Keepsake',
-      version: 1,
+      ...dataStore,
       exportedAt: new Date().toISOString(),
-      collections,
-      bookmarks
     };
     const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
@@ -124,19 +130,20 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     const reader = new FileReader();
     reader.onload = (event) => {
       const content = event.target?.result as string;
-      const isJson = file.name.endsWith('.json');
+      const isJson = file.name.toLowerCase().endsWith('.json');
       try {
         const res = onImport(content, isJson ? 'json' : 'html');
-        setImportStatus(`Successfully imported ${res.importedCount} bookmarks!`);
+        setImportStatus(`Merged ${res.importedCount} bookmarks${res.skippedCount ? `; ${res.skippedCount} unchanged or skipped` : ''}.`);
       } catch (err: any) {
         setImportStatus(`Import failed: ${err.message}`);
       }
     };
     reader.readAsText(file);
+    e.target.value = '';
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm animate-in fade-in duration-200">
+    <div ref={dialogRef} role="dialog" aria-modal="true" aria-label="Settings" tabIndex={-1} className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm animate-in fade-in duration-200">
       <div className="w-full max-w-xl bg-white dark:bg-[#151518] rounded-2xl shadow-2xl border border-neutral-200 dark:border-neutral-800 overflow-hidden flex flex-col max-h-[90vh]">
         {/* Header */}
         <div className="px-6 py-4 border-b border-neutral-100 dark:border-neutral-800 flex items-center justify-between">
@@ -538,6 +545,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 <p className="text-xs text-neutral-500 dark:text-neutral-400">
                   Import bookmarks from Google Chrome, Firefox, Safari, Raindrop.io, or Pocket
                   HTML export file.
+                  JSON backups are merged with your existing library; newer changes win.
                 </p>
 
                 <input
@@ -559,6 +567,19 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 {importStatus && (
                   <div className="text-xs text-emerald-500 font-medium">{importStatus}</div>
                 )}
+              </div>
+
+              <div className="p-4 rounded-xl border border-neutral-200 dark:border-neutral-800 space-y-2">
+                <div className="font-semibold text-neutral-800 dark:text-neutral-200">Missing cover images</div>
+                <p className="text-xs text-neutral-500">Try fetching covers for bookmarks that don’t have one. Existing covers are kept.</p>
+                <button type="button" disabled={refreshingCovers} className="px-4 py-2 rounded-xl text-xs font-semibold bg-neutral-100 dark:bg-neutral-800 disabled:opacity-50" onClick={async () => {
+                  const missing = bookmarks.filter((bookmark) => !bookmark.isTrash && !bookmark.cover);
+                  if (!missing.length) { setCoverStatus('No bookmarks are missing covers.'); return; }
+                  setRefreshingCovers(true); setCoverStatus(`Checking ${missing.length} bookmarks…`);
+                  try { await onRefreshMissingCovers(missing); setCoverStatus('Finished checking missing covers.'); }
+                  finally { setRefreshingCovers(false); }
+                }}>{refreshingCovers ? 'Checking…' : 'Fetch missing covers'}</button>
+                {coverStatus && <p role="status" className="text-xs text-neutral-500">{coverStatus}</p>}
               </div>
 
               {/* Export Section */}

@@ -16,6 +16,7 @@ import java.util.*
 class KeepsakeRepository(private val context: Context) {
 
     private val cacheFileName = "keepsake_store_cache.json"
+    private val pendingFileName = "keepsake_pending_operations.json"
 
     var bookmarks: MutableList<Bookmark> = mutableListOf()
         private set
@@ -79,6 +80,8 @@ class KeepsakeRepository(private val context: Context) {
 
     suspend fun syncWithServer(serverUrl: String): Boolean = withContext(Dispatchers.IO) {
         try {
+            // Do not replace the local cache until its pending edits have reached the server.
+            if (!retryPendingOperations()) return@withContext false
             val url = URL("${serverUrl.removeSuffix("/")}/api/sync")
             val conn = (url.openConnection() as HttpURLConnection).apply {
                 requestMethod = "GET"
@@ -128,7 +131,7 @@ class KeepsakeRepository(private val context: Context) {
             saveToCache()
 
             // Persist to server
-            httpPut("${serverUrl.removeSuffix("/")}/api/bookmarks/$bookmarkId", updated.toJson().toString())
+            httpPut("${serverUrl.removeSuffix("/")}/api/bookmarks/$bookmarkId", JSONObject().put("isFavorite", updated.isFavorite).toString())
         }
     }
 
@@ -141,7 +144,7 @@ class KeepsakeRepository(private val context: Context) {
             saveToCache()
 
             // Persist to server
-            httpPut("${serverUrl.removeSuffix("/")}/api/bookmarks/$bookmarkId", updated.toJson().toString())
+            httpPut("${serverUrl.removeSuffix("/")}/api/bookmarks/$bookmarkId", JSONObject().put("isDone", updated.isDone).toString())
         }
     }
 
@@ -177,17 +180,7 @@ class KeepsakeRepository(private val context: Context) {
         bookmarks.removeAll { it.id == bookmarkId }
         saveToCache()
 
-        try {
-            val url = URL("${serverUrl.removeSuffix("/")}/api/bookmarks/$bookmarkId")
-            val conn = (url.openConnection() as HttpURLConnection).apply {
-                requestMethod = "DELETE"
-                connectTimeout = 6000
-                readTimeout = 6000
-            }
-            conn.responseCode
-        } catch (e: Exception) {
-            e.printStackTrace()
-        }
+        httpDelete("${serverUrl.removeSuffix("/")}/api/bookmarks/$bookmarkId?permanent=true")
     }
 
     suspend fun moveBookmark(bookmarkId: String, collectionId: String?, serverUrl: String) = withContext(Dispatchers.IO) {
@@ -309,6 +302,7 @@ class KeepsakeRepository(private val context: Context) {
                 }
             }
         }
+        enqueueOperation("POST", "${serverUrl.removeSuffix("/")}/api/collections", payload.toString())
         return@withContext newCol
     }
 
@@ -502,36 +496,65 @@ class KeepsakeRepository(private val context: Context) {
         true
     }
 
-    private fun httpDelete(urlString: String): Boolean {
+    private fun sendOperation(method: String, urlString: String, body: String?): Boolean {
         return try {
             val url = URL(urlString)
             val conn = (url.openConnection() as HttpURLConnection).apply {
-                requestMethod = "DELETE"
+                requestMethod = method
                 connectTimeout = 6000
                 readTimeout = 6000
+                if (body != null) {
+                    doOutput = true
+                    setRequestProperty("Content-Type", "application/json")
+                }
             }
-            conn.responseCode in 200..299
+            if (body != null) conn.outputStream.bufferedWriter().use { it.write(body) }
+            val status = conn.responseCode
+            status in 200..299 || (method == "DELETE" && status == 404)
         } catch (e: Exception) {
-            e.printStackTrace()
             false
         }
     }
 
-    private fun httpPut(urlString: String, jsonBody: String) {
-        try {
-            val url = URL(urlString)
-            val conn = (url.openConnection() as HttpURLConnection).apply {
-                requestMethod = "PUT"
-                connectTimeout = 6000
-                readTimeout = 6000
-                doOutput = true
-                setRequestProperty("Content-Type", "application/json")
-            }
-            conn.outputStream.bufferedWriter().use { it.write(jsonBody) }
-            conn.responseCode
-        } catch (e: Exception) {
-            e.printStackTrace()
+    @Synchronized
+    private fun enqueueOperation(method: String, url: String, body: String?) {
+        val file = File(context.filesDir, pendingFileName)
+        val queue = if (file.exists()) JSONArray(file.readText()) else JSONArray()
+        queue.put(JSONObject().apply { put("method", method); put("url", url); if (body != null) put("body", body) })
+        writePendingQueue(file, queue)
+    }
+
+    private fun writePendingQueue(file: File, queue: JSONArray) {
+        val temporary = File(context.filesDir, "$pendingFileName.tmp")
+        temporary.writeText(queue.toString())
+        if (!temporary.renameTo(file)) throw IOException("Could not persist pending operations")
+    }
+
+    @Synchronized
+    private fun retryPendingOperations(): Boolean {
+        val file = File(context.filesDir, pendingFileName)
+        if (!file.exists()) return true
+        val queue = try { JSONArray(file.readText()) } catch (e: Exception) { return false }
+        for (i in 0 until queue.length()) {
+            val item = queue.optJSONObject(i) ?: return false
+            val body = if (item.has("body")) item.optString("body") else null
+            if (!sendOperation(item.optString("method"), item.optString("url"), body)) return false
+            // Persist progress after each successful operation so retries are ordered.
+            val remaining = JSONArray()
+            for (j in i + 1 until queue.length()) remaining.put(queue.get(j))
+            writePendingQueue(file, remaining)
         }
+        return true
+    }
+
+    private fun httpDelete(urlString: String): Boolean {
+        enqueueOperation("DELETE", urlString, null)
+        return retryPendingOperations()
+    }
+
+    private fun httpPut(urlString: String, jsonBody: String) {
+        enqueueOperation("PUT", urlString, jsonBody)
+        retryPendingOperations()
     }
 
     private fun httpPost(urlString: String, jsonBody: String): JSONObject? {

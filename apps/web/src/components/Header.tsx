@@ -92,6 +92,7 @@ export const Header: React.FC<HeaderProps> = ({
             <Search className="w-4 h-4 text-neutral-400 absolute left-3 pointer-events-none" />
             <input
               type="text"
+              aria-label="Search bookmarks"
               value={searchQuery}
               onChange={(e) => onSearchChange(e.target.value)}
               placeholder="Search bookmarks, #tags, site:domain..."
@@ -126,6 +127,7 @@ export const Header: React.FC<HeaderProps> = ({
               <div className="font-semibold text-neutral-700 dark:text-neutral-200">
                 Advanced Search Operators
               </div>
+              <p className="text-neutral-500">Use quotes for an exact phrase, or a minus sign to exclude a word or phrase (for example: <code>"machine learning" -video</code>).</p>
               <div className="grid grid-cols-2 gap-2 text-neutral-600 dark:text-neutral-300">
                 <button
                   onClick={() => {
@@ -198,6 +200,9 @@ export const Header: React.FC<HeaderProps> = ({
         {/* Right: View Mode + Add Button */}
         <div className="flex items-center gap-1.5 shrink-0">
           {/* View Mode Switcher */}
+          <select aria-label="Bookmark view" value={viewMode} onChange={(e) => onViewModeChange(e.target.value as ViewMode)} className="sm:hidden max-w-20 rounded-lg bg-neutral-100 dark:bg-neutral-900 text-xs dark:text-white p-1">
+            <option value="cards">Cards</option><option value="list">List</option><option value="headlines">Headlines</option><option value="moodboard">Moodboard</option>
+          </select>
           <div className="hidden sm:flex items-center bg-neutral-100 dark:bg-neutral-900 p-0.5 rounded-lg border border-neutral-200/60 dark:border-neutral-800">
             <button
               onClick={() => onViewModeChange('cards')}
@@ -302,6 +307,8 @@ export const Header: React.FC<HeaderProps> = ({
                 >
                   Title (A to Z)
                 </button>
+                <button onClick={() => { onSortChange('title', 'desc'); setShowSortMenu(false); }} className={`w-full px-3 py-1.5 text-left hover:bg-neutral-100 dark:hover:bg-neutral-800 ${sortField === 'title' && sortOrder === 'desc' ? 'text-sky-500 font-semibold' : 'text-neutral-700 dark:text-neutral-200'}`}>Title (Z to A)</button>
+                <button onClick={() => { onSortChange('updatedAt', 'desc'); setShowSortMenu(false); }} className={`w-full px-3 py-1.5 text-left hover:bg-neutral-100 dark:hover:bg-neutral-800 ${sortField === 'updatedAt' && sortOrder === 'desc' ? 'text-sky-500 font-semibold' : 'text-neutral-700 dark:text-neutral-200'}`}>Recently updated</button>
                 <button
                   onClick={() => {
                     onSortChange('domain', 'asc');
@@ -333,7 +340,7 @@ export const Header: React.FC<HeaderProps> = ({
       {/* Bottom Sub-row: Content Type Filters & Active Tag Pill */}
       <div className="flex items-center justify-between text-xs overflow-x-auto pb-0.5 scrollbar-none">
         <div className="flex items-center gap-1.5">
-          {(['all', 'article', 'video', 'image', 'link'] as const).map((type) => (
+          {(['all', 'article', 'video', 'image', 'link', 'document', 'audio'] as const).map((type) => (
             <button
               key={type}
               onClick={() => onSelectType(type)}

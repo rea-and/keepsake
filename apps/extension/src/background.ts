@@ -30,18 +30,56 @@ chrome.runtime.onInstalled.addListener(() => {
 });
 
 // Helper: Post bookmark to Keepsake server
-async function postBookmarkToServer(serverUrl: string, bookmark: Bookmark) {
+async function postBookmarkToServer(serverUrl: string, bookmark: Bookmark): Promise<boolean> {
   const cleanUrl = serverUrl.replace(/\/+$/, '');
   try {
-    await fetch(`${cleanUrl}/api/bookmarks`, {
+    const response = await fetch(`${cleanUrl}/api/bookmarks`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(bookmark)
     });
+    return response.ok;
   } catch (err) {
     console.warn('[Keepsake Background] Failed to POST bookmark to server:', err);
+    return false;
   }
 }
+
+const PENDING_PREFIX = 'keepsake_pending_capture_';
+const RETRY_ALARM = 'keepsake_retry_captures';
+let retryInProgress = false;
+
+async function queueCapture(serverUrl: string, bookmark: Bookmark): Promise<void> {
+  await chrome.storage.local.set({ [PENDING_PREFIX + bookmark.id]: { serverUrl, bookmark } });
+  await chrome.alarms.create(RETRY_ALARM, { periodInMinutes: 1 });
+}
+
+async function retryCaptures(): Promise<void> {
+  if (retryInProgress) return;
+  retryInProgress = true;
+  try {
+    const all = await chrome.storage.local.get(null);
+    const entries = Object.entries(all).filter(([key]) => key.startsWith(PENDING_PREFIX));
+    let savedAny = false;
+    for (const [key, value] of entries) {
+      if (!value?.serverUrl || !value?.bookmark?.url) continue;
+      if (await postBookmarkToServer(value.serverUrl, value.bookmark)) {
+        await chrome.storage.local.remove(key);
+        savedAny = true;
+      }
+    }
+    if (savedAny) await notifyKeepsakeTabs();
+    const remaining = await chrome.storage.local.get(null);
+    if (!Object.keys(remaining).some((key) => key.startsWith(PENDING_PREFIX))) await chrome.alarms.clear(RETRY_ALARM);
+  } finally {
+    retryInProgress = false;
+  }
+}
+
+chrome.alarms.onAlarm.addListener((alarm) => {
+  if (alarm.name === RETRY_ALARM) void retryCaptures();
+});
+chrome.runtime.onStartup.addListener(() => { void retryCaptures(); });
 
 // Helper: Notify Keepsake tabs to sync
 async function notifyKeepsakeTabs() {
@@ -103,14 +141,12 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
     const updated = [bookmark, ...list.filter((b) => b.url !== targetUrl)];
     chrome.storage.local.set({ bookmarks: updated });
 
-    // Show visual badge checkmark
-    showSuccessBadge(tab.id!);
-
     // If server URL is configured, save bookmark on server
     const serverUrl = res.serverUrl || 'http://localhost:3000';
     if (serverUrl) {
-      await postBookmarkToServer(serverUrl, bookmark);
-      await notifyKeepsakeTabs();
+      const saved = await postBookmarkToServer(serverUrl, bookmark);
+      if (saved) { showSuccessBadge(tab.id!); await notifyKeepsakeTabs(); }
+      else { await queueCapture(serverUrl, bookmark); showFailureBadge(tab.id!); }
     }
   });
 });
@@ -147,12 +183,12 @@ chrome.commands.onCommand.addListener(async (command) => {
     chrome.storage.local.get(['bookmarks', 'serverUrl'], async (res) => {
       const list: Bookmark[] = res.bookmarks || [];
       chrome.storage.local.set({ bookmarks: [bookmark, ...list.filter((b) => b.url !== url)] });
-      showSuccessBadge(tab.id!);
 
       const serverUrl = res.serverUrl || 'http://localhost:3000';
       if (serverUrl) {
-        await postBookmarkToServer(serverUrl, bookmark);
-        await notifyKeepsakeTabs();
+        const saved = await postBookmarkToServer(serverUrl, bookmark);
+        if (saved) { showSuccessBadge(tab.id!); await notifyKeepsakeTabs(); }
+        else { await queueCapture(serverUrl, bookmark); showFailureBadge(tab.id!); }
       }
     });
   }
@@ -164,6 +200,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
       if (tabs[0]?.id) showSuccessBadge(tabs[0].id);
     });
+    notifyKeepsakeTabs();
+  } else if (message.action === 'COLLECTION_CREATED') {
     notifyKeepsakeTabs();
   } else if (message.action === 'SAVE_BOOKMARK_FROM_FEED') {
     const data = message.bookmarkData;
@@ -199,17 +237,17 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       const updated = [bookmark, ...list.filter((b) => b.url !== bookmark.url)];
       chrome.storage.local.set({ bookmarks: updated });
 
-      if (sender.tab?.id) {
-        showSuccessBadge(sender.tab.id);
-      }
-
       const serverUrl = res.serverUrl || 'http://localhost:3000';
+      let saved = false;
       if (serverUrl) {
-        await postBookmarkToServer(serverUrl, bookmark);
-        await notifyKeepsakeTabs();
+        saved = await postBookmarkToServer(serverUrl, bookmark);
+        if (saved) await notifyKeepsakeTabs();
+        else await queueCapture(serverUrl, bookmark);
       }
 
-      sendResponse({ success: true, bookmark });
+      if (sender.tab?.id) saved ? showSuccessBadge(sender.tab.id) : showFailureBadge(sender.tab.id);
+
+      sendResponse({ success: saved, bookmark, error: saved ? undefined : 'Server unavailable; bookmark queued for retry.' });
     });
 
     return true; // async sendResponse
@@ -222,4 +260,10 @@ function showSuccessBadge(tabId: number) {
   setTimeout(() => {
     chrome.action.setBadgeText({ text: '', tabId });
   }, 2500);
+}
+
+function showFailureBadge(tabId: number) {
+  chrome.action.setBadgeText({ text: '!', tabId });
+  chrome.action.setBadgeBackgroundColor({ color: '#d97706', tabId });
+  setTimeout(() => chrome.action.setBadgeText({ text: '', tabId }), 5000);
 }

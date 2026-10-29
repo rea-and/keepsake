@@ -18,5 +18,7 @@ __exportStar(require("./types.js"), exports);
 __exportStar(require("./search.js"), exports);
 __exportStar(require("./utils.js"), exports);
 __exportStar(require("./sync.js"), exports);
+__exportStar(require("./backup.js"), exports);
+__exportStar(require("./collections.js"), exports);
 __exportStar(require("./gdrive.js"), exports);
 //# sourceMappingURL=index.js.map

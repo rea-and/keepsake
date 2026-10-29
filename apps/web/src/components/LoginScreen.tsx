@@ -48,7 +48,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
     checkStored();
 
     const handleMessage = (event: MessageEvent) => {
-      if (event.data?.type === 'KEEPSAKE_AUTH_SUCCESS' && event.data.payload) {
+      if (event.origin === window.location.origin && event.data?.type === 'KEEPSAKE_AUTH_SUCCESS' && event.data.payload) {
         setIsAuthenticating(false);
         setAuthError(null);
         onLoginSuccess(event.data.payload);

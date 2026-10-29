@@ -133,6 +133,15 @@
       align-items: center;
     }
     .row-split > div { flex: 1; }
+    .collection-controls { display: flex; gap: 6px; }
+    .collection-controls select { flex: 1; min-width: 0; }
+    .collection-add { flex-shrink: 0; background: #27272a; color: #e4e4e7; border: 1px solid #3f3f46; border-radius: 8px; padding: 0 10px; font-size: 18px; cursor: pointer; }
+    .collection-add:disabled, .btn:disabled { opacity: .5; cursor: default; }
+    #collectionCreate { display: none; margin-top: 8px; }
+    #collectionCreate.open { display: block; }
+    .collection-actions { display: flex; gap: 6px; margin-top: 6px; }
+    .collection-cancel { background: #27272a; color: #e4e4e7; }
+    #collectionMessage { margin-top: 6px; color: #fbbf24; font-size: 11px; }
     .star-btn {
       background: #18181b;
       border: 1px solid #27272a;
@@ -222,9 +231,23 @@
     <div class="row-split">
       <div>
         <label for="collectionSelect">Collection</label>
-        <select id="collectionSelect">
-          <option value="unsorted">📥 Unsorted</option>
-        </select>
+        <div class="collection-controls">
+          <select id="collectionSelect">
+            <option value="unsorted">📥 Unsorted</option>
+          </select>
+          <button type="button" id="openCollectionCreate" class="collection-add" aria-label="Create collection" aria-expanded="false" aria-controls="collectionCreate" disabled>+</button>
+        </div>
+        <div id="collectionCreate">
+          <label for="collectionName">New collection name</label>
+          <input id="collectionName" type="text" maxlength="120" placeholder="Collection name" />
+          <label for="collectionParent" style="margin-top: 8px;">Parent collection</label>
+          <select id="collectionParent"><option value="">None (top level)</option></select>
+          <div class="collection-actions">
+            <button type="button" id="createCollectionBtn" class="btn btn-primary">Create</button>
+            <button type="button" id="cancelCollectionBtn" class="btn collection-cancel">Cancel</button>
+          </div>
+        </div>
+        <div id="collectionMessage" role="status" aria-live="polite"></div>
       </div>
       <div>
         <button type="button" id="starBtn" class="star-btn">

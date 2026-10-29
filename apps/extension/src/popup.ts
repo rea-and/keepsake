@@ -9,7 +9,8 @@ import {
   isRedditUrl,
   cleanRedditTitle,
   isGenericRedditMedia,
-  isValidMediaUrl
+  isValidMediaUrl,
+  flattenCollections
 } from '@keepsake/shared';
 
 interface ExtensionStorage {
@@ -38,6 +39,13 @@ const domainLabel = document.getElementById('domainLabel') as HTMLSpanElement;
 const faviconImg = document.getElementById('faviconImg') as HTMLImageElement;
 const coverImg = document.getElementById('coverImg') as HTMLImageElement;
 const collectionSelect = document.getElementById('collectionSelect') as HTMLSelectElement;
+const openCollectionCreate = document.getElementById('openCollectionCreate') as HTMLButtonElement;
+const collectionCreate = document.getElementById('collectionCreate') as HTMLDivElement;
+const collectionName = document.getElementById('collectionName') as HTMLInputElement;
+const collectionParent = document.getElementById('collectionParent') as HTMLSelectElement;
+const createCollectionBtn = document.getElementById('createCollectionBtn') as HTMLButtonElement;
+const cancelCollectionBtn = document.getElementById('cancelCollectionBtn') as HTMLButtonElement;
+const collectionMessage = document.getElementById('collectionMessage') as HTMLDivElement;
 const starBtn = document.getElementById('starBtn') as HTMLButtonElement;
 const tagInput = document.getElementById('tagInput') as HTMLInputElement;
 const tagsContainer = document.getElementById('tagsContainer') as HTMLDivElement;
@@ -77,13 +85,12 @@ function addTag(rawTag: string) {
 function renderCollectionOptions(cols: Collection[], preferredId?: string) {
   const currentVal = preferredId || collectionSelect.value || 'unsorted';
   collectionSelect.innerHTML = '<option value="unsorted">📥 Unsorted</option>';
-  cols
-    .filter((c) => !c.isSystem && c.id !== 'unsorted' && c.id !== 'all' && c.id !== 'trash' && c.id !== 'favorites')
-    .sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0))
-    .forEach((col) => {
+  flattenCollections(cols)
+    .filter(({ collection: col }) => col.id !== 'all' && col.id !== 'trash' && col.id !== 'favorites')
+    .forEach(({ collection: col, depth }) => {
       const opt = document.createElement('option');
       opt.value = col.id;
-      opt.textContent = `📁 ${col.title}`;
+      opt.textContent = `${'— '.repeat(depth)}📁 ${col.title}`;
       collectionSelect.appendChild(opt);
     });
 
@@ -212,6 +219,7 @@ async function init() {
         console.warn('[Keepsake Extension] Server collections fetch failed:', err);
       }
     }
+    openCollectionCreate.disabled = false;
 
     // Check if current URL is already saved (try server first, then local fallback)
     let foundBm: Bookmark | null = null;
@@ -256,6 +264,76 @@ async function init() {
 }
 
 // Event Listeners
+function closeCollectionCreate() {
+  collectionCreate.classList.remove('open');
+  openCollectionCreate.setAttribute('aria-expanded', 'false');
+  collectionName.value = '';
+}
+
+openCollectionCreate.addEventListener('click', () => {
+  collectionMessage.textContent = '';
+  collectionParent.replaceChildren(new Option('None (top level)', ''));
+  flattenCollections(collections).forEach(({ collection, depth }) => {
+    const option = document.createElement('option');
+    option.value = collection.id;
+    option.textContent = `${'— '.repeat(depth)}${collection.title}`;
+    collectionParent.appendChild(option);
+  });
+  collectionParent.value = collectionSelect.value === 'unsorted' ? '' : collectionSelect.value;
+  collectionCreate.classList.add('open');
+  openCollectionCreate.setAttribute('aria-expanded', 'true');
+  collectionName.focus();
+});
+cancelCollectionBtn.addEventListener('click', () => { closeCollectionCreate(); openCollectionCreate.focus(); });
+collectionName.addEventListener('keydown', (event) => {
+  if (event.key === 'Enter') { event.preventDefault(); createCollectionBtn.click(); }
+  if (event.key === 'Escape') { event.preventDefault(); closeCollectionCreate(); openCollectionCreate.focus(); }
+});
+createCollectionBtn.addEventListener('click', async () => {
+  const title = collectionName.value.trim();
+  collectionMessage.textContent = '';
+  if (!title) { collectionMessage.textContent = 'Enter a collection name.'; collectionName.focus(); return; }
+  const parentId = collectionParent.value || null;
+  const existing = collections.find((col) => !col.isSystem && (col.parentId || null) === parentId && col.title.trim().toLowerCase() === title.toLowerCase());
+  if (existing) {
+    renderCollectionOptions(collections, existing.id);
+    await chrome.storage.local.set({ lastCollectionId: existing.id });
+    closeCollectionCreate();
+    collectionMessage.textContent = 'That collection already exists; it has been selected.';
+    return;
+  }
+  createCollectionBtn.disabled = true;
+  cancelCollectionBtn.disabled = true;
+  saveBtn.disabled = true;
+  createCollectionBtn.textContent = 'Creating…';
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 10000);
+  try {
+    const response = await fetch(`${activeServerUrl}/api/collections`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ title, parentId }), signal: controller.signal
+    });
+    if (!response.ok) throw new Error(`Server returned ${response.status}`);
+    const data = await response.json();
+    const created: Collection | undefined = data.collection;
+    if (!created?.id || typeof created.title !== 'string') throw new Error('Invalid server response');
+    collections = [...collections.filter((col) => col.id !== created.id), created];
+    renderCollectionOptions(collections, created.id);
+    closeCollectionCreate();
+    collectionMessage.textContent = `Created “${created.title}” and selected it.`;
+    try { await chrome.storage.local.set({ collections, lastCollectionId: created.id }); }
+    catch { collectionMessage.textContent = `Created “${created.title}”, but could not update the extension cache.`; }
+    chrome.runtime.sendMessage({ action: 'COLLECTION_CREATED' }).catch(() => {});
+  } catch (error) {
+    collectionMessage.textContent = error instanceof Error && error.name === 'AbortError' ? 'Server did not respond. Check whether the collection was created before retrying.' : `Could not create collection: ${error instanceof Error ? error.message : 'server unavailable'}`;
+  } finally {
+    clearTimeout(timeout);
+    createCollectionBtn.disabled = false;
+    cancelCollectionBtn.disabled = false;
+    saveBtn.disabled = false;
+    createCollectionBtn.textContent = 'Create';
+  }
+});
 collectionSelect.addEventListener('change', () => {
   const chosen = collectionSelect.value;
   if (chosen) {

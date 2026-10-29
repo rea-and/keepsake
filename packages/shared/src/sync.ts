@@ -47,14 +47,16 @@ export function mergeStores(
 
   // 2. Merge Collections
   const mergedCollectionsMap = new Map<string, Collection>();
+  const localCollections = new Map(local.collections.map((c) => [c.id, c]));
+  const remoteCollections = new Map(remote.collections.map((c) => [c.id, c]));
   const allCollectionIds = new Set([
     ...local.collections.map((c) => c.id),
     ...remote.collections.map((c) => c.id)
   ]);
 
   for (const id of allCollectionIds) {
-    const localCol = local.collections.find((c) => c.id === id);
-    const remoteCol = remote.collections.find((c) => c.id === id);
+    const localCol = localCollections.get(id);
+    const remoteCol = remoteCollections.get(id);
     const tombstone = tombstoneMap.get(id);
 
     // If tombstoned after the latest update, discard
@@ -93,14 +95,16 @@ export function mergeStores(
 
   // 3. Merge Bookmarks
   const mergedBookmarksMap = new Map<string, Bookmark>();
+  const localBookmarks = new Map(local.bookmarks.map((b) => [b.id, b]));
+  const remoteBookmarks = new Map(remote.bookmarks.map((b) => [b.id, b]));
   const allBookmarkIds = new Set([
     ...local.bookmarks.map((b) => b.id),
     ...remote.bookmarks.map((b) => b.id)
   ]);
 
   for (const id of allBookmarkIds) {
-    const localBm = local.bookmarks.find((b) => b.id === id);
-    const remoteBm = remote.bookmarks.find((b) => b.id === id);
+    const localBm = localBookmarks.get(id);
+    const remoteBm = remoteBookmarks.get(id);
     const tombstone = tombstoneMap.get(id);
 
     const latestBmUpdate = Math.max(
@@ -136,11 +140,13 @@ export function mergeStores(
     }
   }
 
-  // Prune tombstones older than 60 days
-  const sixtyDaysAgo = Date.now() - 60 * 24 * 60 * 60 * 1000;
-  const prunedTombstones = Array.from(tombstoneMap.values()).filter(
-    (t) => new Date(t.deletedAt).getTime() > sixtyDaysAgo
-  );
+  // Retain deletions so a device returning after a long absence cannot resurrect them.
+  const prunedTombstones = Array.from(tombstoneMap.values());
+  const searches = new Map<string, NonNullable<KeepsakeDataStore['savedSearches']>[number]>();
+  for (const item of [...(local.savedSearches || []), ...(remote.savedSearches || [])]) {
+    const existing = searches.get(item.id);
+    if (!existing || item.updatedAt > existing.updatedAt || (item.updatedAt === existing.updatedAt && JSON.stringify(item) > JSON.stringify(existing))) searches.set(item.id, item);
+  }
 
   const mergedStore: KeepsakeDataStore = {
     version: 1,
@@ -151,7 +157,8 @@ export function mergeStores(
     bookmarks: Array.from(mergedBookmarksMap.values()).sort(
       (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
     ),
-    tombstones: prunedTombstones
+    tombstones: prunedTombstones,
+    savedSearches: Array.from(searches.values()).sort((a, b) => a.id.localeCompare(b.id))
   };
 
   return {
@@ -187,6 +194,7 @@ export function createDefaultStore(deviceId: string): KeepsakeDataStore {
       }
     ],
     bookmarks: [],
-    tombstones: []
+    tombstones: [],
+    savedSearches: []
   };
 }

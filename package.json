@@ -2,6 +2,7 @@
   "name": "keepsake-monorepo",
   "version": "1.0.0",
   "private": true,
+  "engines": { "node": ">=20.18.1" },
   "description": "Keepsake - Self-hosted, Google Drive-synced bookmark manager (Raindrop.io alternative)",
   "workspaces": [
     "packages/*",

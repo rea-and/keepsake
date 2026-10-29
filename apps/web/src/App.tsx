@@ -30,6 +30,38 @@ function KeepsakeDashboard({ store }: KeepsakeDashboardProps) {
   const [readerBookmark, setReaderBookmark] = useState<Bookmark | null>(null);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
+  const [undoTrash, setUndoTrash] = useState<string[]>([]);
+  const undoTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => () => { if (undoTimerRef.current) clearTimeout(undoTimerRef.current); }, []);
+
+  const offerTrashUndo = (ids: string[]) => {
+    if (!ids.length) return;
+    if (undoTimerRef.current) clearTimeout(undoTimerRef.current);
+    setUndoTrash((previous) => Array.from(new Set([...previous, ...ids])));
+    undoTimerRef.current = setTimeout(() => setUndoTrash([]), 8000);
+  };
+  const handleTrashBookmark = (id: string) => {
+    store.moveToTrash(id);
+    offerTrashUndo([id]);
+  };
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (isBookmarkModalOpen || isCollectionModalOpen || readerBookmark || isSettingsOpen) return;
+      const target = event.target as HTMLElement | null;
+      if (target?.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(target?.tagName || '')) return;
+      if (event.key === '/' && !event.ctrlKey && !event.metaKey && !event.altKey) {
+        event.preventDefault();
+        document.querySelector<HTMLInputElement>('input[aria-label="Search bookmarks"]')?.focus();
+      } else if (event.key.toLowerCase() === 'n' && !event.ctrlKey && !event.metaKey && !event.altKey) {
+        event.preventDefault();
+        setBookmarkToEdit(null);
+        setIsBookmarkModalOpen(true);
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [isBookmarkModalOpen, isCollectionModalOpen, readerBookmark, isSettingsOpen]);
 
   // Ingest shared link from Android or Browser intent URL parameters
   useEffect(() => {
@@ -158,13 +190,16 @@ function KeepsakeDashboard({ store }: KeepsakeDashboardProps) {
         ? 'Favorites'
         : store.collections.find((c) => c.id === targetColId)?.title || 'Unsorted';
 
-    if (items.length === 1) {
-      showDropToast(`Saved to ${colName}!`, items[0].title || items[0].url);
+    const saved = await store.saveBookmarksToCollection(items, targetColId);
+    const skipped = items.length - saved.length;
+    if (!saved.length) {
+      showDropToast('Already in your library', 'No new bookmarks added');
+    } else if (items.length === 1) {
+      showDropToast(`Saved locally to ${colName}`, items[0].title || items[0].url);
     } else {
-      showDropToast(`Imported ${items.length} bookmarks into ${colName}!`, `${items.length} items added`);
+      showDropToast(`Added ${saved.length} bookmarks to ${colName}`, skipped ? `${skipped} already in your library` : 'Saved locally');
     }
 
-    await store.saveBookmarksToCollection(items, targetColId);
   };
 
   const handleDropUrlOnCollection = async (url: string, targetColId: string, initialTitle?: string) => {
@@ -226,6 +261,8 @@ function KeepsakeDashboard({ store }: KeepsakeDashboardProps) {
         allTags={store.allTags}
         activeTag={store.activeTag}
         onSelectTag={store.setActiveTag}
+        onRenameTag={store.renameTag}
+        onRemoveTag={store.removeTag}
         authSession={store.authSession}
         syncStatus={store.syncStatus}
         onSync={store.syncWithGoogleDrive}
@@ -256,6 +293,8 @@ function KeepsakeDashboard({ store }: KeepsakeDashboardProps) {
 
       {/* Main Content Area */}
       <div className="flex-1 flex flex-col min-w-0 h-full overflow-hidden">
+        {store.serverSyncError && <div role="status" className="px-4 py-2 bg-amber-100 dark:bg-amber-950 text-amber-900 dark:text-amber-100 text-xs flex items-center justify-between gap-3"><span>Server sync unavailable. {store.localPersistenceError ? 'Browser storage is also unavailable.' : 'Changes saved in this browser will retry automatically.'} {store.serverSyncError}</span><button className="font-semibold underline" onClick={() => store.syncWithServer()}>Retry</button></div>}
+        {store.localPersistenceError && <div role="alert" className="px-4 py-2 bg-rose-100 dark:bg-rose-950 text-rose-900 dark:text-rose-100 text-xs">Browser storage is full or unavailable. Recent changes may not survive closing this tab; export a backup or restore storage access.</div>}
         {/* Header Bar */}
         <Header
           onToggleMobileMenu={() => setIsMobileSidebarOpen(true)}
@@ -283,6 +322,16 @@ function KeepsakeDashboard({ store }: KeepsakeDashboardProps) {
             setIsBookmarkModalOpen(true);
           }}
         />
+        {(store.searchQuery.trim() || store.savedSearches.length > 0) && <div className="flex flex-wrap items-center gap-2 px-4 py-2 border-b dark:border-neutral-800 text-xs">
+          {store.searchQuery.trim() && <button className="text-sky-600 font-medium" onClick={() => {
+            const name = window.prompt('Name this saved search', store.searchQuery.trim());
+            if (name?.trim()) store.saveSearch(name, store.searchQuery);
+          }}>Save search</button>}
+          {store.savedSearches.map((item) => <span key={item.id} className="flex items-center gap-1 rounded-md bg-neutral-100 dark:bg-neutral-800 px-2 py-1">
+            <button title={item.query} className="text-neutral-700 dark:text-neutral-200" onClick={() => { store.setActiveCollectionId('all'); store.setActiveTag(null); store.setStatusFilter('all'); store.setSelectedType('all'); store.setSearchQuery(item.query); }}>{item.name}</button>
+            <button aria-label={`Remove saved search ${item.name}`} className="text-neutral-500" onClick={() => store.deleteSavedSearch(item.id)}>×</button>
+          </span>)}
+        </div>}
 
         {/* Bookmarks Viewport */}
         <main
@@ -292,6 +341,7 @@ function KeepsakeDashboard({ store }: KeepsakeDashboardProps) {
           onDragLeave={handleViewportDragLeave}
           onDrop={handleViewportDrop}
         >
+          {store.bookmarks.length > 0 && store.activeCollectionId !== 'trash' && <div className="flex justify-end px-4 pt-2"><button className="text-xs text-neutral-500 hover:text-sky-600" onClick={() => store.setSelectedBookmarkIds(new Set(store.bookmarks.map((bm) => bm.id)))}>Select all {store.bookmarks.length} results</button></div>}
           {/* Visual Dropzone Overlay when dragging an external link/folder over the category page */}
           {isDraggingOverPage && (
             <div className="absolute inset-0 z-50 bg-sky-500/10 dark:bg-sky-500/15 backdrop-blur-sm border-2 border-dashed border-sky-500 rounded-2xl m-4 flex flex-col items-center justify-center pointer-events-none transition-all animate-in fade-in zoom-in-95 duration-150">
@@ -315,11 +365,14 @@ function KeepsakeDashboard({ store }: KeepsakeDashboardProps) {
                 No bookmarks found
               </h3>
               <p className="text-xs text-neutral-500 max-w-sm mb-4">
-                {store.searchQuery
+                {store.searchQuery || store.activeTag || store.selectedType !== 'all' || store.statusFilter !== 'all'
                   ? 'No results matched your search criteria.'
                   : 'Your collection is empty. Save websites, articles, and videos to Keepsake.'}
               </p>
-              <button
+              {(store.searchQuery || store.activeTag || store.selectedType !== 'all' || store.statusFilter !== 'all') ? <button
+                onClick={() => { store.setSearchQuery(''); store.setActiveTag(null); store.setSelectedType('all'); store.setStatusFilter('all'); }}
+                className="px-4 py-2 rounded-xl bg-sky-500 text-white text-xs font-semibold"
+              >Clear filters</button> : <button
                 onClick={() => {
                   setBookmarkToEdit(null);
                   setIsBookmarkModalOpen(true);
@@ -328,7 +381,16 @@ function KeepsakeDashboard({ store }: KeepsakeDashboardProps) {
               >
                 <BookmarkPlus className="w-4 h-4" />
                 <span>Add your first bookmark</span>
-              </button>
+              </button>}
+            </div>
+          ) : store.activeCollectionId === 'trash' ? (
+            <div className="p-4 space-y-3">
+              <div className="flex justify-end"><button className="text-sm text-rose-600" onClick={() => { if (window.confirm('Permanently delete all bookmarks in Trash?')) store.emptyTrash(); }}>Empty trash</button></div>
+              {store.bookmarks.map((bm) => <div key={bm.id} className="flex flex-wrap items-center gap-3 p-3 rounded-xl bg-white dark:bg-neutral-900 border dark:border-neutral-800">
+                <div className="min-w-0 flex-1"><div className="font-medium truncate dark:text-white">{bm.title || bm.url}</div><div className="text-xs text-neutral-500 truncate">{bm.url}</div></div>
+                <button className="text-sm text-sky-600" onClick={() => store.restoreFromTrash(bm.id)}>Restore</button>
+                <button className="text-sm text-rose-600" onClick={() => { if (window.confirm('Permanently delete this bookmark?')) store.permanentlyDeleteBookmark(bm.id); }}>Delete permanently</button>
+              </div>)}
             </div>
           ) : (
             <>
@@ -340,7 +402,7 @@ function KeepsakeDashboard({ store }: KeepsakeDashboardProps) {
                   onToggleFavorite={store.toggleFavorite}
                   onToggleDone={store.toggleDone}
                   onEdit={handleEditBookmark}
-                  onDelete={store.moveToTrash}
+                  onDelete={handleTrashBookmark}
                   onOpenReader={(bm) => setReaderBookmark(bm)}
                   cardSize={store.cardSize}
                 />
@@ -354,7 +416,7 @@ function KeepsakeDashboard({ store }: KeepsakeDashboardProps) {
                   onToggleFavorite={store.toggleFavorite}
                   onToggleDone={store.toggleDone}
                   onEdit={handleEditBookmark}
-                  onDelete={store.moveToTrash}
+                  onDelete={handleTrashBookmark}
                   onOpenReader={(bm) => setReaderBookmark(bm)}
                 />
               )}
@@ -362,10 +424,12 @@ function KeepsakeDashboard({ store }: KeepsakeDashboardProps) {
               {store.viewMode === 'headlines' && (
                 <HeadlinesView
                   bookmarks={store.bookmarks}
+                  selectedIds={store.selectedBookmarkIds}
+                  onToggleSelect={handleToggleSelect}
                   onToggleFavorite={store.toggleFavorite}
                   onToggleDone={store.toggleDone}
                   onEdit={handleEditBookmark}
-                  onDelete={store.moveToTrash}
+                  onDelete={handleTrashBookmark}
                   onOpenReader={(bm) => setReaderBookmark(bm)}
                 />
               )}
@@ -373,10 +437,12 @@ function KeepsakeDashboard({ store }: KeepsakeDashboardProps) {
               {store.viewMode === 'moodboard' && (
                 <MoodboardView
                   bookmarks={store.bookmarks}
+                  selectedIds={store.selectedBookmarkIds}
+                  onToggleSelect={handleToggleSelect}
                   onToggleFavorite={store.toggleFavorite}
                   onToggleDone={store.toggleDone}
                   onEdit={handleEditBookmark}
-                  onDelete={store.moveToTrash}
+                  onDelete={handleTrashBookmark}
                   onOpenReader={(bm) => setReaderBookmark(bm)}
                 />
               )}
@@ -394,7 +460,7 @@ function KeepsakeDashboard({ store }: KeepsakeDashboardProps) {
         onBulkAddTag={store.bulkAddTag}
         onBulkFavorite={store.bulkFavorite}
         onBulkDone={store.bulkDone}
-        onBulkDelete={store.bulkDelete}
+        onBulkDelete={() => { const ids = Array.from(store.selectedBookmarkIds); store.bulkDelete(); offerTrashUndo(ids); }}
       />
 
       {/* Modals */}
@@ -405,6 +471,9 @@ function KeepsakeDashboard({ store }: KeepsakeDashboardProps) {
         bookmarkToEdit={bookmarkToEdit}
         collections={store.collections}
         availableTags={store.allTags}
+        existingBookmarks={store.store.bookmarks}
+        onEditExisting={handleEditBookmark}
+        onCreateCollection={(title) => store.addCollection({ title })}
         defaultCollectionId={store.activeCollectionId}
       />
 
@@ -413,6 +482,8 @@ function KeepsakeDashboard({ store }: KeepsakeDashboardProps) {
         onClose={() => setIsCollectionModalOpen(false)}
         onSave={handleSaveCollection}
         collectionToEdit={collectionToEdit}
+        collections={store.collections}
+        defaultParentId={store.collections.some((col) => col.id === store.activeCollectionId && !col.isSystem) ? store.activeCollectionId : null}
       />
 
       <ReaderModal
@@ -428,8 +499,10 @@ function KeepsakeDashboard({ store }: KeepsakeDashboardProps) {
         syncStatus={store.syncStatus}
         onSync={store.syncWithGoogleDrive}
         bookmarks={store.store.bookmarks}
+        dataStore={store.store}
         collections={store.collections}
         onImport={store.importData}
+        onRefreshMissingCovers={store.enrichImportedCovers}
         themeMode={store.themeMode}
         effectiveTheme={store.effectiveTheme}
         onSelectThemeMode={store.setThemeMode}
@@ -441,6 +514,7 @@ function KeepsakeDashboard({ store }: KeepsakeDashboardProps) {
       />
 
       {/* Drag & Drop URL Notification Toast */}
+      {undoTrash.length > 0 && <div role="status" className="fixed bottom-6 left-4 z-50 flex items-center gap-4 rounded-xl bg-neutral-900 text-white px-4 py-3 shadow-xl text-sm"><span>{undoTrash.length === 1 ? 'Bookmark moved to Trash' : `${undoTrash.length} bookmarks moved to Trash`}</span><button className="font-semibold text-sky-300 underline" onClick={() => { undoTrash.forEach(store.restoreFromTrash); setUndoTrash([]); if (undoTimerRef.current) clearTimeout(undoTimerRef.current); }}>Undo</button></div>}
       {dragDropToast && (
         <div className="fixed bottom-6 right-6 z-50 max-w-md bg-neutral-900/95 dark:bg-white/95 text-white dark:text-neutral-900 px-4 py-3 rounded-2xl shadow-2xl backdrop-blur-md flex items-center gap-3 border border-white/10 dark:border-black/10 animate-in slide-in-from-bottom-5 duration-200">
           <div className="w-8 h-8 rounded-xl bg-emerald-500 text-white flex items-center justify-center flex-shrink-0">

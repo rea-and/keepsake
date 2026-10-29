@@ -4,6 +4,8 @@ import { Star, ExternalLink, BookOpen, Edit2, Trash2, CheckCircle2, Check } from
 
 interface MoodboardViewProps {
   bookmarks: Bookmark[];
+  selectedIds: Set<string>;
+  onToggleSelect: (id: string) => void;
   onToggleFavorite: (id: string) => void;
   onToggleDone: (id: string) => void;
   onEdit: (bm: Bookmark) => void;
@@ -13,6 +15,8 @@ interface MoodboardViewProps {
 
 export const MoodboardView: React.FC<MoodboardViewProps> = ({
   bookmarks,
+  selectedIds,
+  onToggleSelect,
   onToggleFavorite,
   onToggleDone,
   onEdit,
@@ -32,6 +36,7 @@ export const MoodboardView: React.FC<MoodboardViewProps> = ({
           }}
           className="break-inside-avoid group relative bg-white dark:bg-[#151518] rounded-xl overflow-hidden border border-neutral-200 dark:border-neutral-800/80 shadow-sm hover:shadow-lg transition-all cursor-grab active:cursor-grabbing"
         >
+          <input type="checkbox" aria-label={`Select ${bm.title || bm.url}`} checked={selectedIds.has(bm.id)} onChange={() => onToggleSelect(bm.id)} className="absolute top-3 left-3 z-10 w-4 h-4" />
           {/* Cover Image */}
           {bm.cover ? (
             <div className="relative overflow-hidden bg-neutral-100 dark:bg-neutral-900">

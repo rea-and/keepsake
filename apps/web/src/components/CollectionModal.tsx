@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { Collection, ViewMode, getCollectionSlug } from '@keepsake/shared';
+import { useDialog } from './useDialog';
+import { Collection, ViewMode, getCollectionSlug, canSetCollectionParent, flattenCollections } from '@keepsake/shared';
 import { X, Folder, BookOpen, Code, Sparkles, Music, Video, FileText } from 'lucide-react';
 
 interface CollectionModalProps {
@@ -7,6 +8,8 @@ interface CollectionModalProps {
   onClose: () => void;
   onSave: (data: any) => void;
   collectionToEdit?: Collection | null;
+  collections: Collection[];
+  defaultParentId?: string | null;
 }
 
 const COLOR_PALETTE = [
@@ -36,13 +39,17 @@ export const CollectionModal: React.FC<CollectionModalProps> = ({
   isOpen,
   onClose,
   onSave,
-  collectionToEdit
+  collectionToEdit,
+  collections,
+  defaultParentId
 }) => {
+  const dialogRef = useDialog(isOpen, onClose);
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [color, setColor] = useState('#0284c7');
   const [icon, setIcon] = useState('Folder');
   const [defaultViewMode, setDefaultViewMode] = useState<ViewMode>('cards');
+  const [parentId, setParentId] = useState('');
 
   useEffect(() => {
     if (collectionToEdit) {
@@ -51,14 +58,16 @@ export const CollectionModal: React.FC<CollectionModalProps> = ({
       setColor(collectionToEdit.color || '#0284c7');
       setIcon(collectionToEdit.icon || 'Folder');
       setDefaultViewMode(collectionToEdit.defaultViewMode || 'cards');
+      setParentId(collectionToEdit.parentId || '');
     } else {
       setTitle('');
       setDescription('');
       setColor('#0284c7');
       setIcon('Folder');
       setDefaultViewMode('cards');
+      setParentId(defaultParentId || '');
     }
-  }, [collectionToEdit, isOpen]);
+  }, [collectionToEdit, defaultParentId, isOpen]);
 
   if (!isOpen) return null;
 
@@ -71,14 +80,15 @@ export const CollectionModal: React.FC<CollectionModalProps> = ({
       description: description.trim() || undefined,
       color,
       icon,
+      parentId: parentId || null,
       defaultViewMode
     });
     onClose();
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm animate-in fade-in duration-200">
-      <div className="w-full max-w-md bg-white dark:bg-[#151518] rounded-2xl shadow-2xl border border-neutral-200 dark:border-neutral-800 overflow-hidden">
+    <div ref={dialogRef} role="dialog" aria-modal="true" aria-label={collectionToEdit ? 'Edit collection' : 'Add collection'} tabIndex={-1} className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm animate-in fade-in duration-200">
+      <div className="w-full max-w-md max-h-[90vh] overflow-y-auto bg-white dark:bg-[#151518] rounded-2xl shadow-2xl border border-neutral-200 dark:border-neutral-800">
         {/* Header */}
         <div className="px-6 py-4 border-b border-neutral-100 dark:border-neutral-800 flex items-center justify-between">
           <h2 className="font-bold text-base text-neutral-900 dark:text-white flex items-center gap-2">
@@ -111,11 +121,12 @@ export const CollectionModal: React.FC<CollectionModalProps> = ({
               className="w-full px-3.5 py-2 text-sm bg-neutral-50 dark:bg-[#1c1c20] border border-neutral-200 dark:border-neutral-800 rounded-xl focus:border-sky-500 focus:outline-none transition-colors"
               autoFocus
             />
-            {title.trim() && (
+            {title.trim() && !parentId && (
               <p className="mt-1.5 text-[11px] text-neutral-500 dark:text-neutral-400 font-mono">
                 URL: <span className="text-sky-600 dark:text-sky-400">/{getCollectionSlug({ id: '', title })}/</span>
               </p>
             )}
+            {title.trim() && parentId && <p className="mt-1.5 text-[11px] text-neutral-500">A stable collection URL will be assigned when saved.</p>}
           </div>
 
           <div>
@@ -129,6 +140,14 @@ export const CollectionModal: React.FC<CollectionModalProps> = ({
               placeholder="Short note about this collection"
               className="w-full px-3.5 py-2 text-sm bg-neutral-50 dark:bg-[#1c1c20] border border-neutral-200 dark:border-neutral-800 rounded-xl focus:border-sky-500 focus:outline-none transition-colors"
             />
+          </div>
+
+          <div>
+            <label htmlFor="collection-parent" className="block text-xs font-semibold text-neutral-600 dark:text-neutral-400 mb-1">Parent collection</label>
+            <select id="collection-parent" value={parentId} onChange={(event) => setParentId(event.target.value)} className="w-full px-3 py-2 text-sm bg-neutral-50 dark:bg-[#1c1c20] border border-neutral-200 dark:border-neutral-800 rounded-xl">
+              <option value="">None (top level)</option>
+              {flattenCollections(collections).filter(({ collection }) => canSetCollectionParent(collections, collectionToEdit?.id, collection.id)).map(({ collection, depth }) => <option key={collection.id} value={collection.id}>{'— '.repeat(depth)}{collection.title}</option>)}
+            </select>
           </div>
 
           {/* Color Picker */}

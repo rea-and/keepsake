@@ -15,6 +15,7 @@ import {
   GoogleDriveClient,
   matchesSearch,
   parseSearchQuery,
+  parseBackup,
   exportToNetscapeHtml,
   parseNetscapeHtml,
   extractDomain,
@@ -63,7 +64,13 @@ export function useKeepsakeStore() {
     try {
       const raw = localStorage.getItem(LOCAL_STORAGE_KEY);
       if (raw) {
-        return JSON.parse(raw);
+        const parsed: KeepsakeDataStore = JSON.parse(raw);
+        if (!parsed.savedSearches) {
+          let legacy: any = [];
+          try { legacy = JSON.parse(localStorage.getItem('keepsake_saved_searches') || '[]'); } catch {}
+          parsed.savedSearches = Array.isArray(legacy) ? legacy.filter((item) => typeof item?.name === 'string' && typeof item?.query === 'string').map((item, index) => ({ id: `search_${deviceId}_${index}`, name: item.name, query: item.query, updatedAt: new Date().toISOString() })) : [];
+        }
+        return parsed;
       }
     } catch (e) {
       console.error('Failed to load local store:', e);
@@ -144,10 +151,29 @@ export function useKeepsakeStore() {
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [selectedType, setSelectedType] = useState<BookmarkType | 'all'>('all');
-  const [viewMode, setViewMode] = useState<ViewMode>('cards');
-  const [sortField, setSortField] = useState<SortField>('createdAt');
-  const [sortOrder, setSortOrder] = useState<SortOrder>('desc');
+  type ViewPreferences = { viewMode?: ViewMode; sortField?: SortField; sortOrder?: SortOrder };
+  const [collectionPreferences, setCollectionPreferences] = useState<Record<string, ViewPreferences>>(() => {
+    try {
+      const parsed = JSON.parse(localStorage.getItem('keepsake_collection_preferences') || '{}');
+      return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
+    } catch { return {}; }
+  });
+  const legacyView = localStorage.getItem('keepsake_view');
+  const legacySort = localStorage.getItem('keepsake_sort_field');
+  const prefs = collectionPreferences[activeCollectionId] || {};
+  const defaultView = store.collections.find((col) => col.id === activeCollectionId)?.defaultViewMode;
+  const viewMode: ViewMode = ['cards', 'list', 'headlines', 'moodboard'].includes(prefs.viewMode || '') ? prefs.viewMode! : (defaultView || (legacyView === 'list' || legacyView === 'headlines' || legacyView === 'moodboard' ? legacyView : 'cards'));
+  const sortField: SortField = ['createdAt', 'updatedAt', 'title', 'domain'].includes(prefs.sortField || '') ? prefs.sortField! : (legacySort === 'updatedAt' || legacySort === 'title' || legacySort === 'domain' ? legacySort : 'createdAt');
+  const sortOrder: SortOrder = prefs.sortOrder === 'asc' || prefs.sortOrder === 'desc' ? prefs.sortOrder : (localStorage.getItem('keepsake_sort_order') === 'asc' ? 'asc' : 'desc');
+  const setPreference = useCallback((updates: ViewPreferences) => {
+    setCollectionPreferences((prev) => ({ ...prev, [activeCollectionId]: { ...prev[activeCollectionId], ...updates } }));
+  }, [activeCollectionId]);
+  const setViewMode = useCallback((value: ViewMode) => setPreference({ viewMode: value }), [setPreference]);
+  const setSortField = useCallback((value: SortField) => setPreference({ sortField: value }), [setPreference]);
+  const setSortOrder = useCallback((value: SortOrder) => setPreference({ sortOrder: value }), [setPreference]);
   const [selectedBookmarkIds, setSelectedBookmarkIds] = useState<Set<string>>(new Set());
+  useEffect(() => { localStorage.setItem('keepsake_collection_preferences', JSON.stringify(collectionPreferences)); }, [collectionPreferences]);
+  useEffect(() => { setSelectedBookmarkIds(new Set()); }, [activeCollectionId, activeTag, statusFilter, selectedType, searchQuery]);
 
   // Grid View Card Box Size: small, medium (default/current), large
   const [cardSize, setCardSizeState] = useState<CardSize>(() => {
@@ -232,6 +258,8 @@ export function useKeepsakeStore() {
     lastSyncedAt: null,
     error: null
   });
+  const [serverSyncError, setServerSyncError] = useState<string | null>(null);
+  const [localPersistenceError, setLocalPersistenceError] = useState(false);
 
   // Sync drive file ID cache
   const [driveFileId, setDriveFileId] = useState<string | null>(null);
@@ -253,12 +281,21 @@ export function useKeepsakeStore() {
   }, [driveFileId]);
 
   const isSyncingRef = useRef(false);
+  const trashRequestsRef = useRef(new Map<string, Promise<void>>());
+  const queueTrashRequest = useCallback((id: string, request: () => Promise<Response>) => {
+    const previous = trashRequestsRef.current.get(id) || Promise.resolve();
+    const next = previous.catch(() => {}).then(async () => {
+      const response = await request();
+      if (!response.ok) throw new Error(`Server returned ${response.status}`);
+    }).catch((error) => console.warn('[Keepsake Web] Trash update failed:', error));
+    trashRequestsRef.current.set(id, next);
+    void next.finally(() => { if (trashRequestsRef.current.get(id) === next) trashRequestsRef.current.delete(id); });
+  }, []);
 
   // Server Sync Engine (Keepsake Backend Persistence)
   const syncWithServer = useCallback(async (options?: { silent?: boolean }) => {
     try {
-      const currentStoreRaw = localStorage.getItem(LOCAL_STORAGE_KEY);
-      const storeToSend = currentStoreRaw ? JSON.parse(currentStoreRaw) : storeRef.current;
+      const storeToSend = storeRef.current;
 
       const res = await fetch('/api/sync', {
         method: 'POST',
@@ -266,30 +303,36 @@ export function useKeepsakeStore() {
         body: JSON.stringify({ store: storeToSend })
       });
 
+      if (!res.ok) throw new Error(`Server returned ${res.status}`);
       if (res.ok) {
         const data = await res.json();
+        if (!data.store || !Array.isArray(data.store.bookmarks) || !Array.isArray(data.store.collections)) {
+          throw new Error('Invalid server sync response');
+        }
         if (data.store) {
           setStore((prev) => {
+            const merged = mergeStores(prev, data.store, deviceId).mergedStore;
             if (
-              data.store.lastModified !== prev.lastModified ||
-              data.store.bookmarks.length !== prev.bookmarks.length ||
-              data.store.collections.length !== prev.collections.length ||
-              JSON.stringify(data.store.bookmarks) !== JSON.stringify(prev.bookmarks) ||
-              JSON.stringify(data.store.collections) !== JSON.stringify(prev.collections)
+              JSON.stringify(merged.bookmarks) !== JSON.stringify(prev.bookmarks) ||
+              JSON.stringify(merged.collections) !== JSON.stringify(prev.collections) ||
+              JSON.stringify(merged.tombstones) !== JSON.stringify(prev.tombstones) ||
+              JSON.stringify(merged.savedSearches || []) !== JSON.stringify(prev.savedSearches || [])
             ) {
-              storeRef.current = data.store;
-              return data.store;
+              storeRef.current = merged;
+              return merged;
             }
             return prev;
           });
         }
       }
+      setServerSyncError(null);
     } catch (err) {
+      setServerSyncError(err instanceof Error ? err.message : 'Server unavailable');
       if (!options?.silent) {
         console.warn('[Keepsake Web] Server sync offline or unavailable:', err);
       }
     }
-  }, []);
+  }, [deviceId]);
 
   // Initial sync with server on mount
   useEffect(() => {
@@ -316,7 +359,7 @@ export function useKeepsakeStore() {
   // Listen for sync notifications from extension content script or BroadcastChannel
   useEffect(() => {
     const handleMsg = (event: MessageEvent) => {
-      if (event.data?.type === 'KEEPSAKE_SYNC_TRIGGER') {
+      if (event.origin === window.location.origin && event.data?.type === 'KEEPSAKE_SYNC_TRIGGER') {
         syncWithServer({ silent: true });
       }
     };
@@ -328,8 +371,10 @@ export function useKeepsakeStore() {
   useEffect(() => {
     try {
       localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(store));
+      setLocalPersistenceError(false);
     } catch (e) {
       console.error('Failed to save to localStorage:', e);
+      setLocalPersistenceError(true);
     }
   }, [store]);
 
@@ -421,16 +466,6 @@ export function useKeepsakeStore() {
       }
     }
   }, [store.collections]);
-
-  // Auto-switch viewMode if current collection has a defaultViewMode
-  useEffect(() => {
-    if (activeCollectionId && activeCollectionId !== 'all' && activeCollectionId !== 'unsorted' && activeCollectionId !== 'trash') {
-      const col = store.collections.find((c) => c.id === activeCollectionId);
-      if (col?.defaultViewMode) {
-        setViewMode(col.defaultViewMode);
-      }
-    }
-  }, [activeCollectionId, store.collections]);
 
   // Google Drive Sync Engine (Stable callback that does not re-create on store/fileId changes)
   const syncWithGoogleDrive = useCallback(async () => {
@@ -679,10 +714,13 @@ export function useKeepsakeStore() {
 
       const now = new Date().toISOString();
       const newBookmarks: Bookmark[] = [];
+      const knownUrls = new Set(storeRef.current.bookmarks.filter((bm) => !bm.isTrash).map((bm) => normalizeUrl(bm.url)));
 
       for (let i = 0; i < items.length; i++) {
         const item = items[i];
         const cleanUrl = normalizeUrl(item.url);
+        if (knownUrls.has(cleanUrl)) continue;
+        knownUrls.add(cleanUrl);
         const domain = extractDomain(cleanUrl);
         const ytThumb = getYouTubeThumbnail(cleanUrl);
         const isVideo = !!getYouTubeVideoId(cleanUrl);
@@ -763,7 +801,7 @@ export function useKeepsakeStore() {
   );
 
   const saveUrlToCollection = useCallback(
-    async (rawUrl: string, targetCollectionId?: string, initialTitle?: string): Promise<Bookmark> => {
+    async (rawUrl: string, targetCollectionId?: string, initialTitle?: string): Promise<Bookmark | undefined> => {
       const res = await saveBookmarksToCollection([{ url: rawUrl, title: initialTitle }], targetCollectionId);
       return res[0];
     },
@@ -829,10 +867,10 @@ export function useKeepsakeStore() {
       return next;
     });
 
-    fetch(`/api/bookmarks/${id}`, {
+    queueTrashRequest(id, () => fetch(`/api/bookmarks/${id}`, {
       method: 'DELETE'
-    }).catch((e) => console.warn('[Keepsake Web] moveToTrash server persist error:', e));
-  }, []);
+    }));
+  }, [queueTrashRequest]);
 
   const restoreFromTrash = useCallback((id: string) => {
     const now = new Date().toISOString();
@@ -842,12 +880,12 @@ export function useKeepsakeStore() {
       bookmarks: prev.bookmarks.map((bm) => (bm.id === id ? { ...bm, isTrash: false, updatedAt: now } : bm))
     }));
 
-    fetch(`/api/bookmarks/${id}`, {
+    queueTrashRequest(id, () => fetch(`/api/bookmarks/${id}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ isTrash: false })
-    }).catch((e) => console.warn('[Keepsake Web] restoreFromTrash server persist error:', e));
-  }, []);
+    }));
+  }, [queueTrashRequest]);
 
   const permanentlyDeleteBookmark = useCallback((id: string) => {
     const now = new Date().toISOString();
@@ -1118,7 +1156,7 @@ export function useKeepsakeStore() {
         bookmarks: prev.bookmarks.map((bm) =>
           bm.collectionId === id ? { ...bm, collectionId: 'unsorted', updatedAt: now } : bm
         ),
-        collections: prev.collections.filter((col) => col.id !== id),
+        collections: prev.collections.filter((col) => col.id !== id).map((col) => col.parentId === id ? { ...col, parentId: prev.collections.find((parent) => parent.id === id)?.parentId || null, updatedAt: now } : col),
         tombstones: [...(prev.tombstones || []), tombstone]
       }));
 
@@ -1178,6 +1216,41 @@ export function useKeepsakeStore() {
       .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
   }, [store.bookmarks]);
 
+  const renameTag = useCallback((oldTag: string, newTag: string) => {
+    const clean = newTag.trim().toLowerCase().replace(/^#/, '');
+    if (!clean) return;
+    const now = new Date().toISOString();
+    setStore((prev) => ({ ...prev, lastModified: now, bookmarks: prev.bookmarks.map((bm) =>
+      bm.tags.includes(oldTag) ? { ...bm, tags: Array.from(new Set(bm.tags.map((tag) => tag === oldTag ? clean : tag))), updatedAt: now } : bm
+    ) }));
+    setActiveTag((current) => current === oldTag ? clean : current);
+  }, []);
+
+  const saveSearch = useCallback((name: string, query: string) => {
+    const cleanName = name.trim();
+    const cleanQuery = query.trim();
+    if (!cleanName || !cleanQuery) return;
+    const now = new Date().toISOString();
+    setStore((prev) => {
+      const existing = (prev.savedSearches || []).find((item) => !item.deletedAt && item.name.toLowerCase() === cleanName.toLowerCase());
+      const item = { id: existing?.id || `search_${deviceId}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`, name: cleanName, query: cleanQuery, updatedAt: now };
+      return { ...prev, lastModified: now, savedSearches: [...(prev.savedSearches || []).filter((entry) => entry.id !== item.id), item] };
+    });
+  }, [deviceId]);
+
+  const deleteSavedSearch = useCallback((id: string) => {
+    const now = new Date().toISOString();
+    setStore((prev) => ({ ...prev, lastModified: now, savedSearches: (prev.savedSearches || []).map((item) => item.id === id ? { ...item, updatedAt: now, deletedAt: now } : item) }));
+  }, []);
+
+  const removeTag = useCallback((tag: string) => {
+    const now = new Date().toISOString();
+    setStore((prev) => ({ ...prev, lastModified: now, bookmarks: prev.bookmarks.map((bm) =>
+      bm.tags.includes(tag) ? { ...bm, tags: bm.tags.filter((item) => item !== tag), updatedAt: now } : bm
+    ) }));
+    setActiveTag((current) => current === tag ? null : current);
+  }, []);
+
   // Filtered and Sorted Bookmarks for current active view
   const filteredBookmarks = useMemo(() => {
     const parsedSearch = parseSearchQuery(searchQuery);
@@ -1185,13 +1258,12 @@ export function useKeepsakeStore() {
     return store.bookmarks
       .filter((bm) => {
         // Trash view
-        if (activeCollectionId === 'trash') {
-          return bm.isTrash;
-        }
-        if (bm.isTrash) return false;
+        if (activeCollectionId === 'trash' ? !bm.isTrash : bm.isTrash) return false;
 
         // Active collection filter
-        if (activeCollectionId === 'favorites') {
+        if (activeCollectionId === 'trash') {
+          // Continue through the shared search and filter checks.
+        } else if (activeCollectionId === 'favorites') {
           if (!bm.isFavorite) return false;
         } else if (activeCollectionId === 'unsorted') {
           if (bm.collectionId !== 'unsorted') return false;
@@ -1227,15 +1299,15 @@ export function useKeepsakeStore() {
       .sort((a, b) => {
         let cmp = 0;
         if (sortField === 'createdAt') {
-          cmp = new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+          cmp = new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
         } else if (sortField === 'updatedAt') {
-          cmp = new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime();
+          cmp = new Date(a.updatedAt).getTime() - new Date(b.updatedAt).getTime();
         } else if (sortField === 'title') {
           cmp = (a.title || '').localeCompare(b.title || '');
         } else if (sortField === 'domain') {
           cmp = (a.domain || '').localeCompare(b.domain || '');
         }
-        return sortOrder === 'desc' ? cmp : -cmp;
+        return sortOrder === 'asc' ? cmp : -cmp;
       });
   }, [
     store.bookmarks,
@@ -1276,16 +1348,36 @@ export function useKeepsakeStore() {
   }, [store.bookmarks]);
 
   // Import Netscape HTML / JSON
+  const enrichImportedCovers = useCallback(async (items: Bookmark[]) => {
+    let nextIndex = 0;
+    const worker = async () => {
+      while (nextIndex < items.length) {
+        const bookmark = items[nextIndex++];
+        try {
+          const response = await fetch(`/api/scrape?url=${encodeURIComponent(bookmark.url)}`);
+          if (!response.ok) continue;
+          const metadata = await response.json();
+          if (typeof metadata.cover !== 'string' || !metadata.cover) continue;
+          setStore((prev) => {
+            const current = prev.bookmarks.find((item) => item.id === bookmark.id);
+            if (!current || current.isTrash || current.url !== bookmark.url || current.cover) return prev;
+            const now = new Date().toISOString();
+            return { ...prev, lastModified: now, bookmarks: prev.bookmarks.map((item) => item.id === bookmark.id ? { ...item, cover: metadata.cover, updatedAt: now } : item) };
+          });
+        } catch { /* Offline or unsupported pages remain saved without a cover. */ }
+      }
+    };
+    await Promise.all(Array.from({ length: Math.min(3, items.length) }, () => worker()));
+  }, []);
+
   const importData = useCallback(
     (content: string, format: 'html' | 'json') => {
       const now = new Date().toISOString();
       if (format === 'json') {
-        const parsed = JSON.parse(content);
-        if (parsed.bookmarks) {
-          const mergeResult = mergeStores(store, parsed, deviceId);
-          setStore(mergeResult.mergedStore);
-          return { importedCount: parsed.bookmarks.length };
-        }
+        const parsed = parseBackup(content);
+        const mergeResult = mergeStores(store, parsed, deviceId);
+        setStore(mergeResult.mergedStore);
+        return { importedCount: mergeResult.bookmarksUpdated, skippedCount: Math.max(0, parsed.bookmarks.length - mergeResult.bookmarksUpdated) };
       } else {
         const parsedItems = parseNetscapeHtml(content);
         const colMap = new Map<string, Collection>();
@@ -1293,8 +1385,12 @@ export function useKeepsakeStore() {
 
         const newBookmarks: Bookmark[] = [];
         const newCols: Collection[] = [];
+        const knownUrls = new Set(store.bookmarks.filter((bm) => !bm.isTrash).map((bm) => normalizeUrl(bm.url)));
 
         for (const item of parsedItems) {
+          const cleanUrl = normalizeUrl(item.url);
+          if (knownUrls.has(cleanUrl)) continue;
+          knownUrls.add(cleanUrl);
           const colName = item.collectionName || 'Unsorted';
           const lowerName = colName.toLowerCase();
           let targetColId = 'unsorted';
@@ -1319,7 +1415,7 @@ export function useKeepsakeStore() {
           const domain = extractDomain(item.url);
           newBookmarks.push({
             id: 'bm_' + Math.random().toString(36).substring(2, 11) + Date.now().toString(36),
-            url: item.url,
+            url: cleanUrl,
             title: item.title || domain,
             description: item.description || '',
             domain,
@@ -1341,11 +1437,13 @@ export function useKeepsakeStore() {
           bookmarks: [...newBookmarks, ...prev.bookmarks]
         }));
 
-        return { importedCount: newBookmarks.length };
+        if (newBookmarks.length) setTimeout(() => { void enrichImportedCovers(newBookmarks); }, 0);
+
+        return { importedCount: newBookmarks.length, skippedCount: parsedItems.length - newBookmarks.length };
       }
       return { importedCount: 0 };
     },
-    [store, deviceId]
+    [store, deviceId, enrichImportedCovers]
   );
 
   return {
@@ -1353,6 +1451,11 @@ export function useKeepsakeStore() {
     bookmarks: filteredBookmarks,
     collections: store.collections,
     allTags,
+    savedSearches: (store.savedSearches || []).filter((item) => !item.deletedAt),
+    saveSearch,
+    deleteSavedSearch,
+    renameTag,
+    removeTag,
     counts,
     activeCollectionId,
     setActiveCollectionId: selectCollection,
@@ -1388,6 +1491,8 @@ export function useKeepsakeStore() {
     syncStatus,
     syncWithGoogleDrive,
     syncWithServer,
+    serverSyncError,
+    localPersistenceError,
     addBookmark,
     saveUrlToCollection,
     saveBookmarksToCollection,
@@ -1409,6 +1514,7 @@ export function useKeepsakeStore() {
     updateCollection,
     deleteCollection,
     reorderCollections,
-    importData
+    importData,
+    enrichImportedCovers
   };
 }

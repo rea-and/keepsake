@@ -50,16 +50,17 @@ class ServerStoreManager {
   }
 
   private loadOrCreateStore(): KeepsakeDataStore {
-    try {
-      if (fs.existsSync(STORE_PATH)) {
+    if (fs.existsSync(STORE_PATH)) {
+      try {
         const raw = fs.readFileSync(STORE_PATH, 'utf-8');
         const parsed = JSON.parse(raw);
         if (parsed && Array.isArray(parsed.bookmarks) && Array.isArray(parsed.collections)) {
           return parsed;
         }
+        throw new Error('Store is missing bookmark or collection lists');
+      } catch (err) {
+        throw new Error(`Unable to read existing store at ${STORE_PATH}; the file was not modified`, { cause: err });
       }
-    } catch (err) {
-      console.error('[ServerStore] Failed to read store.json, creating new default store:', err);
     }
 
     const defaultStore = createDefaultStore('server');
@@ -68,19 +69,21 @@ class ServerStoreManager {
   }
 
   private persist(newStore: KeepsakeDataStore): void {
+    const tmpPath = `${STORE_PATH}.tmp.${process.pid}.${Math.random().toString(36).slice(2)}`;
     try {
       this.ensureDataDir();
-      const tmpPath = `${STORE_PATH}.tmp.${Date.now()}`;
       fs.writeFileSync(tmpPath, JSON.stringify(newStore, null, 2), 'utf-8');
       fs.renameSync(tmpPath, STORE_PATH);
     } catch (err) {
       console.error('[ServerStore] Failed to persist store to disk:', err);
-      // Fallback synchronous write
+      try { if (fs.existsSync(tmpPath)) fs.unlinkSync(tmpPath); } catch {}
+      // Several operations update the in-memory store before persisting; roll
+      // it back to the last committed file if the atomic replacement failed.
       try {
-        fs.writeFileSync(STORE_PATH, JSON.stringify(newStore, null, 2), 'utf-8');
-      } catch (e) {
-        console.error('[ServerStore] Fallback write also failed:', e);
-      }
+        const committed = JSON.parse(fs.readFileSync(STORE_PATH, 'utf-8'));
+        if (Array.isArray(committed.bookmarks) && Array.isArray(committed.collections)) this.store = committed;
+      } catch {}
+      throw new Error('Could not save the Keepsake store', { cause: err });
     }
   }
 
@@ -342,6 +345,7 @@ class ServerStoreManager {
         sortOrder:
           data.sortOrder !== undefined ? data.sortOrder : this.store.collections.length,
         defaultViewMode: data.defaultViewMode,
+        parentId: data.parentId,
         createdAt: data.createdAt || now,
         updatedAt: now
       };
@@ -359,6 +363,8 @@ class ServerStoreManager {
     const existingIndex = this.store.collections.findIndex((c) => c.id === id);
     if (existingIndex === -1) return false;
 
+    const parentId = this.store.collections[existingIndex].parentId || null;
+    this.store.collections = this.store.collections.map((col) => col.parentId === id ? { ...col, parentId, updatedAt: now } : col);
     // Remove collection and create tombstone
     this.store.collections.splice(existingIndex, 1);
     const tombstone: SyncTombstone = { id, type: 'collection', deletedAt: now };

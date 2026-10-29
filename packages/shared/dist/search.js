@@ -19,9 +19,18 @@ function parseSearchQuery(query) {
     if (!query || !query.trim()) {
         return result;
     }
-    const tokens = query.trim().split(/\s+/);
+    const tokens = query.trim().match(/-?"[^"]*"|\S+/g) || [];
     const textWords = [];
+    const excludedTerms = [];
     for (const token of tokens) {
+        if (token.startsWith('-') && token.length > 1) {
+            excludedTerms.push(token.slice(1).replace(/^"|"$/g, '').toLowerCase());
+            continue;
+        }
+        if (token.startsWith('"') && token.endsWith('"')) {
+            textWords.push(token.slice(1, -1).toLowerCase());
+            continue;
+        }
         const lowerToken = token.toLowerCase();
         // Check for #tag
         if (token.startsWith('#') && token.length > 1) {
@@ -80,6 +89,8 @@ function parseSearchQuery(query) {
         textWords.push(token);
     }
     result.text = textWords.join(' ').toLowerCase();
+    result.terms = textWords.map((word) => word.toLowerCase()).filter(Boolean);
+    result.excludedTerms = excludedTerms.filter(Boolean);
     return result;
 }
 /**
@@ -123,14 +134,15 @@ function matchesSearch(bookmark, parsed) {
         }
     }
     // Filter free text
-    if (parsed.text) {
-        const searchTerms = parsed.text.split(' ').filter(Boolean);
+    if (parsed.text || parsed.excludedTerms?.length) {
+        const searchTerms = parsed.terms || parsed.text.split(' ').filter(Boolean);
         const searchableContent = [
             bookmark.title,
             bookmark.description,
             bookmark.domain,
             bookmark.url,
             bookmark.note || '',
+            bookmark.readerContent?.textContent || '',
             ...bookmark.tags
         ].join(' ').toLowerCase();
         for (const term of searchTerms) {
@@ -138,6 +150,8 @@ function matchesSearch(bookmark, parsed) {
                 return false;
             }
         }
+        if (parsed.excludedTerms?.some((term) => searchableContent.includes(term)))
+            return false;
     }
     return true;
 }

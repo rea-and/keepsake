@@ -12,7 +12,7 @@ This guide provides the complete set of instructions to:
 
 | Requirement | Recommended Version | Purpose |
 | :--- | :--- | :--- |
-| **Node.js** | `v20.x LTS` (or `v18+`, `v25+`) | Building and running Web, Server, and Extensions |
+| **Node.js** | `v20.18.1` or newer | Building and running Web, Server, and Extensions |
 | **npm** | `v9+` / `v10+` | Monorepo package management |
 | **Docker & Compose** | Docker `24+`, Compose `v2+` | Production containerized deployment on Ubuntu |
 | **Java JDK** | OpenJDK `17` | Building the Android APK |
