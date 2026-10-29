@@ -108,10 +108,11 @@ app.post('/api/sync', (req: Request, res: Response) => {
 // Bookmarks REST API
 // ==========================================
 app.get('/api/bookmarks', (req: Request, res: Response) => {
-  const { collectionId, isTrash, search, url } = req.query;
+  const { collectionId, isTrash, isDone, search, url } = req.query;
   const bookmarks = serverStore.listBookmarks({
     collectionId: collectionId as string,
     isTrash: isTrash as string | undefined,
+    isDone: isDone as string | undefined,
     search: search as string,
     url: url as string
   });
@@ -145,6 +146,7 @@ app.post('/api/bookmarks', async (req: Request, res: Response) => {
     tags,
     isFavorite,
     isTrash,
+    isDone,
     type,
     createdAt,
     readerContent
@@ -168,6 +170,7 @@ app.post('/api/bookmarks', async (req: Request, res: Response) => {
     tags,
     isFavorite,
     isTrash,
+    isDone,
     type,
     createdAt,
     readerContent

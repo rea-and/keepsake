@@ -29,6 +29,7 @@ export interface Bookmark {
     tags: string[];
     isFavorite: boolean;
     isTrash: boolean;
+    isDone?: boolean;
     type: BookmarkType;
     createdAt: string;
     updatedAt: string;
@@ -109,6 +110,7 @@ export interface ParsedSearchQuery {
     tags: string[];
     domain?: string;
     isFavorite?: boolean;
+    isDone?: boolean;
     collectionId?: string;
     type?: BookmarkType;
     hasNote?: boolean;

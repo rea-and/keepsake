@@ -49,6 +49,15 @@ function parseSearchQuery(query) {
             result.isFavorite = true;
             continue;
         }
+        // Check for is:done or is:pending
+        if (lowerToken === 'is:done' || lowerToken === 'done:true') {
+            result.isDone = true;
+            continue;
+        }
+        if (lowerToken === 'is:pending' || lowerToken === 'is:todo' || lowerToken === 'done:false') {
+            result.isDone = false;
+            continue;
+        }
         // Check for has:note
         if (lowerToken === 'has:note') {
             result.hasNote = true;
@@ -79,6 +88,10 @@ function parseSearchQuery(query) {
 function matchesSearch(bookmark, parsed) {
     // Filter favorite
     if (parsed.isFavorite !== undefined && bookmark.isFavorite !== parsed.isFavorite) {
+        return false;
+    }
+    // Filter done / pending status
+    if (parsed.isDone !== undefined && Boolean(bookmark.isDone) !== parsed.isDone) {
         return false;
     }
     // Filter type

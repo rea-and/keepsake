@@ -107,6 +107,7 @@ class ServerStoreManager {
   public listBookmarks(filter?: {
     collectionId?: string;
     isTrash?: boolean | string;
+    isDone?: boolean | string;
     url?: string;
     search?: string;
   }): Bookmark[] {
@@ -120,6 +121,11 @@ class ServerStoreManager {
     if (filter?.isTrash !== undefined) {
       const isTrashVal = filter.isTrash === true || filter.isTrash === 'true';
       list = list.filter((b) => Boolean(b.isTrash) === isTrashVal);
+    }
+
+    if (filter?.isDone !== undefined) {
+      const isDoneVal = filter.isDone === true || filter.isDone === 'true';
+      list = list.filter((b) => Boolean(b.isDone) === isDoneVal);
     }
 
     if (filter?.collectionId) {
@@ -210,6 +216,7 @@ class ServerStoreManager {
         favicon: favicon || existing.favicon,
         cover: cover !== undefined ? cover : existing.cover,
         type: bookmarkType,
+        isDone: data.isDone !== undefined ? Boolean(data.isDone) : (existing.isDone || false),
         tags: data.tags !== undefined ? tags : existing.tags,
         updatedAt: now
       };
@@ -231,6 +238,7 @@ class ServerStoreManager {
         tags,
         isFavorite: data.isFavorite || false,
         isTrash: data.isTrash || false,
+        isDone: data.isDone || false,
         type: bookmarkType,
         createdAt: data.createdAt || now,
         updatedAt: now,

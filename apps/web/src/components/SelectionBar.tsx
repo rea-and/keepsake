@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Collection } from '@keepsake/shared';
-import { FolderInput, Tag, Star, Trash2, X, Check } from 'lucide-react';
+import { FolderInput, Tag, Star, Trash2, X, Check, CheckCircle2 } from 'lucide-react';
 
 interface SelectionBarProps {
   selectedCount: number;
@@ -9,6 +9,7 @@ interface SelectionBarProps {
   onBulkMove: (collectionId: string) => void;
   onBulkAddTag: (tag: string) => void;
   onBulkFavorite: (isFavorite: boolean) => void;
+  onBulkDone?: (isDone: boolean) => void;
   onBulkDelete: () => void;
 }
 
@@ -19,6 +20,7 @@ export const SelectionBar: React.FC<SelectionBarProps> = ({
   onBulkMove,
   onBulkAddTag,
   onBulkFavorite,
+  onBulkDone,
   onBulkDelete
 }) => {
   const [showMoveMenu, setShowMoveMenu] = useState(false);
@@ -135,6 +137,18 @@ export const SelectionBar: React.FC<SelectionBarProps> = ({
           <Star className="w-3.5 h-3.5 text-yellow-400 fill-yellow-400" />
           <span>Star</span>
         </button>
+
+        {/* Done */}
+        {onBulkDone && (
+          <button
+            onClick={() => onBulkDone(true)}
+            title="Mark as Done"
+            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg hover:bg-neutral-800 dark:hover:bg-neutral-800 text-xs font-medium text-emerald-400 hover:text-emerald-300 transition-colors"
+          >
+            <CheckCircle2 className="w-3.5 h-3.5" />
+            <span>Done</span>
+          </button>
+        )}
 
         {/* Delete */}
         <button

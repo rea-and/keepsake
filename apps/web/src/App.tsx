@@ -221,6 +221,8 @@ function KeepsakeDashboard({ store }: KeepsakeDashboardProps) {
         activeCollectionId={store.activeCollectionId}
         onSelectCollection={store.setActiveCollectionId}
         counts={store.counts}
+        statusFilter={store.statusFilter}
+        onSelectStatusFilter={store.setStatusFilter}
         allTags={store.allTags}
         activeTag={store.activeTag}
         onSelectTag={store.setActiveTag}
@@ -268,6 +270,8 @@ function KeepsakeDashboard({ store }: KeepsakeDashboardProps) {
           onViewModeChange={store.setViewMode}
           selectedType={store.selectedType}
           onSelectType={store.setSelectedType}
+          statusFilter={store.statusFilter}
+          onSelectStatusFilter={store.setStatusFilter}
           sortField={store.sortField}
           sortOrder={store.sortOrder}
           onSortChange={(field, order) => {
@@ -334,6 +338,7 @@ function KeepsakeDashboard({ store }: KeepsakeDashboardProps) {
                   selectedIds={store.selectedBookmarkIds}
                   onToggleSelect={handleToggleSelect}
                   onToggleFavorite={store.toggleFavorite}
+                  onToggleDone={store.toggleDone}
                   onEdit={handleEditBookmark}
                   onDelete={store.moveToTrash}
                   onOpenReader={(bm) => setReaderBookmark(bm)}
@@ -347,6 +352,7 @@ function KeepsakeDashboard({ store }: KeepsakeDashboardProps) {
                   selectedIds={store.selectedBookmarkIds}
                   onToggleSelect={handleToggleSelect}
                   onToggleFavorite={store.toggleFavorite}
+                  onToggleDone={store.toggleDone}
                   onEdit={handleEditBookmark}
                   onDelete={store.moveToTrash}
                   onOpenReader={(bm) => setReaderBookmark(bm)}
@@ -357,6 +363,7 @@ function KeepsakeDashboard({ store }: KeepsakeDashboardProps) {
                 <HeadlinesView
                   bookmarks={store.bookmarks}
                   onToggleFavorite={store.toggleFavorite}
+                  onToggleDone={store.toggleDone}
                   onEdit={handleEditBookmark}
                   onDelete={store.moveToTrash}
                   onOpenReader={(bm) => setReaderBookmark(bm)}
@@ -367,6 +374,7 @@ function KeepsakeDashboard({ store }: KeepsakeDashboardProps) {
                 <MoodboardView
                   bookmarks={store.bookmarks}
                   onToggleFavorite={store.toggleFavorite}
+                  onToggleDone={store.toggleDone}
                   onEdit={handleEditBookmark}
                   onDelete={store.moveToTrash}
                   onOpenReader={(bm) => setReaderBookmark(bm)}
@@ -385,6 +393,7 @@ function KeepsakeDashboard({ store }: KeepsakeDashboardProps) {
         onBulkMove={store.bulkMove}
         onBulkAddTag={store.bulkAddTag}
         onBulkFavorite={store.bulkFavorite}
+        onBulkDone={store.bulkDone}
         onBulkDelete={store.bulkDelete}
       />
 

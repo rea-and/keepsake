@@ -9,7 +9,7 @@ import {
   isSparseTitle,
   getYouTubeThumbnail
 } from '@keepsake/shared';
-import { X, Loader2, Sparkles, Star, Tag as TagIcon, Folder, Link as LinkIcon } from 'lucide-react';
+import { X, Loader2, Sparkles, Star, Tag as TagIcon, Folder, Link as LinkIcon, CheckCircle2 } from 'lucide-react';
 
 interface BookmarkModalProps {
   isOpen: boolean;
@@ -40,6 +40,7 @@ export const BookmarkModal: React.FC<BookmarkModalProps> = ({
   const [tags, setTags] = useState<string[]>([]);
   const [tagInput, setTagInput] = useState('');
   const [isFavorite, setIsFavorite] = useState(false);
+  const [isDone, setIsDone] = useState(false);
   const [type, setType] = useState<BookmarkType>('link');
   const [isScraping, setIsScraping] = useState(false);
   const [readerContent, setReaderContent] = useState<any>(undefined);
@@ -55,6 +56,7 @@ export const BookmarkModal: React.FC<BookmarkModalProps> = ({
       setCollectionId(bookmarkToEdit.collectionId || 'unsorted');
       setTags(bookmarkToEdit.tags || []);
       setIsFavorite(bookmarkToEdit.isFavorite || false);
+      setIsDone(bookmarkToEdit.isDone || false);
       setType(bookmarkToEdit.type || 'link');
       setReaderContent(bookmarkToEdit.readerContent);
     } else {
@@ -67,6 +69,7 @@ export const BookmarkModal: React.FC<BookmarkModalProps> = ({
       setCollectionId(defaultCollectionId && defaultCollectionId !== 'all' && defaultCollectionId !== 'favorites' && defaultCollectionId !== 'trash' ? defaultCollectionId : 'unsorted');
       setTags([]);
       setIsFavorite(false);
+      setIsDone(false);
       setType('link');
       setReaderContent(undefined);
     }
@@ -171,6 +174,7 @@ export const BookmarkModal: React.FC<BookmarkModalProps> = ({
       collectionId,
       tags,
       isFavorite,
+      isDone,
       type,
       isTrash: false,
       readerContent
@@ -372,18 +376,33 @@ export const BookmarkModal: React.FC<BookmarkModalProps> = ({
 
           {/* Cover & Favorite Options */}
           <div className="flex items-center justify-between pt-1">
-            <button
-              type="button"
-              onClick={() => setIsFavorite(!isFavorite)}
-              className={`flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-lg border transition-colors ${
-                isFavorite
-                  ? 'border-yellow-400 bg-yellow-50 dark:bg-yellow-950/20 text-yellow-600 dark:text-yellow-400'
-                  : 'border-neutral-200 dark:border-neutral-800 text-neutral-500 hover:text-neutral-800 dark:hover:text-neutral-200'
-              }`}
-            >
-              <Star className={`w-3.5 h-3.5 ${isFavorite ? 'fill-yellow-400' : ''}`} />
-              <span>{isFavorite ? 'Starred' : 'Favorite'}</span>
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setIsDone(!isDone)}
+                className={`flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-lg border transition-colors ${
+                  isDone
+                    ? 'border-emerald-500 bg-emerald-50 dark:bg-emerald-950/20 text-emerald-600 dark:text-emerald-400 font-semibold'
+                    : 'border-neutral-200 dark:border-neutral-800 text-neutral-500 hover:text-neutral-800 dark:hover:text-neutral-200'
+                }`}
+              >
+                <CheckCircle2 className={`w-3.5 h-3.5 ${isDone ? 'text-emerald-500' : ''}`} />
+                <span>{isDone ? 'Done' : 'Mark as Done'}</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setIsFavorite(!isFavorite)}
+                className={`flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-lg border transition-colors ${
+                  isFavorite
+                    ? 'border-yellow-400 bg-yellow-50 dark:bg-yellow-950/20 text-yellow-600 dark:text-yellow-400'
+                    : 'border-neutral-200 dark:border-neutral-800 text-neutral-500 hover:text-neutral-800 dark:hover:text-neutral-200'
+                }`}
+              >
+                <Star className={`w-3.5 h-3.5 ${isFavorite ? 'fill-yellow-400' : ''}`} />
+                <span>{isFavorite ? 'Starred' : 'Favorite'}</span>
+              </button>
+            </div>
 
             {cover && (
               <div className="flex items-center gap-2">

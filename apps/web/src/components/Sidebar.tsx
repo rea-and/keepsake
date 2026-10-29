@@ -26,7 +26,10 @@ import {
   Video,
   FileText,
   LogOut,
-  GripVertical
+  GripVertical,
+  CheckCircle2,
+  Circle,
+  Clock
 } from 'lucide-react';
 import {
   Collection,
@@ -52,7 +55,16 @@ interface SidebarProps {
   collections: Collection[];
   activeCollectionId: string;
   onSelectCollection: (id: string) => void;
-  counts: { allCount: number; unsortedCount: number; favoritesCount: number; trashCount: number };
+  counts: {
+    allCount: number;
+    unsortedCount: number;
+    favoritesCount: number;
+    trashCount: number;
+    pendingCount?: number;
+    doneCount?: number;
+  };
+  statusFilter?: 'all' | 'pending' | 'done';
+  onSelectStatusFilter?: (status: 'all' | 'pending' | 'done') => void;
   allTags: Array<{ name: string; count: number }>;
   activeTag: string | null;
   onSelectTag: (tag: string | null) => void;
@@ -83,6 +95,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
   activeCollectionId,
   onSelectCollection,
   counts,
+  statusFilter = 'all',
+  onSelectStatusFilter,
   allTags,
   activeTag,
   onSelectTag,
@@ -406,6 +420,67 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 {counts.trashCount}
               </span>
             </a>
+          </div>
+
+          {/* Status Filter (Only Pending / Only Done) */}
+          <div>
+            <div className="flex items-center justify-between px-3 mb-1.5">
+              <span className="text-[11px] font-bold uppercase tracking-wider text-neutral-400 dark:text-neutral-500">
+                Status Filter
+              </span>
+              {statusFilter !== 'all' && onSelectStatusFilter && (
+                <button
+                  onClick={() => onSelectStatusFilter('all')}
+                  className="text-[11px] text-sky-500 hover:underline font-medium"
+                >
+                  Show all
+                </button>
+              )}
+            </div>
+
+            <div className="space-y-0.5">
+              <button
+                onClick={() => onSelectStatusFilter?.(statusFilter === 'pending' ? 'all' : 'pending')}
+                className={`w-full flex items-center justify-between px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
+                  statusFilter === 'pending'
+                    ? 'bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 font-semibold ring-1 ring-amber-500/30'
+                    : 'text-neutral-700 dark:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-800/60'
+                }`}
+              >
+                <div className="flex items-center gap-2.5">
+                  <Clock className={`w-4 h-4 ${statusFilter === 'pending' ? 'text-amber-500' : 'text-neutral-400'}`} />
+                  <span>Only Pending</span>
+                </div>
+                <span className={`text-xs px-2 py-0.5 rounded-full ${
+                  statusFilter === 'pending'
+                    ? 'bg-amber-100 dark:bg-amber-900/60 text-amber-800 dark:text-amber-200 font-bold'
+                    : 'bg-neutral-100 dark:bg-neutral-800 text-neutral-500 dark:text-neutral-400'
+                }`}>
+                  {counts.pendingCount ?? 0}
+                </span>
+              </button>
+
+              <button
+                onClick={() => onSelectStatusFilter?.(statusFilter === 'done' ? 'all' : 'done')}
+                className={`w-full flex items-center justify-between px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
+                  statusFilter === 'done'
+                    ? 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 font-semibold ring-1 ring-emerald-500/30'
+                    : 'text-neutral-700 dark:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-800/60'
+                }`}
+              >
+                <div className="flex items-center gap-2.5">
+                  <CheckCircle2 className={`w-4 h-4 ${statusFilter === 'done' ? 'text-emerald-500' : 'text-neutral-400'}`} />
+                  <span>Only Done</span>
+                </div>
+                <span className={`text-xs px-2 py-0.5 rounded-full ${
+                  statusFilter === 'done'
+                    ? 'bg-emerald-100 dark:bg-emerald-900/60 text-emerald-800 dark:text-emerald-200 font-bold'
+                    : 'bg-neutral-100 dark:bg-neutral-800 text-neutral-500 dark:text-neutral-400'
+                }`}>
+                  {counts.doneCount ?? 0}
+                </span>
+              </button>
+            </div>
           </div>
 
           {/* Collections List */}

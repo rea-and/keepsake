@@ -90,6 +90,10 @@ class ServerStoreManager {
             const isTrashVal = filter.isTrash === true || filter.isTrash === 'true';
             list = list.filter((b) => Boolean(b.isTrash) === isTrashVal);
         }
+        if (filter?.isDone !== undefined) {
+            const isDoneVal = filter.isDone === true || filter.isDone === 'true';
+            list = list.filter((b) => Boolean(b.isDone) === isDoneVal);
+        }
         if (filter?.collectionId) {
             if (filter.collectionId === 'favorites') {
                 list = list.filter((b) => b.isFavorite);
@@ -164,6 +168,7 @@ class ServerStoreManager {
                 favicon: favicon || existing.favicon,
                 cover: cover !== undefined ? cover : existing.cover,
                 type: bookmarkType,
+                isDone: data.isDone !== undefined ? Boolean(data.isDone) : (existing.isDone || false),
                 tags: data.tags !== undefined ? tags : existing.tags,
                 updatedAt: now
             };
@@ -185,6 +190,7 @@ class ServerStoreManager {
                 tags,
                 isFavorite: data.isFavorite || false,
                 isTrash: data.isTrash || false,
+                isDone: data.isDone || false,
                 type: bookmarkType,
                 createdAt: data.createdAt || now,
                 updatedAt: now,

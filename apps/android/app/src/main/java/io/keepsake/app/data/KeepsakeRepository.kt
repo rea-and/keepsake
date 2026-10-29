@@ -134,6 +134,21 @@ class KeepsakeRepository(private val context: Context) {
         }
     }
 
+    suspend fun toggleDone(bookmarkId: String, serverUrl: String) = withContext(Dispatchers.IO) {
+        val index = bookmarks.indexOfFirst { it.id == bookmarkId }
+        if (index != -1) {
+            val current = bookmarks[index]
+            val updated = current.copy(isDone = !current.isDone, updatedAt = nowIso())
+            bookmarks[index] = updated
+            saveToCache()
+
+            // Persist to server
+            httpPut("${serverUrl.removeSuffix("/")}/api/bookmarks/$bookmarkId", JSONObject().apply {
+                put("isDone", updated.isDone)
+            }.toString())
+        }
+    }
+
     suspend fun moveToTrash(bookmarkId: String, serverUrl: String) = withContext(Dispatchers.IO) {
         val index = bookmarks.indexOfFirst { it.id == bookmarkId }
         if (index != -1) {
@@ -223,6 +238,7 @@ class KeepsakeRepository(private val context: Context) {
         collectionId: String?,
         tags: List<String>,
         isFavorite: Boolean,
+        isDone: Boolean = false,
         cover: String?,
         domain: String,
         serverUrl: String
@@ -238,6 +254,7 @@ class KeepsakeRepository(private val context: Context) {
             put("collectionId", collectionId ?: JSONObject.NULL)
             put("tags", tagsArr)
             put("isFavorite", isFavorite)
+            put("isDone", isDone)
             put("type", "link")
             if (!cover.isNullOrEmpty()) {
                 put("cover", cover)
@@ -451,6 +468,7 @@ class KeepsakeRepository(private val context: Context) {
         collectionId: String? = null,
         tags: List<String>,
         isFavorite: Boolean,
+        isDone: Boolean? = null,
         serverUrl: String
     ): Boolean = withContext(Dispatchers.IO) {
         val index = bookmarks.indexOfFirst { it.id == bookmarkId }
@@ -466,6 +484,7 @@ class KeepsakeRepository(private val context: Context) {
             collectionId = collectionId,
             tags = cleanTags,
             isFavorite = isFavorite,
+            isDone = isDone ?: current.isDone,
             updatedAt = nowIso()
         )
         bookmarks[index] = updated
@@ -481,6 +500,7 @@ class KeepsakeRepository(private val context: Context) {
             put("collectionId", updated.collectionId ?: JSONObject.NULL)
             put("tags", tagsArr)
             put("isFavorite", updated.isFavorite)
+            put("isDone", updated.isDone)
         }
         httpPut("${serverUrl.removeSuffix("/")}/api/bookmarks/$bookmarkId", payload.toString())
         true

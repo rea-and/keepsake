@@ -44,6 +44,7 @@ const DRIVE_SYNC_KEY = 'keepsake_drive_sync_enabled';
 
 export type ThemeMode = 'system' | 'light' | 'dark';
 export type CardSize = 'small' | 'medium' | 'large';
+export type StatusFilter = 'all' | 'pending' | 'done';
 
 function getOrCreateDeviceId(): string {
   let id = localStorage.getItem(DEVICE_ID_KEY);
@@ -140,6 +141,7 @@ export function useKeepsakeStore() {
     [store.collections]
   );
   const [activeTag, setActiveTag] = useState<string | null>(null);
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [selectedType, setSelectedType] = useState<BookmarkType | 'all'>('all');
   const [viewMode, setViewMode] = useState<ViewMode>('cards');
@@ -609,6 +611,7 @@ export function useKeepsakeStore() {
         favicon,
         cover,
         tags,
+        isDone: bookmarkData.isDone || false,
         type: isVideo ? 'video' : (bookmarkData.type || 'link'),
         createdAt: now,
         updatedAt: now
@@ -705,6 +708,7 @@ export function useKeepsakeStore() {
           tags,
           isFavorite,
           isTrash: false,
+          isDone: false,
           type: isVideo ? 'video' : 'link',
           favicon,
           cover,
@@ -786,6 +790,28 @@ export function useKeepsakeStore() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ isFavorite: nextFavorite })
     }).catch((e) => console.warn('[Keepsake Web] toggleFavorite server persist error:', e));
+  }, []);
+
+  const toggleDone = useCallback((id: string) => {
+    const now = new Date().toISOString();
+    let nextDone = false;
+    setStore((prev) => {
+      const bm = prev.bookmarks.find((b) => b.id === id);
+      nextDone = bm ? !bm.isDone : true;
+      return {
+        ...prev,
+        lastModified: now,
+        bookmarks: prev.bookmarks.map((b) =>
+          b.id === id ? { ...b, isDone: nextDone, updatedAt: now } : b
+        )
+      };
+    });
+
+    fetch(`/api/bookmarks/${id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ isDone: nextDone })
+    }).catch((e) => console.warn('[Keepsake Web] toggleDone server persist error:', e));
   }, []);
 
   const moveToTrash = useCallback((id: string) => {
@@ -936,6 +962,29 @@ export function useKeepsakeStore() {
           ids.includes(bm.id) ? { ...bm, isFavorite, updatedAt: now } : bm
         )
       }));
+    },
+    [selectedBookmarkIds]
+  );
+
+  const bulkDone = useCallback(
+    (isDone: boolean) => {
+      const ids = Array.from(selectedBookmarkIds);
+      const now = new Date().toISOString();
+      setStore((prev) => ({
+        ...prev,
+        lastModified: now,
+        bookmarks: prev.bookmarks.map((bm) =>
+          ids.includes(bm.id) ? { ...bm, isDone, updatedAt: now } : bm
+        )
+      }));
+
+      ids.forEach((id) => {
+        fetch(`/api/bookmarks/${id}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ isDone })
+        }).catch((e) => console.warn('[Keepsake Web] bulkDone persist error:', e));
+      });
     },
     [selectedBookmarkIds]
   );
@@ -1158,6 +1207,14 @@ export function useKeepsakeStore() {
           return false;
         }
 
+        // Status filter (Only Pending / Only Done)
+        if (statusFilter === 'pending' && bm.isDone) {
+          return false;
+        }
+        if (statusFilter === 'done' && !bm.isDone) {
+          return false;
+        }
+
         // Search criteria
         if (searchQuery.trim() && !matchesSearch(bm, parsedSearch)) {
           return false;
@@ -1182,18 +1239,21 @@ export function useKeepsakeStore() {
     store.bookmarks,
     activeCollectionId,
     activeTag,
+    statusFilter,
     selectedType,
     searchQuery,
     sortField,
     sortOrder
   ]);
 
-  // Count Badges for System Collections
+  // Count Badges for System Collections & Status
   const counts = useMemo(() => {
     let allCount = 0;
     let unsortedCount = 0;
     let favoritesCount = 0;
     let trashCount = 0;
+    let pendingCount = 0;
+    let doneCount = 0;
 
     for (const bm of store.bookmarks) {
       if (bm.isTrash) {
@@ -1202,10 +1262,15 @@ export function useKeepsakeStore() {
         allCount++;
         if (bm.collectionId === 'unsorted') unsortedCount++;
         if (bm.isFavorite) favoritesCount++;
+        if (bm.isDone) {
+          doneCount++;
+        } else {
+          pendingCount++;
+        }
       }
     }
 
-    return { allCount, unsortedCount, favoritesCount, trashCount };
+    return { allCount, unsortedCount, favoritesCount, trashCount, pendingCount, doneCount };
   }, [store.bookmarks]);
 
   // Import Netscape HTML / JSON
@@ -1292,6 +1357,8 @@ export function useKeepsakeStore() {
     selectCollection,
     activeTag,
     setActiveTag,
+    statusFilter,
+    setStatusFilter,
     searchQuery,
     setSearchQuery,
     selectedType,
@@ -1324,6 +1391,7 @@ export function useKeepsakeStore() {
     saveBookmarksToCollection,
     updateBookmark,
     toggleFavorite,
+    toggleDone,
     moveToTrash,
     restoreFromTrash,
     permanentlyDeleteBookmark,
@@ -1332,6 +1400,7 @@ export function useKeepsakeStore() {
     bulkMove,
     bulkAddTag,
     bulkFavorite,
+    bulkDone,
     moveBookmarkToCollection,
     addTagToBookmark,
     addCollection,

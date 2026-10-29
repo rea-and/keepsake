@@ -66,8 +66,33 @@
                 android:textColor="#64748B"
                 android:textSize="11sp"
                 tools:text="• Oct 21" />
+
+            <TextView
+                android:id="@+id/tvDoneBadge"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="8dp"
+                android:background="@drawable/bg_badge_done"
+                android:paddingStart="5dp"
+                android:paddingEnd="5dp"
+                android:paddingTop="1dp"
+                android:paddingBottom="1dp"
+                android:text="DONE"
+                android:textColor="#34D399"
+                android:textSize="9sp"
+                android:textStyle="bold"
+                android:visibility="gone" />
         </LinearLayout>
     </LinearLayout>
+
+    <!-- Done Status Button -->
+    <ImageButton
+        android:id="@+id/btnDone"
+        android:layout_width="36dp"
+        android:layout_height="36dp"
+        android:background="?attr/selectableItemBackgroundBorderless"
+        android:contentDescription="Done status"
+        android:src="@drawable/ic_circle_empty" />
 
     <!-- Favorite Star -->
     <ImageButton

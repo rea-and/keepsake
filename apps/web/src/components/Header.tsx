@@ -26,6 +26,8 @@ interface HeaderProps {
   onViewModeChange: (mode: ViewMode) => void;
   selectedType: BookmarkType | 'all';
   onSelectType: (type: BookmarkType | 'all') => void;
+  statusFilter?: 'all' | 'pending' | 'done';
+  onSelectStatusFilter?: (status: 'all' | 'pending' | 'done') => void;
   sortField: SortField;
   sortOrder: SortOrder;
   onSortChange: (field: SortField, order: SortOrder) => void;
@@ -45,6 +47,8 @@ export const Header: React.FC<HeaderProps> = ({
   onViewModeChange,
   selectedType,
   onSelectType,
+  statusFilter = 'all',
+  onSelectStatusFilter,
   sortField,
   sortOrder,
   onSortChange,
@@ -149,6 +153,24 @@ export const Header: React.FC<HeaderProps> = ({
                   className="p-1.5 rounded hover:bg-neutral-100 dark:hover:bg-neutral-800 text-left font-mono"
                 >
                   is:favorite <span className="text-neutral-400 font-sans">Only starred</span>
+                </button>
+                <button
+                  onClick={() => {
+                    onSearchChange(searchQuery + ' is:pending ');
+                    setShowSearchHelp(false);
+                  }}
+                  className="p-1.5 rounded hover:bg-neutral-100 dark:hover:bg-neutral-800 text-left font-mono"
+                >
+                  is:pending <span className="text-neutral-400 font-sans">Only pending / to go through</span>
+                </button>
+                <button
+                  onClick={() => {
+                    onSearchChange(searchQuery + ' is:done ');
+                    setShowSearchHelp(false);
+                  }}
+                  className="p-1.5 rounded hover:bg-neutral-100 dark:hover:bg-neutral-800 text-left font-mono"
+                >
+                  is:done <span className="text-neutral-400 font-sans">Only completed</span>
                 </button>
                 <button
                   onClick={() => {
@@ -326,14 +348,35 @@ export const Header: React.FC<HeaderProps> = ({
           ))}
         </div>
 
-        {activeTag && (
-          <div className="flex items-center gap-1.5 bg-sky-100 dark:bg-sky-950/60 text-sky-700 dark:text-sky-300 px-2 py-0.5 rounded-full text-xs font-medium">
-            <span>#{activeTag}</span>
-            <button onClick={onClearTag} className="hover:text-sky-900 dark:hover:text-white">
-              <X className="w-3 h-3" />
-            </button>
-          </div>
-        )}
+        <div className="flex items-center gap-1.5">
+          {statusFilter !== 'all' && (
+            <div className={`flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs font-medium ${
+              statusFilter === 'done'
+                ? 'bg-emerald-100 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300'
+                : 'bg-amber-100 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300'
+            }`}>
+              <span>Status: {statusFilter === 'done' ? 'Only Done' : 'Only Pending'}</span>
+              {onSelectStatusFilter && (
+                <button
+                  onClick={() => onSelectStatusFilter('all')}
+                  className="hover:opacity-75"
+                  title="Clear status filter"
+                >
+                  <X className="w-3 h-3" />
+                </button>
+              )}
+            </div>
+          )}
+
+          {activeTag && (
+            <div className="flex items-center gap-1.5 bg-sky-100 dark:bg-sky-950/60 text-sky-700 dark:text-sky-300 px-2 py-0.5 rounded-full text-xs font-medium">
+              <span>#{activeTag}</span>
+              <button onClick={onClearTag} className="hover:text-sky-900 dark:hover:text-white">
+                <X className="w-3 h-3" />
+              </button>
+            </div>
+          )}
+        </div>
       </div>
     </header>
   );

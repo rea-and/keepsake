@@ -157,6 +157,12 @@ class MainActivity : AppCompatActivity() {
                     applyFilterAndRender()
                 }
             },
+            onDoneClick = { bm ->
+                lifecycleScope.launch {
+                    repository.toggleDone(bm.id, getServerUrl())
+                    applyFilterAndRender()
+                }
+            },
             onMoreClick = { bm, view -> showBookmarkContextMenu(bm, view) }
         )
         adapter.isGridView = isGridMode
@@ -268,9 +274,11 @@ class MainActivity : AppCompatActivity() {
         val query = searchQuery.lowercase()
 
         val filtered = repository.bookmarks.filter { bm ->
-            // Collection Filter
+            // Collection / Status Filter
             val matchesCollection = when (activeFilterId) {
                 "all" -> !bm.isTrash
+                "pending" -> !bm.isTrash && !bm.isDone
+                "done" -> !bm.isTrash && bm.isDone
                 "unsorted" -> !bm.isTrash && (bm.collectionId == null || bm.collectionId == "unsorted")
                 "favorites" -> !bm.isTrash && bm.isFavorite
                 "trash" -> bm.isTrash
@@ -294,6 +302,8 @@ class MainActivity : AppCompatActivity() {
         val title = when {
             activeTagFilter != null -> "#$activeTagFilter"
             activeFilterId == "all" -> "All Bookmarks"
+            activeFilterId == "pending" -> "Only Pending"
+            activeFilterId == "done" -> "Only Done"
             activeFilterId == "unsorted" -> "Unsorted Inbox"
             activeFilterId == "favorites" -> "Favorites"
             activeFilterId == "trash" -> "Trash"
@@ -315,6 +325,8 @@ class MainActivity : AppCompatActivity() {
 
         val filters = mutableListOf(
             Pair("all", "All"),
+            Pair("pending", "Pending"),
+            Pair("done", "Done"),
             Pair("unsorted", "Unsorted"),
             Pair("favorites", "Favorites"),
             Pair("trash", "Trash")
@@ -324,6 +336,8 @@ class MainActivity : AppCompatActivity() {
             val count = repository.bookmarks.count { bm ->
                 when (id) {
                     "all" -> !bm.isTrash
+                    "pending" -> !bm.isTrash && !bm.isDone
+                    "done" -> !bm.isTrash && bm.isDone
                     "unsorted" -> !bm.isTrash && (bm.collectionId == null || bm.collectionId == "unsorted")
                     "favorites" -> !bm.isTrash && bm.isFavorite
                     "trash" -> bm.isTrash
@@ -407,6 +421,7 @@ class MainActivity : AppCompatActivity() {
             popup.menu.add("Restore Bookmark")
             popup.menu.add("Delete Permanently")
         } else {
+            popup.menu.add(if (bm.isDone) "Mark as Pending" else "Mark as Done")
             popup.menu.add("Edit Bookmark")
             popup.menu.add("Move to Collection")
             popup.menu.add("Edit Tags")
@@ -416,6 +431,14 @@ class MainActivity : AppCompatActivity() {
 
         popup.setOnMenuItemClickListener { item ->
             when (item.title) {
+                "Mark as Done", "Mark as Pending" -> {
+                    lifecycleScope.launch {
+                        repository.toggleDone(bm.id, getServerUrl())
+                        applyFilterAndRender()
+                        Toast.makeText(this@MainActivity, if (bm.isDone) "Marked as Pending" else "Marked as Done", Toast.LENGTH_SHORT).show()
+                    }
+                    true
+                }
                 "Open in Browser" -> {
                     val intent = Intent(Intent.ACTION_VIEW, Uri.parse(bm.url))
                     startActivity(intent)
@@ -527,6 +550,7 @@ class MainActivity : AppCompatActivity() {
         val spinnerCol = view.findViewById<Spinner>(R.id.spinnerEditBookmarkCollection)
         val btnQuickNewCol = view.findViewById<Button>(R.id.btnEditBookmarkNewCollection)
         val btnFavorite = view.findViewById<ImageButton>(R.id.btnEditBookmarkFavorite)
+        val btnDone = view.findViewById<ImageButton>(R.id.btnEditBookmarkDone)
         val btnClose = view.findViewById<ImageButton>(R.id.btnCloseEditBookmarkDialog)
         val btnCancel = view.findViewById<Button>(R.id.btnCancelEditBookmark)
         val btnSave = view.findViewById<Button>(R.id.btnSaveEditBookmark)
@@ -544,6 +568,16 @@ class MainActivity : AppCompatActivity() {
         btnFavorite.setOnClickListener {
             isFav = !isFav
             updateFavIcon()
+        }
+
+        var isDoneStatus = bm.isDone
+        fun updateDoneIcon() {
+            btnDone.setImageResource(if (isDoneStatus) R.drawable.ic_check_circle else R.drawable.ic_circle_empty)
+        }
+        updateDoneIcon()
+        btnDone.setOnClickListener {
+            isDoneStatus = !isDoneStatus
+            updateDoneIcon()
         }
 
         val colOptions = mutableListOf<Pair<String?, String>>()
@@ -596,6 +630,7 @@ class MainActivity : AppCompatActivity() {
                     collectionId = selectedCol,
                     tags = tagsList,
                     isFavorite = isFav,
+                    isDone = isDoneStatus,
                     serverUrl = getServerUrl()
                 )
                 if (ok) {
@@ -726,9 +761,11 @@ class MainActivity : AppCompatActivity() {
         fun populateList() {
             container.removeAllViews()
 
-            // System Collections
+            // System Collections & Status
             val systemItems = listOf(
                 Pair("all", "All Bookmarks"),
+                Pair("pending", "Only Pending"),
+                Pair("done", "Only Done"),
                 Pair("unsorted", "Unsorted Inbox"),
                 Pair("favorites", "Favorites"),
                 Pair("trash", "Trash")
@@ -738,6 +775,8 @@ class MainActivity : AppCompatActivity() {
                 val count = repository.bookmarks.count { bm ->
                     when (id) {
                         "all" -> !bm.isTrash
+                        "pending" -> !bm.isTrash && !bm.isDone
+                        "done" -> !bm.isTrash && bm.isDone
                         "unsorted" -> !bm.isTrash && (bm.collectionId == null || bm.collectionId == "unsorted")
                         "favorites" -> !bm.isTrash && bm.isFavorite
                         "trash" -> bm.isTrash
@@ -1195,10 +1234,12 @@ class MainActivity : AppCompatActivity() {
         val spinnerCol = sheetView.findViewById<Spinner>(R.id.spinnerAddCollection)
         val btnQuickAddCol = sheetView.findViewById<Button>(R.id.btnQuickAddCollection)
         val btnFavorite = sheetView.findViewById<ImageButton>(R.id.btnAddFavorite)
+        val btnDone = sheetView.findViewById<ImageButton>(R.id.btnAddDone)
         val btnCancel = sheetView.findViewById<Button>(R.id.btnCancelAdd)
         val btnSave = sheetView.findViewById<Button>(R.id.btnConfirmAdd)
 
         var isFavorite = false
+        var isDoneStatus = false
 
         // Auto paste from clipboard if URL is present
         val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
@@ -1241,6 +1282,11 @@ class MainActivity : AppCompatActivity() {
             btnFavorite.setImageResource(if (isFavorite) R.drawable.ic_star_filled else R.drawable.ic_star_empty)
         }
 
+        btnDone.setOnClickListener {
+            isDoneStatus = !isDoneStatus
+            btnDone.setImageResource(if (isDoneStatus) R.drawable.ic_check_circle else R.drawable.ic_circle_empty)
+        }
+
         btnCancel.setOnClickListener { dialog.dismiss() }
 
         btnSave.setOnClickListener {
@@ -1270,6 +1316,7 @@ class MainActivity : AppCompatActivity() {
                     collectionId = selectedCol,
                     tags = tagsList,
                     isFavorite = isFavorite,
+                    isDone = isDoneStatus,
                     cover = null,
                     domain = domain,
                     serverUrl = getServerUrl()

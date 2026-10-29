@@ -17,6 +17,7 @@ data class Bookmark(
     val tags: List<String>,
     val isFavorite: Boolean,
     val isTrash: Boolean,
+    val isDone: Boolean = false,
     val type: String,
     val readerContent: String?,
     val createdAt: String,
@@ -39,6 +40,7 @@ data class Bookmark(
             put("tags", tagsArr)
             put("isFavorite", isFavorite)
             put("isTrash", isTrash)
+            put("isDone", isDone)
             put("type", type)
             put("readerContent", readerContent ?: JSONObject.NULL)
             put("createdAt", createdAt)
@@ -79,6 +81,7 @@ data class Bookmark(
                 tags = tagsList,
                 isFavorite = obj.optBoolean("isFavorite", false),
                 isTrash = obj.optBoolean("isTrash", false),
+                isDone = obj.optBoolean("isDone", false),
                 type = obj.optString("type", "link"),
                 readerContent = parsedReaderContent,
                 createdAt = obj.optString("createdAt", ""),

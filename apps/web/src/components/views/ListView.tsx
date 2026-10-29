@@ -1,12 +1,13 @@
 import React from 'react';
 import { Bookmark } from '@keepsake/shared';
-import { Star, ExternalLink, BookOpen, Edit2, Trash2, CheckSquare, Square } from 'lucide-react';
+import { Star, ExternalLink, BookOpen, Edit2, Trash2, CheckSquare, Square, CheckCircle2, Check } from 'lucide-react';
 
 interface ListViewProps {
   bookmarks: Bookmark[];
   selectedIds: Set<string>;
   onToggleSelect: (id: string) => void;
   onToggleFavorite: (id: string) => void;
+  onToggleDone: (id: string) => void;
   onEdit: (bm: Bookmark) => void;
   onDelete: (id: string) => void;
   onOpenReader: (bm: Bookmark) => void;
@@ -17,6 +18,7 @@ export const ListView: React.FC<ListViewProps> = ({
   selectedIds,
   onToggleSelect,
   onToggleFavorite,
+  onToggleDone,
   onEdit,
   onDelete,
   onOpenReader
@@ -54,9 +56,22 @@ export const ListView: React.FC<ListViewProps> = ({
 
               <button
                 onClick={() => onToggleFavorite(bm.id)}
+                title={bm.isFavorite ? 'Starred' : 'Favorite'}
                 className="shrink-0 text-neutral-300 hover:text-yellow-400 dark:text-neutral-600 transition-colors"
               >
                 <Star className={`w-4 h-4 ${bm.isFavorite ? 'fill-yellow-400 text-yellow-400' : ''}`} />
+              </button>
+
+              <button
+                onClick={() => onToggleDone(bm.id)}
+                title={bm.isDone ? 'Done (click to mark as pending)' : 'Mark as Done'}
+                className={`shrink-0 transition-colors ${
+                  bm.isDone
+                    ? 'text-emerald-500 hover:text-emerald-600'
+                    : 'text-neutral-300 hover:text-emerald-500 dark:text-neutral-600'
+                }`}
+              >
+                <CheckCircle2 className={`w-4 h-4 ${bm.isDone ? 'fill-emerald-500/20' : ''}`} />
               </button>
 
               <img
@@ -72,10 +87,21 @@ export const ListView: React.FC<ListViewProps> = ({
                     href={bm.url}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="text-sm font-medium text-neutral-900 dark:text-neutral-100 hover:text-sky-600 dark:hover:text-sky-400 truncate"
+                    className={`text-sm font-medium hover:text-sky-600 dark:hover:text-sky-400 truncate ${
+                      bm.isDone
+                        ? 'text-neutral-500 dark:text-neutral-400 line-through'
+                        : 'text-neutral-900 dark:text-neutral-100'
+                    }`}
                   >
                     {bm.title || bm.url}
                   </a>
+
+                  {bm.isDone && (
+                    <span className="shrink-0 inline-flex items-center gap-0.5 px-1.5 py-0.2 rounded text-[10px] font-semibold bg-emerald-100 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300">
+                      <Check className="w-2.5 h-2.5 stroke-[2.5]" />
+                      Done
+                    </span>
+                  )}
 
                   {bm.readerContent && (
                     <button

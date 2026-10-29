@@ -34,6 +34,7 @@ export interface Bookmark {
   tags: string[];
   isFavorite: boolean;
   isTrash: boolean;
+  isDone?: boolean;
   type: BookmarkType;
   createdAt: string; // ISO 8601
   updatedAt: string; // ISO 8601
@@ -124,6 +125,7 @@ export interface ParsedSearchQuery {
   tags: string[];
   domain?: string;
   isFavorite?: boolean;
+  isDone?: boolean;
   collectionId?: string;
   type?: BookmarkType;
   hasNote?: boolean;

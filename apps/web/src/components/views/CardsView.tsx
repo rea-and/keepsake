@@ -1,12 +1,13 @@
 import React from 'react';
 import { Bookmark } from '@keepsake/shared';
-import { Star, ExternalLink, BookOpen, Edit2, Trash2, CheckSquare, Square } from 'lucide-react';
+import { Star, ExternalLink, BookOpen, Edit2, Trash2, CheckSquare, Square, Check } from 'lucide-react';
 
 interface CardsViewProps {
   bookmarks: Bookmark[];
   selectedIds: Set<string>;
   onToggleSelect: (id: string) => void;
   onToggleFavorite: (id: string) => void;
+  onToggleDone: (id: string) => void;
   onEdit: (bm: Bookmark) => void;
   onDelete: (id: string) => void;
   onOpenReader: (bm: Bookmark) => void;
@@ -18,6 +19,7 @@ export const CardsView: React.FC<CardsViewProps> = ({
   selectedIds,
   onToggleSelect,
   onToggleFavorite,
+  onToggleDone,
   onEdit,
   onDelete,
   onOpenReader,
@@ -114,15 +116,38 @@ export const CardsView: React.FC<CardsViewProps> = ({
               {isSelected ? <CheckSquare className="w-4 h-4 fill-sky-500 text-white" /> : <Square className="w-4 h-4" />}
             </button>
 
-            {/* Favorite Star */}
-            <button
-              onClick={() => onToggleFavorite(bm.id)}
-              className={`absolute top-2.5 right-2.5 p-1.5 rounded-full bg-white/90 dark:bg-[#1a1a1e]/90 backdrop-blur shadow transition-all ${
-                bm.isFavorite ? 'opacity-100 text-yellow-400' : 'opacity-0 group-hover:opacity-100 text-neutral-400 hover:text-yellow-400'
-              }`}
-            >
-              <Star className={`w-4 h-4 ${bm.isFavorite ? 'fill-yellow-400' : ''}`} />
-            </button>
+            {/* Actions: Done Tick + Favorite Star */}
+            <div className="absolute top-2.5 right-2.5 flex items-center gap-1.5 z-10">
+              {/* Done Tick */}
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onToggleDone(bm.id);
+                }}
+                title={bm.isDone ? 'Done (click to mark as pending)' : 'Mark as Done'}
+                className={`p-1.5 rounded-full backdrop-blur shadow transition-all ${
+                  bm.isDone
+                    ? 'opacity-100 bg-emerald-500 text-white shadow-emerald-500/25 ring-2 ring-emerald-400/30'
+                    : 'opacity-0 group-hover:opacity-100 bg-white/90 dark:bg-[#1a1a1e]/90 text-neutral-400 hover:text-emerald-500 hover:scale-105'
+                }`}
+              >
+                <Check className="w-3.5 h-3.5 stroke-[2.8]" />
+              </button>
+
+              {/* Favorite Star */}
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onToggleFavorite(bm.id);
+                }}
+                title={bm.isFavorite ? 'Starred' : 'Favorite'}
+                className={`p-1.5 rounded-full bg-white/90 dark:bg-[#1a1a1e]/90 backdrop-blur shadow transition-all ${
+                  bm.isFavorite ? 'opacity-100 text-yellow-400' : 'opacity-0 group-hover:opacity-100 text-neutral-400 hover:text-yellow-400'
+                }`}
+              >
+                <Star className={`w-3.5 h-3.5 ${bm.isFavorite ? 'fill-yellow-400' : ''}`} />
+              </button>
+            </div>
 
             {/* Card Body */}
             <div className={`${paddingClass} flex-1 flex flex-col justify-between`}>
@@ -138,6 +163,12 @@ export const CardsView: React.FC<CardsViewProps> = ({
                   <span className="text-[11px] font-medium text-neutral-500 dark:text-neutral-400 truncate">
                     {bm.domain}
                   </span>
+                  {bm.isDone && (
+                    <span className="ml-auto inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-emerald-100 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300">
+                      <Check className="w-2.5 h-2.5 stroke-[2.5]" />
+                      Done
+                    </span>
+                  )}
                 </div>
 
                 {/* Title */}
@@ -145,7 +176,11 @@ export const CardsView: React.FC<CardsViewProps> = ({
                   href={bm.url}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className={`block ${titleClass} text-neutral-900 dark:text-neutral-100 hover:text-sky-600 dark:hover:text-sky-400`}
+                  className={`block ${titleClass} ${
+                    bm.isDone
+                      ? 'text-neutral-500 dark:text-neutral-400 line-through'
+                      : 'text-neutral-900 dark:text-neutral-100 hover:text-sky-600 dark:hover:text-sky-400'
+                  }`}
                 >
                   {bm.title || bm.url}
                 </a>

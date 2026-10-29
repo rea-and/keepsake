@@ -18,6 +18,7 @@ import java.util.*
 class BookmarkAdapter(
     private val onItemClick: (Bookmark) -> Unit,
     private val onFavoriteClick: (Bookmark) -> Unit,
+    private val onDoneClick: (Bookmark) -> Unit,
     private val onMoreClick: (Bookmark, View) -> Unit
 ) : ListAdapter<Bookmark, RecyclerView.ViewHolder>(DiffCallback) {
 
@@ -71,8 +72,10 @@ class BookmarkAdapter(
         private val tvTitle: TextView = itemView.findViewById(R.id.tvTitle)
         private val tvDescription: TextView = itemView.findViewById(R.id.tvDescription)
         private val btnFavorite: ImageButton = itemView.findViewById(R.id.btnFavorite)
+        private val btnDone: ImageButton = itemView.findViewById(R.id.btnDone)
         private val btnMore: ImageButton = itemView.findViewById(R.id.btnMore)
         private val readerBadge: View = itemView.findViewById(R.id.readerBadge)
+        private val tvDoneBadge: TextView? = itemView.findViewById(R.id.tvDoneBadge)
 
         fun bind(bm: Bookmark) {
             tvTitle.text = bm.title.ifEmpty { bm.url }
@@ -93,6 +96,20 @@ class BookmarkAdapter(
                 btnFavorite.setImageResource(R.drawable.ic_star_empty)
             }
 
+            if (bm.isDone) {
+                btnDone.setImageResource(R.drawable.ic_check_circle)
+                btnDone.setBackgroundResource(R.drawable.bg_badge_done)
+                tvDoneBadge?.visibility = View.VISIBLE
+                tvTitle.paintFlags = tvTitle.paintFlags or android.graphics.Paint.STRIKE_THRU_TEXT_FLAG
+                tvTitle.alpha = 0.7f
+            } else {
+                btnDone.setImageResource(R.drawable.ic_circle_empty)
+                btnDone.setBackgroundResource(R.drawable.bg_badge)
+                tvDoneBadge?.visibility = View.GONE
+                tvTitle.paintFlags = tvTitle.paintFlags and android.graphics.Paint.STRIKE_THRU_TEXT_FLAG.inv()
+                tvTitle.alpha = 1.0f
+            }
+
             // Cover Image
             ImageLoader.load(ivCover, bm.cover, R.drawable.ic_image_placeholder)
             // Favicon
@@ -100,6 +117,7 @@ class BookmarkAdapter(
 
             itemView.setOnClickListener { onItemClick(bm) }
             btnFavorite.setOnClickListener { onFavoriteClick(bm) }
+            btnDone.setOnClickListener { onDoneClick(bm) }
             btnMore.setOnClickListener { onMoreClick(bm, it) }
         }
     }
@@ -110,7 +128,9 @@ class BookmarkAdapter(
         private val tvDomain: TextView = itemView.findViewById(R.id.tvDomain)
         private val tvDate: TextView = itemView.findViewById(R.id.tvDate)
         private val btnFavorite: ImageButton = itemView.findViewById(R.id.btnFavorite)
+        private val btnDone: ImageButton = itemView.findViewById(R.id.btnDone)
         private val btnMore: ImageButton = itemView.findViewById(R.id.btnMore)
+        private val tvDoneBadge: TextView? = itemView.findViewById(R.id.tvDoneBadge)
 
         fun bind(bm: Bookmark) {
             tvTitle.text = bm.title.ifEmpty { bm.url }
@@ -124,11 +144,24 @@ class BookmarkAdapter(
                 btnFavorite.setImageResource(R.drawable.ic_star_empty)
             }
 
+            if (bm.isDone) {
+                btnDone.setImageResource(R.drawable.ic_check_circle)
+                tvDoneBadge?.visibility = View.VISIBLE
+                tvTitle.paintFlags = tvTitle.paintFlags or android.graphics.Paint.STRIKE_THRU_TEXT_FLAG
+                tvTitle.alpha = 0.7f
+            } else {
+                btnDone.setImageResource(R.drawable.ic_circle_empty)
+                tvDoneBadge?.visibility = View.GONE
+                tvTitle.paintFlags = tvTitle.paintFlags and android.graphics.Paint.STRIKE_THRU_TEXT_FLAG.inv()
+                tvTitle.alpha = 1.0f
+            }
+
             val thumbUrl = bm.cover ?: bm.favicon
             ImageLoader.load(ivThumbnail, thumbUrl, R.drawable.ic_image_placeholder)
 
             itemView.setOnClickListener { onItemClick(bm) }
             btnFavorite.setOnClickListener { onFavoriteClick(bm) }
+            btnDone.setOnClickListener { onDoneClick(bm) }
             btnMore.setOnClickListener { onMoreClick(bm, it) }
         }
 

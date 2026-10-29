@@ -81,10 +81,11 @@ app.post('/api/sync', (req, res) => {
 // Bookmarks REST API
 // ==========================================
 app.get('/api/bookmarks', (req, res) => {
-    const { collectionId, isTrash, search, url } = req.query;
+    const { collectionId, isTrash, isDone, search, url } = req.query;
     const bookmarks = serverStore.listBookmarks({
         collectionId: collectionId,
         isTrash: isTrash,
+        isDone: isDone,
         search: search,
         url: url
     });
@@ -101,7 +102,7 @@ app.get('/api/bookmarks/:id', (req, res) => {
     return res.json({ bookmark });
 });
 app.post('/api/bookmarks', async (req, res) => {
-    const { id, url, title, description, excerpt, note, domain, favicon, cover, collectionId, tags, isFavorite, isTrash, type, createdAt, readerContent } = req.body;
+    const { id, url, title, description, excerpt, note, domain, favicon, cover, collectionId, tags, isFavorite, isTrash, isDone, type, createdAt, readerContent } = req.body;
     if (!url) {
         return res.status(400).json({ error: 'Missing required field: "url"' });
     }
@@ -119,6 +120,7 @@ app.post('/api/bookmarks', async (req, res) => {
         tags,
         isFavorite,
         isTrash,
+        isDone,
         type,
         createdAt,
         readerContent
