@@ -347,9 +347,10 @@ class KeepsakeRepository(private val context: Context) {
         val index = collections.indexOfFirst { it.id == id }
         if (index == -1) return@withContext false
 
-        collections.removeAt(index)
-
         val now = nowIso()
+        val parentId = collections[index].parentId
+        collections.removeAt(index)
+        collections = collections.map { if (it.parentId == id) it.copy(parentId = parentId, updatedAt = now) else it }.toMutableList()
         for (i in 0 until bookmarks.size) {
             if (bookmarks[i].collectionId == id) {
                 bookmarks[i] = bookmarks[i].copy(collectionId = null, updatedAt = now)

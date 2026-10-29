@@ -32,6 +32,7 @@ import io.keepsake.app.models.AuthSession
 import io.keepsake.app.models.Bookmark
 import io.keepsake.app.models.Collection
 import io.keepsake.app.utils.ImageLoader
+import io.keepsake.app.utils.flattenCollections
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -514,8 +515,8 @@ class MainActivity : AppCompatActivity() {
             Pair("+new", "+ New Collection"),
             Pair("unsorted", "Unsorted Inbox")
         )
-        repository.collections.filter { !it.isSystem }.sortedBy { it.sortOrder }.forEach {
-            options.add(Pair(it.id, it.title))
+        flattenCollections(repository.collections).forEach {
+            options.add(Pair(it.collection.id, it.label))
         }
 
         val titles = options.map { it.second }.toTypedArray()
@@ -584,8 +585,8 @@ class MainActivity : AppCompatActivity() {
         fun setupSpinner(targetSelectId: String? = bm.collectionId) {
             colOptions.clear()
             colOptions.add(Pair(null, "Unsorted Inbox"))
-            repository.collections.filter { !it.isSystem }.sortedBy { it.sortOrder }.forEach {
-                colOptions.add(Pair(it.id, it.title))
+            flattenCollections(repository.collections).forEach {
+                colOptions.add(Pair(it.collection.id, it.label))
             }
             val adapter = ArrayAdapter(this, android.R.layout.simple_spinner_dropdown_item, colOptions.map { it.second })
             spinnerCol.adapter = adapter
@@ -800,7 +801,8 @@ class MainActivity : AppCompatActivity() {
             }
 
             // Divider / Section Header
-            val customCols = repository.collections.filter { !it.isSystem }.sortedBy { it.sortOrder }
+            val tree = flattenCollections(repository.collections)
+            val customCols = tree.map { it.collection }
             val sectionHeader = TextView(this).apply {
                 text = "MY CATEGORIES (${customCols.size})"
                 setTextColor(0xFF64748B.toInt())
@@ -852,7 +854,7 @@ class MainActivity : AppCompatActivity() {
                         }
                     }
 
-                    tvTitle.text = col.title
+                    tvTitle.text = tree[index].label
                     if (activeFilterId == col.id && activeTagFilter == null) {
                         tvTitle.setTextColor(0xFF38BDF8.toInt())
                     }
@@ -976,7 +978,7 @@ class MainActivity : AppCompatActivity() {
             if (col == null) return@setOnClickListener
             AlertDialog.Builder(this)
                 .setTitle("Delete Collection")
-                .setMessage("Delete \"${col.title}\"? All bookmarks in this collection will be moved to Unsorted.")
+                .setMessage("Delete \"${col.title}\"? Bookmarks will move to Unsorted and subcollections will move up one level.")
                 .setPositiveButton("Delete") { _, _ ->
                     lifecycleScope.launch {
                         repository.deleteCollection(col.id, getServerUrl())
@@ -1256,8 +1258,8 @@ class MainActivity : AppCompatActivity() {
         fun refreshColOptions() {
             colOptions.clear()
             colOptions.add(Pair(null, "Unsorted Inbox"))
-            repository.collections.filter { !it.isSystem }.sortedBy { it.sortOrder }.forEach {
-                colOptions.add(Pair(it.id, it.title))
+            flattenCollections(repository.collections).forEach {
+                colOptions.add(Pair(it.collection.id, it.label))
             }
         }
         refreshColOptions()

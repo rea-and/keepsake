@@ -13,6 +13,8 @@ import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.lifecycleScope
 import io.keepsake.app.databinding.ActivityShareBinding
+import io.keepsake.app.models.Collection
+import io.keepsake.app.utils.flattenCollections
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
@@ -187,19 +189,17 @@ class ShareActivity : AppCompatActivity() {
                 val fetched = mutableListOf<CollectionOption>()
                 fetched.add(CollectionOption(null, getString(R.string.unsorted)))
 
-                val customItems = mutableListOf<Pair<Int, CollectionOption>>()
+                val customItems = mutableListOf<Collection>()
                 for (i in 0 until collectionsArray.length()) {
                     val item = collectionsArray.getJSONObject(i)
                     val id = item.optString("id")
                     val title = item.optString("title")
                     val isSystem = item.optBoolean("isSystem", false)
-                    val sortOrder = item.optInt("sortOrder", i)
                     if (id.isNotEmpty() && title.isNotEmpty() && !isSystem && id != "unsorted" && id != "all" && id != "favorites" && id != "trash") {
-                        customItems.add(sortOrder to CollectionOption(id, title))
+                        customItems.add(Collection.fromJson(item))
                     }
                 }
-                customItems.sortBy { it.first }
-                fetched.addAll(customItems.map { it.second })
+                fetched.addAll(flattenCollections(customItems).map { CollectionOption(it.collection.id, it.label) })
 
                 withContext(Dispatchers.Main) {
                     collectionList.clear()
