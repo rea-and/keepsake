@@ -31,7 +31,7 @@ chrome.runtime.onInstalled.addListener(() => {
 });
 
 // Helper: Post bookmark to Keepsake server
-async function postBookmarkToServer(serverUrl: string, bookmark: Bookmark, precondition?: string | null): Promise<'saved' | 'conflict' | 'failed'> {
+async function postBookmarkToServer(serverUrl: string, bookmark: Bookmark, precondition?: string | null): Promise<'saved' | 'conflict' | 'unauthorized' | 'failed'> {
   const cleanUrl = serverUrl.replace(/\/+$/, '');
   try {
     const response = await apiFetch(`${cleanUrl}/api/bookmarks`, {
@@ -39,7 +39,7 @@ async function postBookmarkToServer(serverUrl: string, bookmark: Bookmark, preco
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(precondition === undefined ? bookmark : { ...bookmark, ifUnmodifiedSince: precondition })
     });
-    return response.ok ? 'saved' : response.status === 409 ? 'conflict' : 'failed';
+    return response.ok ? 'saved' : response.status === 409 ? 'conflict' : response.status === 401 ? 'unauthorized' : 'failed';
   } catch (err) {
     console.warn('[Keepsake Background] Failed to POST bookmark to server:', err);
     return 'failed';
@@ -86,6 +86,9 @@ async function retryCaptures(): Promise<void> {
       } else if (result === 'conflict') {
         const current = await chrome.storage.local.get(key);
         if (current[key]?.revision === value.revision) await chrome.storage.local.set({ [key]: { ...value, conflict: true } });
+      } else if (result === 'unauthorized') {
+        const current = await chrome.storage.local.get(key);
+        if (current[key]?.revision === value.revision) await chrome.storage.local.set({ [key]: { ...value, lastError: 'unauthorized', lastAttemptAt: new Date().toISOString() } });
       }
     }
     if (savedAny) await notifyKeepsakeTabs();
@@ -238,6 +241,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   } else if (message.action === 'COLLECTION_CREATED') {
     notifyKeepsakeTabs();
+  } else if (message.action === 'RETRY_PENDING_CAPTURES') {
+    retryCaptures().then(() => sendResponse({ success: true })).catch(() => sendResponse({ success: false }));
+    return true;
   } else if (message.action === 'SAVE_BOOKMARK_FROM_FEED') {
     const data = message.bookmarkData;
     if (!data || !data.url) {

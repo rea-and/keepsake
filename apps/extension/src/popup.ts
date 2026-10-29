@@ -33,6 +33,7 @@ let currentTags: string[] = [];
 let isStarred = false;
 let collections: Collection[] = [];
 let activeServerUrl = 'http://localhost:3000';
+let serverAuthRequired = false;
 
 // DOM Elements
 const statusBadge = document.getElementById('statusBadge') as HTMLSpanElement;
@@ -218,7 +219,7 @@ async function init() {
             const preferred = currentBookmark?.collectionId || collectionSelect.value || savedLastCollectionId;
             renderCollectionOptions(collections, preferred);
           }
-        }
+        } else if (colRes.status === 401) serverAuthRequired = true;
       } catch (err) {
         console.warn('[Keepsake Extension] Server collections fetch failed:', err);
       }
@@ -236,7 +237,7 @@ async function init() {
           if (checkData.bookmarks && checkData.bookmarks.length > 0) {
             foundBm = checkData.bookmarks[0];
           }
-        }
+        } else if (checkRes.status === 401) serverAuthRequired = true;
       } catch (err) {
         console.warn('[Keepsake Extension] Server check failed:', err);
       }
@@ -283,6 +284,13 @@ async function init() {
           collectionSelect.value = savedLastCollectionId;
         }
       }
+    }
+
+    if (serverAuthRequired) {
+      statusBadge.textContent = 'API token required';
+      statusBadge.classList.remove('saved');
+      collectionMessage.textContent = 'The server rejected this extension’s API token (401). Open Server Settings, enter the matching token, save, then retry this bookmark.';
+      settingsPanel.style.display = 'block';
     }
   });
 }
@@ -380,16 +388,31 @@ toggleSettings.addEventListener('click', () => {
   settingsPanel.style.display = settingsPanel.style.display === 'block' ? 'none' : 'block';
 });
 
-saveSettingsBtn.addEventListener('click', () => {
+saveSettingsBtn.addEventListener('click', async () => {
   const url = serverUrlInput.value.trim().replace(/\/+$/, '');
   activeServerUrl = url || 'http://localhost:3000';
-  chrome.storage.local.set({ serverUrl: activeServerUrl, apiToken: apiTokenInput.value.trim() }, () => {
-    saveSettingsBtn.textContent = 'Saved!';
-    setTimeout(() => {
-      saveSettingsBtn.textContent = 'Save Settings';
-      settingsPanel.style.display = 'none';
-    }, 800);
-  });
+  const apiToken = apiTokenInput.value.trim();
+  saveSettingsBtn.disabled = true;
+  saveSettingsBtn.textContent = 'Checking…';
+  await chrome.storage.local.set({ serverUrl: activeServerUrl, apiToken });
+  try {
+    const response = await apiFetch(`${activeServerUrl}/api/collections`);
+    if (response.status === 401) throw new Error('The server rejected this token (401). Check that it exactly matches KEEPSAKE_API_TOKEN on your server.');
+    if (!response.ok) throw new Error(`Server returned ${response.status}. Check the server URL and try again.`);
+    serverAuthRequired = false;
+    statusBadge.textContent = 'Connected';
+    collectionMessage.textContent = 'Connected to Keepsake. Retrying any queued saves…';
+    await chrome.runtime.sendMessage({ action: 'RETRY_PENDING_CAPTURES' });
+    saveSettingsBtn.textContent = 'Connected ✓';
+    setTimeout(() => { settingsPanel.style.display = 'none'; }, 900);
+  } catch (error) {
+    statusBadge.textContent = error instanceof Error && error.message.includes('(401)') ? 'API token rejected' : 'Connection failed';
+    collectionMessage.textContent = error instanceof Error ? error.message : 'Could not connect to the Keepsake server.';
+    saveSettingsBtn.textContent = 'Check Settings';
+  } finally {
+    saveSettingsBtn.disabled = false;
+    setTimeout(() => { if (!saveSettingsBtn.disabled) saveSettingsBtn.textContent = 'Save Settings'; }, 2500);
+  }
 });
 
 // Save / Update Bookmark
@@ -430,6 +453,7 @@ saveBtn.addEventListener('click', async () => {
 
   // 1. Post to Server if activeServerUrl is configured
   let serverSaved = false;
+  let serverStatus: number | null = null;
   if (activeServerUrl) {
     try {
       const serverRes = await apiFetch(`${activeServerUrl}/api/bookmarks`, {
@@ -438,6 +462,7 @@ saveBtn.addEventListener('click', async () => {
         body: JSON.stringify(newBm)
       });
 
+      serverStatus = serverRes.status;
       if (serverRes.ok) {
         const data = await serverRes.json();
         if (data.bookmark) {
@@ -463,9 +488,16 @@ saveBtn.addEventListener('click', async () => {
     const bookmarks: Bookmark[] = res.bookmarks || [];
     const updatedList = [newBm, ...bookmarks.filter((b) => b.id !== newBm.id && normalizeUrl(b.url) !== normalizeUrl(currentUrl))];
     await chrome.storage.local.set({ bookmarks: updatedList, lastCollectionId: collectionSelect.value || 'unsorted' });
-    saveBtn.textContent = serverSaved ? 'Saved ✓' : 'Queued for sync';
-    statusBadge.textContent = serverSaved ? 'Saved ✓' : 'Sync pending';
+    saveBtn.textContent = serverSaved ? 'Saved ✓' : serverStatus === 401 ? 'Token required' : 'Queued for sync';
+    statusBadge.textContent = serverSaved ? 'Saved ✓' : serverStatus === 401 ? 'API token required' : 'Sync pending';
     statusBadge.classList.toggle('saved', serverSaved);
+    if (serverStatus === 401) {
+      serverAuthRequired = true;
+      settingsPanel.style.display = 'block';
+      collectionMessage.textContent = 'This save is queued in Chrome, but the server rejected the API token (401). Enter the matching server token in Settings, save, then retry.';
+      saveBtn.disabled = false;
+      return;
+    }
     if (serverSaved) chrome.runtime.sendMessage({ action: 'BOOKMARK_SAVED', bookmark: newBm }).catch(() => {});
     setTimeout(() => window.close(), serverSaved ? 600 : 1500);
   } catch (error) {
