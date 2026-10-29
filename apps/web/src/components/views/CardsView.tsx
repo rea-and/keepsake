@@ -81,9 +81,9 @@ export const CardsView: React.FC<CardsViewProps> = ({
                 : 'border-neutral-200 dark:border-neutral-800/80 hover:border-neutral-300 dark:hover:border-neutral-700'
             }`}
           >
-            {/* Cover Image Thumbnail */}
-            {bm.cover ? (
-              <div className={`relative ${coverHeight} w-full bg-neutral-100 dark:bg-neutral-900 overflow-hidden`}>
+            {/* Cover image and corner actions */}
+            <div className={`relative ${bm.cover ? coverHeight : fallbackHeight} w-full bg-neutral-100 dark:bg-neutral-900 dark:bg-gradient-to-br dark:from-neutral-900 dark:to-[#1c1c20] overflow-hidden`}>
+              {bm.cover ? (
                 <img
                   src={bm.cover}
                   alt={bm.title}
@@ -94,61 +94,74 @@ export const CardsView: React.FC<CardsViewProps> = ({
                     (e.target as HTMLElement).style.display = 'none';
                   }}
                 />
-              </div>
-            ) : (
-              <div className={`${fallbackHeight} w-full bg-gradient-to-br from-neutral-100 to-neutral-200 dark:from-neutral-900 dark:to-[#1c1c20] flex items-center justify-center`}>
+              ) : (
+                <div className="w-full h-full bg-gradient-to-br from-neutral-100 to-neutral-200 dark:from-neutral-900 dark:to-[#1c1c20] flex items-center justify-center">
                 <img
                   src={bm.favicon}
                   alt={bm.domain}
                   className={`${cardSize === 'small' ? 'w-6 h-6' : 'w-8 h-8'} opacity-40 rounded`}
                   onError={(e) => ((e.target as HTMLElement).style.display = 'none')}
                 />
-              </div>
-            )}
+                </div>
+              )}
 
-            {/* Selection Checkbox */}
-            <button
-              onClick={() => onToggleSelect(bm.id)}
-              className={`absolute top-2.5 left-2.5 p-1 rounded-md bg-white/90 dark:bg-[#1a1a1e]/90 backdrop-blur shadow transition-all ${
-                isSelected ? 'opacity-100 text-sky-500' : 'opacity-0 group-hover:opacity-100 text-neutral-400 hover:text-neutral-700 dark:hover:text-neutral-200'
-              }`}
-            >
-              {isSelected ? <CheckSquare className="w-4 h-4 fill-sky-500 text-white" /> : <Square className="w-4 h-4" />}
-            </button>
+              {/* Select: top-left */}
+              <button
+                onClick={() => onToggleSelect(bm.id)}
+                title={isSelected ? 'Deselect bookmark' : 'Select bookmark'}
+                aria-label={isSelected ? 'Deselect bookmark' : 'Select bookmark'}
+                className={`absolute top-2.5 left-2.5 z-10 p-1.5 rounded-full bg-white/90 dark:bg-[#1a1a1e]/90 backdrop-blur shadow transition-all ${
+                  isSelected ? 'opacity-100 text-sky-500' : 'opacity-70 group-hover:opacity-100 group-focus-within:opacity-100 text-neutral-500 hover:text-neutral-800 dark:hover:text-neutral-100'
+                }`}
+              >
+                {isSelected ? <CheckSquare className="w-4 h-4 fill-sky-500 text-white" /> : <Square className="w-4 h-4" />}
+              </button>
 
-            {/* Actions: Done Tick + Favorite Star */}
-            <>
-              {/* Done Tick */}
+              {/* Done: bottom-left */}
               <button
                 onClick={(e) => {
                   e.stopPropagation();
                   onToggleDone(bm.id);
                 }}
                 title={bm.isDone ? 'Done (click to mark as pending)' : 'Mark as Done'}
-                style={{ top: `${(bm.cover ? { small: 112, medium: 176, large: 240 } : { small: 64, medium: 80, large: 112 })[cardSize] - 38}px` }}
-                className={`absolute left-2.5 z-10 p-1.5 rounded-full backdrop-blur shadow transition-all ${
+                aria-label={bm.isDone ? 'Mark as pending' : 'Mark as done'}
+                className={`absolute bottom-2.5 left-2.5 z-10 p-1.5 rounded-full backdrop-blur shadow transition-all ${
                   bm.isDone
                     ? 'opacity-100 bg-emerald-500 text-white shadow-emerald-500/25 ring-2 ring-emerald-400/30'
-                    : 'opacity-0 group-hover:opacity-100 bg-white/90 dark:bg-[#1a1a1e]/90 text-neutral-400 hover:text-emerald-500 hover:scale-105'
+                    : 'opacity-70 group-hover:opacity-100 group-focus-within:opacity-100 bg-white/90 dark:bg-[#1a1a1e]/90 text-neutral-600 dark:text-neutral-300 hover:text-emerald-500 hover:scale-105'
                 }`}
               >
                 <Check className="w-3.5 h-3.5 stroke-[2.8]" />
               </button>
 
-              {/* Favorite Star */}
+              {/* Favorite: top-right */}
               <button
                 onClick={(e) => {
                   e.stopPropagation();
                   onToggleFavorite(bm.id);
                 }}
                 title={bm.isFavorite ? 'Starred' : 'Favorite'}
+                aria-label={bm.isFavorite ? 'Remove from favorites' : 'Add to favorites'}
                 className={`absolute top-2.5 right-2.5 z-10 p-1.5 rounded-full bg-white/90 dark:bg-[#1a1a1e]/90 backdrop-blur shadow transition-all ${
-                  bm.isFavorite ? 'opacity-100 text-yellow-400' : 'opacity-0 group-hover:opacity-100 text-neutral-400 hover:text-yellow-400'
+                  bm.isFavorite ? 'opacity-100 text-yellow-400' : 'opacity-70 group-hover:opacity-100 group-focus-within:opacity-100 text-neutral-500 dark:text-neutral-300 hover:text-yellow-400'
                 }`}
               >
                 <Star className={`w-3.5 h-3.5 ${bm.isFavorite ? 'fill-yellow-400' : ''}`} />
               </button>
-            </>
+
+              {/* Move to trash: bottom-right */}
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onDelete(bm.id);
+                }}
+                title="Move to trash"
+                aria-label="Move bookmark to trash"
+                className="absolute bottom-2.5 right-2.5 z-10 p-1.5 rounded-full bg-white/90 dark:bg-[#1a1a1e]/90 backdrop-blur shadow text-neutral-600 dark:text-neutral-300 opacity-70 group-hover:opacity-100 group-focus-within:opacity-100 hover:text-rose-500 transition-all"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+              </button>
+            </div>
 
             {/* Card Body */}
             <div className={`${paddingClass} flex-1 flex flex-col justify-between`}>
@@ -236,13 +249,6 @@ export const CardsView: React.FC<CardsViewProps> = ({
                     >
                       <ExternalLink className="w-3.5 h-3.5" />
                     </a>
-                    <button
-                      onClick={() => onDelete(bm.id)}
-                      title="Delete"
-                      className="p-1 rounded hover:bg-rose-50 dark:hover:bg-rose-950/40 text-neutral-500 hover:text-rose-500"
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </button>
                   </div>
                 </div>
               </div>
