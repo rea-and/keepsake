@@ -7,6 +7,7 @@ import fs from 'fs';
 import { authRouter } from './auth.js';
 import { scrapeUrl } from './scraper.js';
 import { serverStore } from './store.js';
+import { hasBookmarkConflict } from './conflicts.js';
 import { exportToNetscapeHtml, parseNetscapeHtml, extractDomain, getFaviconUrl, isGenericRedditMedia, isRedditUrl, isSparseTitle, canSetCollectionParent } from '@keepsake/shared';
 dotenv.config();
 const __filename = fileURLToPath(import.meta.url);
@@ -37,6 +38,7 @@ app.get('/api/health', (req, res) => {
         status: 'ok',
         app: 'Keepsake Server',
         version: '1.0.0',
+        capabilities: { conditionalBookmarkWrites: true },
         timestamp: new Date().toISOString()
     });
 });
@@ -104,9 +106,19 @@ app.get('/api/bookmarks/:id', (req, res) => {
     return res.json({ bookmark });
 });
 app.post('/api/bookmarks', async (req, res) => {
-    const { id, url, title, description, excerpt, note, domain, favicon, cover, collectionId, tags, isFavorite, isTrash, isDone, type, createdAt, readerContent } = req.body;
+    const { id, url, title, description, excerpt, note, domain, favicon, cover, collectionId, tags, isFavorite, isTrash, isDone, type, createdAt, readerContent, ifUnmodifiedSince } = req.body;
     if (!url) {
         return res.status(400).json({ error: 'Missing required field: "url"' });
+    }
+    // Queued offline captures must not overwrite changes made since the client
+    // last saw this bookmark. The comparison and write run synchronously.
+    if (Object.prototype.hasOwnProperty.call(req.body, 'ifUnmodifiedSince')) {
+        if (ifUnmodifiedSince !== null && typeof ifUnmodifiedSince !== 'string')
+            return res.status(400).json({ error: 'Invalid conflict precondition' });
+        const existing = (id && serverStore.getBookmark(id)) || serverStore.listBookmarks({ url }).find((bookmark) => !bookmark.isTrash);
+        if (hasBookmarkConflict(existing || undefined, ifUnmodifiedSince)) {
+            return res.status(409).json({ error: 'Bookmark changed since this save was queued', bookmark: existing || null });
+        }
     }
     const saved = serverStore.addOrUpdateBookmark({
         id,

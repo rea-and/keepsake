@@ -247,11 +247,25 @@ async function init() {
 
     if (currentBookmark) {
       populateBookmarkUI(currentBookmark);
-      const pendingKey = `keepsake_pending_capture_${currentBookmark.id}`;
-      const pending = await chrome.storage.local.get(pendingKey);
-      if (pending[pendingKey]) {
-        statusBadge.textContent = 'Sync pending';
+      const stored = await chrome.storage.local.get(null);
+      const pending = Object.entries(stored).find(([key, value]) => key.startsWith('keepsake_pending_capture_') && value?.bookmark?.url && normalizeUrl(value.bookmark.url) === currentUrl);
+      if (pending) {
+        const queued = pending[1];
+        statusBadge.textContent = queued.conflict ? 'Sync conflict' : 'Sync pending';
         statusBadge.classList.remove('saved');
+        collectionMessage.textContent = queued.conflict ? 'The server has changed. Review your queued edits before saving.' : 'A save is waiting to sync. ';
+        const review = document.createElement('button');
+        review.type = 'button';
+        review.textContent = 'Review queued edits';
+        review.style.cssText = 'background:none;border:0;color:#38bdf8;text-decoration:underline;cursor:pointer;font:inherit';
+        review.addEventListener('click', () => {
+          currentBookmark = queued.bookmark;
+          populateBookmarkUI(queued.bookmark);
+          statusBadge.textContent = queued.conflict ? 'Review conflict' : 'Sync pending';
+          statusBadge.classList.remove('saved');
+          collectionMessage.textContent = 'Queued edits loaded. Save to apply them to the server.';
+        });
+        collectionMessage.appendChild(review);
       }
     } else {
       statusBadge.textContent = 'New Link';
@@ -434,7 +448,7 @@ saveBtn.addEventListener('click', async () => {
 
   try {
     if (!serverSaved) {
-      const queued = await chrome.runtime.sendMessage({ action: 'QUEUE_POPUP_CAPTURE', serverUrl: activeServerUrl, bookmark: newBm });
+      const queued = await chrome.runtime.sendMessage({ action: 'QUEUE_POPUP_CAPTURE', serverUrl: activeServerUrl, bookmark: newBm, baseUpdatedAt: currentBookmark?.updatedAt || null });
       if (!queued?.success) throw new Error(queued?.error || 'Unable to queue bookmark');
     } else {
       const result = await chrome.runtime.sendMessage({ action: 'CLEAR_PENDING_CAPTURE', id: currentBookmark?.id || newBm.id });

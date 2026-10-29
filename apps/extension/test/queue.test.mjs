@@ -9,7 +9,10 @@ test('popup captures survive storage and retry after the server returns', async 
   const handlers = {};
   const data = {};
   let online = false;
+  let conflict = false;
+  let compatible = true;
   let posts = 0;
+  let lastPayload;
   const listener = (name) => ({ addListener: (callback) => { handlers[name] = callback; } });
   const chrome = {
     runtime: { onInstalled: listener('installed'), onStartup: listener('startup'), onMessage: listener('message') },
@@ -25,7 +28,11 @@ test('popup captures survive storage and retry after the server returns', async 
     action: { setBadgeText: () => {}, setBadgeBackgroundColor: () => {} }
   };
   vm.runInNewContext(code, { chrome, URL, URLSearchParams, crypto: webcrypto, console, setTimeout, clearTimeout,
-    fetch: async () => { posts++; if (!online) throw new Error('offline'); return { ok: true }; } });
+    fetch: async (url, options) => {
+      if (!online) throw new Error('offline');
+      if (url.endsWith('/api/health')) return { ok: true, json: async () => ({ capabilities: { conditionalBookmarkWrites: compatible } }) };
+      posts++; lastPayload = JSON.parse(options.body); return { ok: !conflict, status: conflict ? 409 : 200 };
+    } });
   const bookmark = { id: 'one', url: 'https://example.com', title: 'Example' };
   const result = await new Promise((resolve) => handlers.message({ action: 'QUEUE_POPUP_CAPTURE', serverUrl: 'https://keepsake.test', bookmark }, {}, resolve));
   assert.equal(result.success, true);
@@ -34,8 +41,24 @@ test('popup captures survive storage and retry after the server returns', async 
   await new Promise((resolve) => setTimeout(resolve, 20));
   assert.ok(data.keepsake_pending_capture_one);
   online = true;
+  compatible = false;
+  handlers.alarm({ name: 'keepsake_retry_captures' });
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  assert.ok(data.keepsake_pending_capture_one);
+  assert.equal(posts, 0);
+  compatible = true;
   handlers.alarm({ name: 'keepsake_retry_captures' });
   await new Promise((resolve) => setTimeout(resolve, 20));
   assert.equal(data.keepsake_pending_capture_one, undefined);
+  assert.equal(posts, 1);
+  assert.equal(lastPayload.ifUnmodifiedSince, null);
+  conflict = true;
+  await new Promise((resolve) => handlers.message({ action: 'QUEUE_POPUP_CAPTURE', serverUrl: 'https://keepsake.test', bookmark, baseUpdatedAt: '2024-01-01T00:00:00.000Z' }, {}, resolve));
+  handlers.alarm({ name: 'keepsake_retry_captures' });
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  assert.equal(data.keepsake_pending_capture_one.conflict, true);
+  assert.equal(lastPayload.ifUnmodifiedSince, '2024-01-01T00:00:00.000Z');
+  handlers.alarm({ name: 'keepsake_retry_captures' });
+  await new Promise((resolve) => setTimeout(resolve, 20));
   assert.equal(posts, 2);
 });

@@ -30,18 +30,18 @@ chrome.runtime.onInstalled.addListener(() => {
 });
 
 // Helper: Post bookmark to Keepsake server
-async function postBookmarkToServer(serverUrl: string, bookmark: Bookmark): Promise<boolean> {
+async function postBookmarkToServer(serverUrl: string, bookmark: Bookmark, precondition?: string | null): Promise<'saved' | 'conflict' | 'failed'> {
   const cleanUrl = serverUrl.replace(/\/+$/, '');
   try {
     const response = await fetch(`${cleanUrl}/api/bookmarks`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(bookmark)
+      body: JSON.stringify(precondition === undefined ? bookmark : { ...bookmark, ifUnmodifiedSince: precondition })
     });
-    return response.ok;
+    return response.ok ? 'saved' : response.status === 409 ? 'conflict' : 'failed';
   } catch (err) {
     console.warn('[Keepsake Background] Failed to POST bookmark to server:', err);
-    return false;
+    return 'failed';
   }
 }
 
@@ -49,8 +49,11 @@ const PENDING_PREFIX = 'keepsake_pending_capture_';
 const RETRY_ALARM = 'keepsake_retry_captures';
 let retryInProgress = false;
 
-async function queueCapture(serverUrl: string, bookmark: Bookmark): Promise<void> {
-  await chrome.storage.local.set({ [PENDING_PREFIX + bookmark.id]: { serverUrl, bookmark, revision: crypto.randomUUID() } });
+async function queueCapture(serverUrl: string, bookmark: Bookmark, baseUpdatedAt: string | null = null): Promise<void> {
+  const key = PENDING_PREFIX + bookmark.id;
+  const existing = (await chrome.storage.local.get(key))[key];
+  const originalBase = existing?.serverUrl === serverUrl && Object.prototype.hasOwnProperty.call(existing, 'baseUpdatedAt') ? existing.baseUpdatedAt : baseUpdatedAt;
+  await chrome.storage.local.set({ [key]: { serverUrl, bookmark, baseUpdatedAt: originalBase, revision: crypto.randomUUID() } });
   await chrome.alarms.create(RETRY_ALARM, { periodInMinutes: 1 });
 }
 
@@ -61,12 +64,27 @@ async function retryCaptures(): Promise<void> {
     const all = await chrome.storage.local.get(null);
     const entries = Object.entries(all).filter(([key]) => key.startsWith(PENDING_PREFIX));
     let savedAny = false;
+    const checkedServers = new Map<string, boolean>();
     for (const [key, value] of entries) {
-      if (!value?.serverUrl || !value?.bookmark?.url) continue;
-      if (await postBookmarkToServer(value.serverUrl, value.bookmark)) {
+      if (!value?.serverUrl || !value?.bookmark?.url || value.conflict) continue;
+      let supported = checkedServers.get(value.serverUrl);
+      if (supported === undefined) {
+        try {
+          const health = await fetch(`${value.serverUrl.replace(/\/+$/, '')}/api/health`);
+          const body = health.ok ? await health.json() : null;
+          supported = body?.capabilities?.conditionalBookmarkWrites === true;
+        } catch { supported = false; }
+        checkedServers.set(value.serverUrl, supported);
+      }
+      if (!supported) continue;
+      const result = await postBookmarkToServer(value.serverUrl, value.bookmark, value.baseUpdatedAt ?? null);
+      if (result === 'saved') {
         const current = await chrome.storage.local.get(key);
         if (current[key]?.revision === value.revision) await chrome.storage.local.remove(key);
         savedAny = true;
+      } else if (result === 'conflict') {
+        const current = await chrome.storage.local.get(key);
+        if (current[key]?.revision === value.revision) await chrome.storage.local.set({ [key]: { ...value, conflict: true } });
       }
     }
     if (savedAny) await notifyKeepsakeTabs();
@@ -145,7 +163,7 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
     // If server URL is configured, save bookmark on server
     const serverUrl = res.serverUrl || 'http://localhost:3000';
     if (serverUrl) {
-      const saved = await postBookmarkToServer(serverUrl, bookmark);
+      const saved = (await postBookmarkToServer(serverUrl, bookmark)) === 'saved';
       if (saved) { showSuccessBadge(tab.id!); await notifyKeepsakeTabs(); }
       else { await queueCapture(serverUrl, bookmark); showFailureBadge(tab.id!); }
     }
@@ -187,7 +205,7 @@ chrome.commands.onCommand.addListener(async (command) => {
 
       const serverUrl = res.serverUrl || 'http://localhost:3000';
       if (serverUrl) {
-        const saved = await postBookmarkToServer(serverUrl, bookmark);
+        const saved = (await postBookmarkToServer(serverUrl, bookmark)) === 'saved';
         if (saved) { showSuccessBadge(tab.id!); await notifyKeepsakeTabs(); }
         else { await queueCapture(serverUrl, bookmark); showFailureBadge(tab.id!); }
       }
@@ -207,7 +225,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       sendResponse({ success: false, error: 'Missing bookmark data' });
       return false;
     }
-    queueCapture(message.serverUrl, message.bookmark)
+    queueCapture(message.serverUrl, message.bookmark, typeof message.baseUpdatedAt === 'string' ? message.baseUpdatedAt : null)
       .then(() => sendResponse({ success: true }))
       .catch(() => sendResponse({ success: false, error: 'Unable to queue bookmark' }));
     return true;
@@ -256,7 +274,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       const serverUrl = res.serverUrl || 'http://localhost:3000';
       let saved = false;
       if (serverUrl) {
-        saved = await postBookmarkToServer(serverUrl, bookmark);
+        saved = (await postBookmarkToServer(serverUrl, bookmark)) === 'saved';
         if (saved) await notifyKeepsakeTabs();
         else await queueCapture(serverUrl, bookmark);
       }
