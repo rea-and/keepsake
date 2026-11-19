@@ -50,15 +50,15 @@ export const CardsView: React.FC<CardsViewProps> = ({
   }[cardSize];
 
   const titleClass = {
-    small: 'text-xs font-semibold line-clamp-2 leading-tight mb-1',
-    medium: 'text-sm font-semibold line-clamp-2 leading-snug mb-2',
-    large: 'text-base sm:text-lg font-bold line-clamp-2 leading-snug mb-2.5'
+    small: 'text-xs font-semibold line-clamp-2 break-words leading-tight mb-1',
+    medium: 'text-sm font-semibold line-clamp-2 break-words leading-snug mb-2',
+    large: 'text-base sm:text-lg font-bold line-clamp-2 break-words leading-snug mb-2.5'
   }[cardSize];
 
   const descClass = {
-    small: 'text-[11px] line-clamp-1 mb-2 leading-tight',
-    medium: 'text-xs line-clamp-2 mb-3 leading-relaxed',
-    large: 'text-sm line-clamp-3 mb-3 leading-relaxed'
+    small: 'text-[11px] line-clamp-1 break-words mb-2 leading-tight',
+    medium: 'text-xs line-clamp-2 break-words mb-3 leading-relaxed',
+    large: 'text-sm line-clamp-3 break-words mb-3 leading-relaxed'
   }[cardSize];
 
   return (
@@ -75,7 +75,7 @@ export const CardsView: React.FC<CardsViewProps> = ({
               e.dataTransfer.setData('keepsake/bookmark-id', bm.id);
               e.dataTransfer.effectAllowed = 'copyMove';
             }}
-            className={`group relative bg-white dark:bg-[#151518] rounded-xl border overflow-hidden shadow-sm hover:shadow-md transition-all flex flex-col cursor-grab active:cursor-grabbing ${
+            className={`group relative min-w-0 bg-white dark:bg-[#151518] rounded-xl border overflow-hidden shadow-sm hover:shadow-md transition-all flex flex-col cursor-grab active:cursor-grabbing ${
               isSelected
                 ? 'border-sky-500 ring-2 ring-sky-500/20'
                 : 'border-neutral-200 dark:border-neutral-800/80 hover:border-neutral-300 dark:hover:border-neutral-700'
@@ -198,7 +198,7 @@ export const CardsView: React.FC<CardsViewProps> = ({
 
                 {/* Personal Note */}
                 {bm.note && (
-                  <div className="p-2 mb-2 rounded bg-amber-50 dark:bg-amber-950/20 border border-amber-200/60 dark:border-amber-800/30 text-[11px] text-amber-900 dark:text-amber-200 line-clamp-2">
+                  <div className="p-2 mb-2 rounded bg-amber-50 dark:bg-amber-950/20 border border-amber-200/60 dark:border-amber-800/30 text-[11px] text-amber-900 dark:text-amber-200 line-clamp-2 break-words">
                     <span className="font-semibold">Note:</span> {bm.note}
                   </div>
                 )}

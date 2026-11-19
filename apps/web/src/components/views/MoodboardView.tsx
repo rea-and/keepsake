@@ -96,7 +96,7 @@ export const MoodboardView: React.FC<MoodboardViewProps> = ({
               href={bm.url}
               target="_blank"
               rel="noopener noreferrer"
-              className="block text-xs font-semibold hover:text-sky-500 line-clamp-2 mb-2 leading-tight text-neutral-900 dark:text-neutral-100"
+              className="block text-xs font-semibold hover:text-sky-500 line-clamp-2 break-words mb-2 leading-tight text-neutral-900 dark:text-neutral-100"
             >
               {bm.title || bm.url}
             </a>
