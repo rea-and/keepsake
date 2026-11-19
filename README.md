@@ -54,6 +54,8 @@ npm --workspace=@keepsake/extension test
 npm --workspace=@keepsake/web run test:offline
 ```
 
+Build output (`dist/` in `apps/web`, `apps/server`, `apps/extension` and `packages/shared`) is committed because the production server runs it directly. After changing source in those packages, run `npm run build` and commit the regenerated `dist/` files together with the source.
+
 For Android, run `./gradlew assembleDebug` and `./gradlew testDebugUnitTest` from `apps/android`. The server integration test binds a local port. The Android instrumentation test requires a running emulator and a disposable server; see the test source for its runner arguments.
 
 ## Data and security

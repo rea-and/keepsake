@@ -7,7 +7,7 @@ Keepsake includes browser extensions for Google Chrome (and Chromium-based brows
 ## 1. Features
 - **One-Click Saving**: Click the extension icon to view a live preview, choose collection, add tags, and add notes.
 - **Already-Saved Detection**: Detects if the current tab is already in Keepsake, showing a green checkmark and allowing instant editing or deletion.
-- **Auto-Quote Notes**: Highlight any text on a webpage before opening the popup, and it is automatically added as a blockquote in your personal note!
+- **Selected text is never saved automatically**: Opening the popup does not copy highlighted text into the note. To keep a quote, right-click the selection and choose **"Save Selection as Note in Keepsake"**, which saves the page with the selection as a blockquote note.
 - **Context Menus**:
   - Right-click any page: **"Save Page to Keepsake"**
   - Right-click any hyperlink: **"Save Link to Keepsake"**
