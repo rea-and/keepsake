@@ -1,5 +1,5 @@
 import { Router } from 'express';
-export const authRouter = Router();
+import { isEmailAllowed } from './sessions.js';
 const GOOGLE_AUTH_ENDPOINT = 'https://accounts.google.com/o/oauth2/v2/auth';
 const GOOGLE_TOKEN_ENDPOINT = 'https://oauth2.googleapis.com/token';
 const GOOGLE_USERINFO_ENDPOINT = 'https://www.googleapis.com/oauth2/v3/userinfo';
@@ -11,228 +11,285 @@ const SCOPES = [
     'https://www.googleapis.com/auth/drive.appdata',
     'https://www.googleapis.com/auth/drive.file'
 ].join(' ');
-/**
- * Returns OAuth status and client ID
- */
-authRouter.get('/config', (req, res) => {
-    const clientId = process.env.GOOGLE_CLIENT_ID || '';
-    res.json({
-        configured: Boolean(clientId && process.env.GOOGLE_CLIENT_SECRET),
-        clientId
+export function createAuthRouter({ sessions, allowedEmails }) {
+    const authRouter = Router();
+    /**
+     * Returns OAuth status and client ID
+     */
+    authRouter.get('/config', (req, res) => {
+        const clientId = process.env.GOOGLE_CLIENT_ID || '';
+        res.json({
+            configured: Boolean(clientId && process.env.GOOGLE_CLIENT_SECRET),
+            clientId
+        });
     });
-});
-/**
- * Redirects or returns Google OAuth consent URL
- */
-authRouter.get('/google/url', (req, res) => {
-    const clientId = process.env.GOOGLE_CLIENT_ID;
-    if (!clientId) {
-        return res.status(500).json({
-            error: 'Google OAuth is not configured on the server. Please set GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET.'
+    /**
+     * Redirects or returns Google OAuth consent URL
+     */
+    authRouter.get('/google/url', (req, res) => {
+        const clientId = process.env.GOOGLE_CLIENT_ID;
+        if (!clientId) {
+            return res.status(500).json({
+                error: 'Google OAuth is not configured on the server. Please set GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET.'
+            });
+        }
+        // Allow client redirect_uri override, or fallback to server env
+        const host = req.get('host');
+        const protocol = req.protocol === 'https' || req.get('x-forwarded-proto') === 'https' ? 'https' : 'http';
+        const defaultRedirect = `${protocol}://${host}/api/auth/google/callback`;
+        const redirectUri = req.query.redirect_uri || process.env.GOOGLE_REDIRECT_URI || defaultRedirect;
+        const state = req.query.state || 'keepsake-auth';
+        const params = new URLSearchParams({
+            client_id: clientId,
+            redirect_uri: redirectUri,
+            response_type: 'code',
+            scope: SCOPES,
+            access_type: 'offline',
+            prompt: 'consent',
+            include_granted_scopes: 'true',
+            state
         });
-    }
-    // Allow client redirect_uri override, or fallback to server env
-    const host = req.get('host');
-    const protocol = req.protocol === 'https' || req.get('x-forwarded-proto') === 'https' ? 'https' : 'http';
-    const defaultRedirect = `${protocol}://${host}/api/auth/google/callback`;
-    const redirectUri = req.query.redirect_uri || process.env.GOOGLE_REDIRECT_URI || defaultRedirect;
-    const state = req.query.state || 'keepsake-auth';
-    const params = new URLSearchParams({
-        client_id: clientId,
-        redirect_uri: redirectUri,
-        response_type: 'code',
-        scope: SCOPES,
-        access_type: 'offline',
-        prompt: 'consent',
-        include_granted_scopes: 'true',
-        state
+        const authUrl = `${GOOGLE_AUTH_ENDPOINT}?${params.toString()}`;
+        if (req.query.format === 'json') {
+            return res.json({ url: authUrl });
+        }
+        return res.redirect(authUrl);
     });
-    const authUrl = `${GOOGLE_AUTH_ENDPOINT}?${params.toString()}`;
-    if (req.query.format === 'json') {
-        return res.json({ url: authUrl });
-    }
-    return res.redirect(authUrl);
-});
-/**
- * Google OAuth Callback
- */
-authRouter.get('/google/callback', async (req, res) => {
-    res.setHeader('Cache-Control', 'no-store');
-    res.setHeader('Referrer-Policy', 'no-referrer');
-    const { code, error, state } = req.query;
-    if (error) {
-        return res.status(400).type('text/plain').send('Google Login Error: ' + String(error));
-    }
-    if (!code || typeof code !== 'string') {
-        return res.status(400).type('text/plain').send('Authorization code missing');
-    }
-    const clientId = process.env.GOOGLE_CLIENT_ID;
-    const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
-    if (!clientId || !clientSecret) {
-        return res.status(500).type('text/plain').send('Google OAuth credentials not configured on server');
-    }
-    const host = req.get('host');
-    const protocol = req.protocol === 'https' || req.get('x-forwarded-proto') === 'https' ? 'https' : 'http';
-    const defaultRedirect = `${protocol}://${host}/api/auth/google/callback`;
-    const redirectUri = process.env.GOOGLE_REDIRECT_URI || defaultRedirect;
-    try {
-        const tokenRes = await fetch(GOOGLE_TOKEN_ENDPOINT, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/x-www-form-urlencoded'
-            },
-            body: new URLSearchParams({
-                code,
-                client_id: clientId,
-                client_secret: clientSecret,
-                redirect_uri: redirectUri,
-                grant_type: 'authorization_code'
-            })
-        });
-        if (!tokenRes.ok) {
-            const err = await tokenRes.text();
-            return res.status(400).send(`Failed to exchange token with Google: ${err}`);
+    /**
+     * Google OAuth Callback
+     */
+    authRouter.get('/google/callback', async (req, res) => {
+        res.setHeader('Cache-Control', 'no-store');
+        res.setHeader('Referrer-Policy', 'no-referrer');
+        const { code, error, state } = req.query;
+        if (error) {
+            return res.status(400).type('text/plain').send('Google Login Error: ' + String(error));
         }
-        const tokenData = await tokenRes.json();
-        const accessToken = tokenData.access_token;
-        const refreshToken = tokenData.refresh_token;
-        const expiresIn = tokenData.expires_in || 3600;
-        // Fetch user profile
-        const userRes = await fetch(GOOGLE_USERINFO_ENDPOINT, {
-            headers: { Authorization: `Bearer ${accessToken}` }
-        });
-        if (!userRes.ok) {
-            return res.status(400).send('Failed to fetch user profile from Google');
+        if (!code || typeof code !== 'string') {
+            return res.status(400).type('text/plain').send('Authorization code missing');
         }
-        const userData = await userRes.json();
-        const user = {
-            id: userData.sub,
-            email: userData.email,
-            name: userData.name || userData.email,
-            picture: userData.picture,
-            givenName: userData.given_name,
-            familyName: userData.family_name
-        };
-        const authPayload = {
-            user,
-            tokens: {
-                accessToken,
-                refreshToken,
-                expiresAt: Date.now() + expiresIn * 1000
+        const clientId = process.env.GOOGLE_CLIENT_ID;
+        const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
+        if (!clientId || !clientSecret) {
+            return res.status(500).type('text/plain').send('Google OAuth credentials not configured on server');
+        }
+        const host = req.get('host');
+        const protocol = req.protocol === 'https' || req.get('x-forwarded-proto') === 'https' ? 'https' : 'http';
+        const defaultRedirect = `${protocol}://${host}/api/auth/google/callback`;
+        const redirectUri = process.env.GOOGLE_REDIRECT_URI || defaultRedirect;
+        try {
+            const tokenRes = await fetch(GOOGLE_TOKEN_ENDPOINT, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/x-www-form-urlencoded'
+                },
+                body: new URLSearchParams({
+                    code,
+                    client_id: clientId,
+                    client_secret: clientSecret,
+                    redirect_uri: redirectUri,
+                    grant_type: 'authorization_code'
+                })
+            });
+            if (!tokenRes.ok) {
+                const err = await tokenRes.text();
+                return res.status(400).send(`Failed to exchange token with Google: ${err}`);
             }
-        };
-        // If request comes from Android app, return deep-link response to keepsake://auth
-        if (state === 'android' || (typeof state === 'string' && state.includes('android'))) {
-            const encodedPayload = encodeURIComponent(JSON.stringify(authPayload));
-            const androidDeepLink = `keepsake://auth?session=${encodedPayload}`;
-            const androidHtml = `<!DOCTYPE html>
+            const tokenData = await tokenRes.json();
+            const accessToken = tokenData.access_token;
+            const refreshToken = tokenData.refresh_token;
+            const expiresIn = tokenData.expires_in || 3600;
+            // Fetch user profile
+            const userRes = await fetch(GOOGLE_USERINFO_ENDPOINT, {
+                headers: { Authorization: `Bearer ${accessToken}` }
+            });
+            if (!userRes.ok) {
+                return res.status(400).send('Failed to fetch user profile from Google');
+            }
+            const userData = await userRes.json();
+            // Only the accounts the server owner listed may sign in. The session
+            // token minted below is what authorizes API calls; nothing is shared by hand.
+            if (!isEmailAllowed(allowedEmails, userData.email, userData.email_verified)) {
+                console.warn('[Server] Rejected Google sign-in from an account that is not in KEEPSAKE_ALLOWED_EMAILS');
+                return res.status(403).type('text/plain').send('This Google account is not allowed to use this Keepsake server. Ask the server owner to add it to KEEPSAKE_ALLOWED_EMAILS.');
+            }
+            const user = {
+                id: userData.sub,
+                email: userData.email,
+                name: userData.name || userData.email,
+                picture: userData.picture,
+                givenName: userData.given_name,
+                familyName: userData.family_name
+            };
+            const authPayload = {
+                user,
+                apiToken: sessions.create(user.email),
+                tokens: {
+                    accessToken,
+                    refreshToken,
+                    expiresAt: Date.now() + expiresIn * 1000
+                }
+            };
+            // Browser extension: hand the payload to the extension's content script on
+            // this page. It never travels in a URL, so it stays out of history and logs.
+            if (state === 'extension') {
+                return res.send(`<!DOCTYPE html>
 <html>
 <head>
-  <title>Keepsake - Authentication Successful</title>
+  <title>Keepsake - Signed in</title>
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <style>
-    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; display: flex; align-items: center; justify-content: center; height: 100vh; margin: 0; background: #0c0c0e; color: #f8fafc; }
-    .card { text-align: center; background: #151518; padding: 2rem 2.5rem; border-radius: 1.5rem; border: 1px solid #27272a; max-width: 360px; width: 90%; }
-    .spinner { border: 3px solid rgba(255,255,255,0.1); border-top: 3px solid #38bdf8; border-radius: 50%; width: 40px; height: 40px; animation: spin 1s linear infinite; margin: 0 auto 1.5rem; }
-    @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
-    .btn { display: inline-block; margin-top: 1.5rem; padding: 0.75rem 1.5rem; background: #38bdf8; color: #000; font-weight: 600; text-decoration: none; border-radius: 0.75rem; font-size: 0.9rem; }
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; display: flex; align-items: center; justify-content: center; height: 100vh; margin: 0; background: #0f172a; color: #f8fafc; }
+    .card { text-align: center; background: #1e293b; padding: 2rem 3rem; border-radius: 1rem; }
   </style>
 </head>
 <body>
   <div class="card">
-    <div class="spinner"></div>
-    <h2 style="margin: 0 0 0.5rem; font-size: 1.25rem;">Signing in to Keepsake...</h2>
-    <p style="color: #a1a1aa; font-size: 0.85rem; margin: 0;">Authentication complete. Returning to the Keepsake app.</p>
-    <a href="${androidDeepLink}" class="btn" id="openAppBtn">Open Keepsake App</a>
+    <h2>Signed in to Keepsake</h2>
+    <p id="status">Connecting the browser extension...</p>
   </div>
   <script>
-    try {
-      localStorage.setItem('keepsake_auth_session', JSON.stringify(${jsonForInlineScript(authPayload)}));
-    } catch(e) {}
-    window.location.href = "${androidDeepLink}";
+    const payload = ${jsonForInlineScript({ apiToken: authPayload.apiToken, email: user.email })};
+    let attempts = 0;
+    const timer = setInterval(() => {
+      window.postMessage({ type: 'KEEPSAKE_EXTENSION_AUTH', payload }, window.location.origin);
+      if (++attempts >= 20) {
+        clearInterval(timer);
+        document.getElementById('status').textContent = 'The extension did not respond. Make sure it is installed and enabled, then sign in again from its settings.';
+      }
+    }, 500);
+    window.addEventListener('message', (event) => {
+      if (event.source === window && event.data && event.data.type === 'KEEPSAKE_EXTENSION_AUTH_ACK') {
+        clearInterval(timer);
+        document.getElementById('status').textContent = 'You can close this tab.';
+      }
+    });
   </script>
 </body>
-</html>`;
-            return res.send(androidHtml);
-        }
-        // Render a clean HTML page that passes auth payload back to opener window via postMessage or stores in localStorage and redirects to /
-        const html = `<!DOCTYPE html>
-<html>
-<head>
-  <title>Keepsake - Authentication Successful</title>
-  <style>
-    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; display: flex; align-items: center; justify-content: center; height: 100vh; margin: 0; background: #0f172a; color: #f8fafc; }
-    .card { text-align: center; background: #1e293b; padding: 2rem 3rem; border-radius: 1rem; box-shadow: 0 10px 25px rgba(0,0,0,0.5); }
-    .spinner { border: 3px solid rgba(255,255,255,0.1); border-top: 3px solid #3b82f6; border-radius: 50%; width: 36px; height: 36px; animation: spin 1s linear infinite; margin: 0 auto 1.5rem; }
-    @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
-  </style>
-</head>
-<body>
-  <div class="card">
-    <div class="spinner"></div>
-    <h2>Connecting Keepsake to Google Drive...</h2>
-    <p>Authentication complete. Redirecting you to your bookmarks.</p>
-  </div>
-  <script>
-    const payload = ${jsonForInlineScript(authPayload)};
-    try {
-      localStorage.setItem('keepsake_auth_session', JSON.stringify(payload));
-      if (window.opener && window.opener !== window) {
-        window.opener.postMessage({ type: 'KEEPSAKE_AUTH_SUCCESS', payload }, window.location.origin);
-        setTimeout(() => window.close(), 600);
-      } else {
-        window.location.href = '/';
-      }
-    } catch(e) {
+</html>`);
+            }
+            // If request comes from Android app, return deep-link response to keepsake://auth
+            if (state === 'android' || (typeof state === 'string' && state.includes('android'))) {
+                const encodedPayload = encodeURIComponent(JSON.stringify(authPayload));
+                const androidDeepLink = `keepsake://auth?session=${encodedPayload}`;
+                const androidHtml = `<!DOCTYPE html>
+  <html>
+  <head>
+    <title>Keepsake - Authentication Successful</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <style>
+      body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; display: flex; align-items: center; justify-content: center; height: 100vh; margin: 0; background: #0c0c0e; color: #f8fafc; }
+      .card { text-align: center; background: #151518; padding: 2rem 2.5rem; border-radius: 1.5rem; border: 1px solid #27272a; max-width: 360px; width: 90%; }
+      .spinner { border: 3px solid rgba(255,255,255,0.1); border-top: 3px solid #38bdf8; border-radius: 50%; width: 40px; height: 40px; animation: spin 1s linear infinite; margin: 0 auto 1.5rem; }
+      @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+      .btn { display: inline-block; margin-top: 1.5rem; padding: 0.75rem 1.5rem; background: #38bdf8; color: #000; font-weight: 600; text-decoration: none; border-radius: 0.75rem; font-size: 0.9rem; }
+    </style>
+  </head>
+  <body>
+    <div class="card">
+      <div class="spinner"></div>
+      <h2 style="margin: 0 0 0.5rem; font-size: 1.25rem;">Signing in to Keepsake...</h2>
+      <p style="color: #a1a1aa; font-size: 0.85rem; margin: 0;">Authentication complete. Returning to the Keepsake app.</p>
+      <a href="${androidDeepLink}" class="btn" id="openAppBtn">Open Keepsake App</a>
+    </div>
+    <script>
+      try {
+        localStorage.setItem('keepsake_auth_session', JSON.stringify(${jsonForInlineScript(authPayload)}));
+      } catch(e) {}
+      window.location.href = "${androidDeepLink}";
+    </script>
+  </body>
+  </html>`;
+                return res.send(androidHtml);
+            }
+            // Render a clean HTML page that passes auth payload back to opener window via postMessage or stores in localStorage and redirects to /
+            const html = `<!DOCTYPE html>
+  <html>
+  <head>
+    <title>Keepsake - Authentication Successful</title>
+    <style>
+      body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; display: flex; align-items: center; justify-content: center; height: 100vh; margin: 0; background: #0f172a; color: #f8fafc; }
+      .card { text-align: center; background: #1e293b; padding: 2rem 3rem; border-radius: 1rem; box-shadow: 0 10px 25px rgba(0,0,0,0.5); }
+      .spinner { border: 3px solid rgba(255,255,255,0.1); border-top: 3px solid #3b82f6; border-radius: 50%; width: 36px; height: 36px; animation: spin 1s linear infinite; margin: 0 auto 1.5rem; }
+      @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+    </style>
+  </head>
+  <body>
+    <div class="card">
+      <div class="spinner"></div>
+      <h2>Connecting Keepsake to Google Drive...</h2>
+      <p>Authentication complete. Redirecting you to your bookmarks.</p>
+    </div>
+    <script>
+      const payload = ${jsonForInlineScript(authPayload)};
       try {
         localStorage.setItem('keepsake_auth_session', JSON.stringify(payload));
-      } catch(_) {}
-      window.location.href = '/';
-    }
-  </script>
-</body>
-</html>`;
-        return res.send(html);
-    }
-    catch (err) {
-        return res.status(500).type('text/plain').send('Authentication error');
-    }
-});
-/**
- * Refreshes an expired access token using the refresh token
- */
-authRouter.post('/refresh', async (req, res) => {
-    const { refreshToken } = req.body;
-    if (!refreshToken) {
-        return res.status(400).json({ error: 'Refresh token is required' });
-    }
-    const clientId = process.env.GOOGLE_CLIENT_ID;
-    const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
-    if (!clientId || !clientSecret) {
-        return res.status(500).json({ error: 'Google OAuth credentials not configured on server' });
-    }
-    try {
-        const tokenRes = await fetch(GOOGLE_TOKEN_ENDPOINT, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-            body: new URLSearchParams({
-                client_id: clientId,
-                client_secret: clientSecret,
-                refresh_token: refreshToken,
-                grant_type: 'refresh_token'
-            })
-        });
-        if (!tokenRes.ok) {
-            const err = await tokenRes.text();
-            return res.status(tokenRes.status).json({ error: `Refresh failed: ${err}` });
+        if (window.opener && window.opener !== window) {
+          window.opener.postMessage({ type: 'KEEPSAKE_AUTH_SUCCESS', payload }, window.location.origin);
+          setTimeout(() => window.close(), 600);
+        } else {
+          window.location.href = '/';
         }
-        const data = await tokenRes.json();
-        return res.json({
-            accessToken: data.access_token,
-            expiresAt: Date.now() + (data.expires_in || 3600) * 1000
-        });
-    }
-    catch (err) {
-        return res.status(500).json({ error: err.message });
-    }
-});
+      } catch(e) {
+        try {
+          localStorage.setItem('keepsake_auth_session', JSON.stringify(payload));
+        } catch(_) {}
+        window.location.href = '/';
+      }
+    </script>
+  </body>
+  </html>`;
+            return res.send(html);
+        }
+        catch (err) {
+            return res.status(500).type('text/plain').send('Authentication error');
+        }
+    });
+    /**
+     * Refreshes an expired access token using the refresh token
+     */
+    authRouter.post('/refresh', async (req, res) => {
+        const { refreshToken } = req.body;
+        if (!refreshToken) {
+            return res.status(400).json({ error: 'Refresh token is required' });
+        }
+        const clientId = process.env.GOOGLE_CLIENT_ID;
+        const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
+        if (!clientId || !clientSecret) {
+            return res.status(500).json({ error: 'Google OAuth credentials not configured on server' });
+        }
+        try {
+            const tokenRes = await fetch(GOOGLE_TOKEN_ENDPOINT, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                body: new URLSearchParams({
+                    client_id: clientId,
+                    client_secret: clientSecret,
+                    refresh_token: refreshToken,
+                    grant_type: 'refresh_token'
+                })
+            });
+            if (!tokenRes.ok) {
+                const err = await tokenRes.text();
+                return res.status(tokenRes.status).json({ error: `Refresh failed: ${err}` });
+            }
+            const data = await tokenRes.json();
+            return res.json({
+                accessToken: data.access_token,
+                expiresAt: Date.now() + (data.expires_in || 3600) * 1000
+            });
+        }
+        catch (err) {
+            return res.status(500).json({ error: err.message });
+        }
+    });
+    /**
+     * Ends this device's session. The auth middleware already verified the bearer.
+     */
+    authRouter.post('/logout', (req, res) => {
+        if (req.apiBearer)
+            sessions.revoke(req.apiBearer);
+        res.json({ success: true });
+    });
+    return authRouter;
+}

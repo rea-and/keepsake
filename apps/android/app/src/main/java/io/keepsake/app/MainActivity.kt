@@ -105,10 +105,12 @@ class MainActivity : AppCompatActivity() {
         if (data != null && data.scheme == "keepsake") {
             val sessionJson = data.getQueryParameter("session")
             if (!sessionJson.isNullOrEmpty()) {
-                getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-                    .edit()
-                    .putString(KEY_AUTH_SESSION, sessionJson)
-                    .apply()
+                // The server mints a per-device API token at sign-in; nothing is typed in by hand.
+                val apiToken = AuthSession.fromJsonString(sessionJson)?.apiToken
+                val editor = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).edit()
+                editor.putString(KEY_AUTH_SESSION, sessionJson)
+                if (apiToken.isNullOrEmpty()) editor.remove(KEY_API_TOKEN) else editor.putString(KEY_API_TOKEN, apiToken)
+                editor.apply()
 
                 Toast.makeText(this, "Signed in successfully!", Toast.LENGTH_SHORT).show()
                 showNativeApp()
@@ -1389,9 +1391,11 @@ class MainActivity : AppCompatActivity() {
 
         btnLogout.setOnClickListener {
             dialog.dismiss()
+            revokeServerSession()
             getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
                 .edit()
                 .remove(KEY_AUTH_SESSION)
+                .remove(KEY_API_TOKEN)
                 .apply()
             showLoginView()
             Toast.makeText(this, "Signed out of Keepsake", Toast.LENGTH_SHORT).show()
@@ -1485,6 +1489,28 @@ class MainActivity : AppCompatActivity() {
         binding.nativeAppContainer.visibility = View.VISIBLE
     }
 
+    /** Tells the server to forget this device's API token; failures are harmless. */
+    private fun revokeServerSession() {
+        val prefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        val token = prefs.getString(KEY_API_TOKEN, null).orEmpty()
+        if (token.isEmpty()) return
+        val endpoint = getServerUrl().trimEnd('/') + "/api/auth/logout"
+        Thread {
+            try {
+                val conn = (java.net.URL(endpoint).openConnection() as HttpURLConnection).apply {
+                    requestMethod = "POST"
+                    instanceFollowRedirects = false
+                    connectTimeout = 5000
+                    readTimeout = 5000
+                    setRequestProperty("Authorization", "Bearer $token")
+                }
+                conn.responseCode
+                conn.disconnect()
+            } catch (_: Exception) {
+            }
+        }.start()
+    }
+
     private fun getStoredSession(): String? {
         val prefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         return prefs.getString(KEY_AUTH_SESSION, null)
@@ -1503,25 +1529,16 @@ class MainActivity : AppCompatActivity() {
             setPadding(36, 24, 36, 24)
         }
 
-        val tokenInput = EditText(this).apply {
-            setText(getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).getString(KEY_API_TOKEN, ""))
-            hint = "Server API token"
-            inputType = android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD
-            setPadding(36, 24, 36, 24)
-        }
-        val fields = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; addView(input); addView(tokenInput) }
-
         AlertDialog.Builder(this)
             .setTitle("Keepsake Server URL")
-            .setMessage("Configure your Keepsake server address:")
-            .setView(fields)
+            .setMessage("Configure your Keepsake server address. Sign in with Google to connect; no token is needed.")
+            .setView(input)
             .setPositiveButton("Connect") { _, _ ->
                 val newUrl = input.text.toString().trim().removeSuffix("/")
                 if (newUrl.isNotEmpty()) {
                     getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
                         .edit()
                         .putString(KEY_SERVER_URL, newUrl)
-                        .putString(KEY_API_TOKEN, tokenInput.text.toString().trim())
                         .apply()
                     binding.etServerUrl.setText(newUrl)
                     if (binding.nativeAppContainer.visibility == View.VISIBLE) {

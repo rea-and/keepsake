@@ -8,7 +8,8 @@ data class AuthSession(
     val picture: String?,
     val accessToken: String,
     val refreshToken: String?,
-    val expiresAt: Long
+    val expiresAt: Long,
+    val apiToken: String? = null
 ) {
     companion object {
         fun fromJsonString(raw: String): AuthSession? {
@@ -23,7 +24,8 @@ data class AuthSession(
                         picture = user.optString("picture").takeIf { it.isNotEmpty() && it != "null" },
                         accessToken = tokens.optString("accessToken", ""),
                         refreshToken = tokens.optString("refreshToken").takeIf { it.isNotEmpty() && it != "null" },
-                        expiresAt = tokens.optLong("expiresAt", 0L)
+                        expiresAt = tokens.optLong("expiresAt", 0L),
+                        apiToken = obj.optString("apiToken").takeIf { it.isNotEmpty() && it != "null" }
                     )
                 } else null
             } catch (e: Exception) {

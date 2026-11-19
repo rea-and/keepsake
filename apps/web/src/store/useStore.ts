@@ -388,6 +388,11 @@ export function useKeepsakeStore() {
   }, [authSession]);
 
   const logout = useCallback(() => {
+    // Revoke this device's server session; failures (offline, already expired) are harmless.
+    const apiToken = authSessionRef.current?.apiToken;
+    if (apiToken) {
+      fetch('/api/auth/logout', { method: 'POST' }).catch(() => {});
+    }
     setAuthSession(null);
     localStorage.removeItem(AUTH_STORAGE_KEY);
     setSyncStatus({ isSyncing: false, lastSyncedAt: null, error: null });

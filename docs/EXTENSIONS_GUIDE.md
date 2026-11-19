@@ -54,4 +54,5 @@ Keepsake includes browser extensions for Google Chrome (and Chromium-based brows
 1. Click the Keepsake extension icon.
 2. Click **⚙ Server Settings** at the bottom of the popup.
 3. Enter your Keepsake server URL (e.g. `https://keepsake.yourdomain.com` or `http://localhost:3000`).
-4. Click **Save Settings**.
+4. Click **Sign in with Google** and sign in with an account listed in the server's `KEEPSAKE_ALLOWED_EMAILS`. The sign-in tab closes itself once the extension is connected; no token needs to be copied.
+5. Reopen the popup and click **Save Settings** to check the connection.

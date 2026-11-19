@@ -14,4 +14,4 @@ description: Finish a Keepsake change - run the tests, rebuild the committed dis
 3. `git status`: expect source changes plus regenerated files under `apps/*/dist` and `packages/shared/dist`. Anything else generated (logs, `.env`, `data/store.json`, `node_modules`) must not be staged.
 4. Review `git diff --stat`. If a `dist/` file changed without a matching source change, rebuild from a clean install before committing.
 5. Commit only when asked. Author is Andrea; do not add `Co-Authored-By` or any AI attribution.
-6. To deploy on the Ubuntu server, follow `docs/UBUNTU_DEPLOYMENT_GUIDE.md`: `git pull`, `npm install`, `npm run build` (only if dist is not committed), then restart (`sudo systemctl restart keepsake` for systemd, `docker compose up -d --build` for Docker), and check `/api/health`.
+6. To deploy, push, then run `./deploy.sh` in the repository on the Ubuntu server. It pulls, installs dependencies if the lockfile changed, restarts the systemd unit (or Docker Compose), and checks `/api/health`. It refuses to restart if `KEEPSAKE_ALLOWED_EMAILS` is missing from `.env`. Details are in `docs/UBUNTU_DEPLOYMENT_GUIDE.md`.

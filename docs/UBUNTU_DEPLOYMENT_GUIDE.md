@@ -60,6 +60,8 @@ NODE_ENV=production
 GOOGLE_CLIENT_ID=your-client-id.apps.googleusercontent.com
 GOOGLE_CLIENT_SECRET=your-client-secret
 GOOGLE_REDIRECT_URI=https://keepsake.yourdomain.com/api/auth/google/callback
+# Google accounts allowed to sign in (comma-separated). Required.
+KEEPSAKE_ALLOWED_EMAILS=you@gmail.com
 ```
 
 ---
@@ -169,7 +171,14 @@ sudo ufw enable
 
 ## Updating Keepsake
 
-To pull latest changes and rebuild:
+On the server, run the deploy script from the repository root. It pulls the latest code, installs dependencies if they changed, restarts the `keepsake` systemd unit (or Docker Compose when no unit exists) and waits for `/api/health`:
+
+```bash
+cd /home/ubuntu/keepsake
+./deploy.sh            # add --build to rebuild dist/ on the server
+```
+
+To update a Docker deployment by hand:
 
 ```bash
 cd /home/ubuntu/keepsake

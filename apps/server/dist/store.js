@@ -15,7 +15,7 @@ const findDefaultDataDir = () => {
         return cwdData;
     return rootData;
 };
-const DATA_DIR = findDefaultDataDir();
+export const DATA_DIR = findDefaultDataDir();
 const STORE_PATH = path.join(DATA_DIR, 'store.json');
 class ServerStoreManager {
     store;

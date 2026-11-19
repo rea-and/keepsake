@@ -58,7 +58,7 @@ const deleteBtn = document.getElementById('deleteBtn') as HTMLButtonElement;
 const toggleSettings = document.getElementById('toggleSettings') as HTMLAnchorElement;
 const settingsPanel = document.getElementById('settingsPanel') as HTMLDivElement;
 const serverUrlInput = document.getElementById('serverUrlInput') as HTMLInputElement;
-const apiTokenInput = document.getElementById('apiTokenInput') as HTMLInputElement;
+const signInBtn = document.getElementById('signInBtn') as HTMLButtonElement;
 const saveSettingsBtn = document.getElementById('saveSettingsBtn') as HTMLButtonElement;
 
 function revealServerSettings() {
@@ -201,7 +201,7 @@ async function init() {
       activeServerUrl = res.serverUrl.replace(/\/+$/, '');
     }
     serverUrlInput.value = activeServerUrl;
-    apiTokenInput.value = res.apiToken || '';
+    signInBtn.textContent = res.apiToken ? 'Sign in again' : 'Sign in with Google';
 
     const savedLastCollectionId = res.lastCollectionId;
 
@@ -290,9 +290,9 @@ async function init() {
     }
 
     if (serverAuthRequired) {
-      statusBadge.textContent = 'API token required';
+      statusBadge.textContent = 'Sign-in required';
       statusBadge.classList.remove('saved');
-      collectionMessage.textContent = 'The server rejected this extension’s API token (401). Open Server Settings, enter the matching token, save, then retry this bookmark.';
+      collectionMessage.textContent = 'This extension is not signed in to your server (401). Open Server Settings, choose Sign in with Google, then retry this bookmark.';
       revealServerSettings();
     }
   });
@@ -391,16 +391,24 @@ toggleSettings.addEventListener('click', () => {
   settingsPanel.style.display = settingsPanel.style.display === 'block' ? 'none' : 'block';
 });
 
+signInBtn.addEventListener('click', async () => {
+  const url = serverUrlInput.value.trim().replace(/\/+$/, '') || 'http://localhost:3000';
+  activeServerUrl = url;
+  await chrome.storage.local.set({ serverUrl: url });
+  // The server's sign-in page hands the new session back through the content script.
+  await chrome.tabs.create({ url: `${url}/api/auth/google/url?state=extension` });
+  window.close();
+});
+
 saveSettingsBtn.addEventListener('click', async () => {
   const url = serverUrlInput.value.trim().replace(/\/+$/, '');
   activeServerUrl = url || 'http://localhost:3000';
-  const apiToken = apiTokenInput.value.trim();
   saveSettingsBtn.disabled = true;
   saveSettingsBtn.textContent = 'Checking…';
-  await chrome.storage.local.set({ serverUrl: activeServerUrl, apiToken });
+  await chrome.storage.local.set({ serverUrl: activeServerUrl });
   try {
     const response = await apiFetch(`${activeServerUrl}/api/collections`);
-    if (response.status === 401) throw new Error('The server rejected this token (401). Check that it exactly matches KEEPSAKE_API_TOKEN on your server.');
+    if (response.status === 401) throw new Error('Not signed in (401). Use Sign in with Google in these settings.');
     if (!response.ok) throw new Error(`Server returned ${response.status}. Check the server URL and try again.`);
     serverAuthRequired = false;
     statusBadge.textContent = 'Connected';
@@ -409,7 +417,7 @@ saveSettingsBtn.addEventListener('click', async () => {
     saveSettingsBtn.textContent = 'Connected ✓';
     setTimeout(() => { settingsPanel.style.display = 'none'; }, 900);
   } catch (error) {
-    statusBadge.textContent = error instanceof Error && error.message.includes('(401)') ? 'API token rejected' : 'Connection failed';
+    statusBadge.textContent = error instanceof Error && error.message.includes('(401)') ? 'Sign-in required' : 'Connection failed';
     collectionMessage.textContent = error instanceof Error ? error.message : 'Could not connect to the Keepsake server.';
     saveSettingsBtn.textContent = 'Check Settings';
   } finally {
@@ -491,13 +499,13 @@ saveBtn.addEventListener('click', async () => {
     const bookmarks: Bookmark[] = res.bookmarks || [];
     const updatedList = [newBm, ...bookmarks.filter((b) => b.id !== newBm.id && normalizeUrl(b.url) !== normalizeUrl(currentUrl))];
     await chrome.storage.local.set({ bookmarks: updatedList, lastCollectionId: collectionSelect.value || 'unsorted' });
-    saveBtn.textContent = serverSaved ? 'Saved ✓' : serverStatus === 401 ? 'Token required' : 'Queued for sync';
-    statusBadge.textContent = serverSaved ? 'Saved ✓' : serverStatus === 401 ? 'API token required' : 'Sync pending';
+    saveBtn.textContent = serverSaved ? 'Saved ✓' : serverStatus === 401 ? 'Sign-in required' : 'Queued for sync';
+    statusBadge.textContent = serverSaved ? 'Saved ✓' : serverStatus === 401 ? 'Sign-in required' : 'Sync pending';
     statusBadge.classList.toggle('saved', serverSaved);
     if (serverStatus === 401) {
       serverAuthRequired = true;
       revealServerSettings();
-      collectionMessage.textContent = 'This save is queued in Chrome, but the server rejected the API token (401). Enter the matching server token in Settings, save, then retry.';
+      collectionMessage.textContent = 'This save is queued in the browser, but the extension is not signed in to your server (401). Choose Sign in with Google in Server Settings, then retry.';
       saveBtn.disabled = false;
       return;
     }

@@ -5,7 +5,7 @@ Self-hosted bookmark manager: React web app, Express API, Chrome/Firefox extensi
 ## Layout
 
 - `apps/web` — React + Vite + Tailwind web app (`src/store/useStore.ts` is the client store; offline cache and service worker live here).
-- `apps/server` — Express API, metadata scraper, JSON store (`data/store.json`), API-token and Google OAuth auth.
+- `apps/server` — Express API, metadata scraper, JSON store (`data/store.json`), Google OAuth sign-in that mints per-device session tokens (`sessions.ts`), checked against `KEEPSAKE_ALLOWED_EMAILS`.
 - `apps/extension` — Chrome and Firefox extension (TypeScript, Vite). Popup, background (context menus) and content script.
 - `apps/android` — Kotlin app and share target. Build with `./gradlew assembleDebug` from `apps/android`.
 - `packages/shared` — models, search operators, import/export, sync and conflict logic used by every client.
@@ -21,13 +21,15 @@ npm --workspace=@keepsake/shared test
 npm --workspace=@keepsake/server test          # integration test binds a local port
 npm --workspace=@keepsake/extension test
 npm --workspace=@keepsake/web run test:offline
+./deploy.sh                                    # on the Ubuntu server: pull, restart, health check
 ```
 
 ## Rules
 
 - **`dist/` is committed.** The production server runs the built output. After changing source in `apps/web`, `apps/server`, `apps/extension` or `packages/shared`, run `npm run build` and commit the regenerated `dist/` files together with the source change. Never hand-edit `dist/`.
 - Keep shared logic in `packages/shared` so web, extension and Android stay consistent; rebuild it before testing dependents.
-- The API token (`KEEPSAKE_API_TOKEN`) grants access to the whole library. Never log it, put it in URLs, or commit `.env` or `data/store.json`.
+- Auth: clients sign in with Google and the server mints a per-device session token (stored hashed in `data/sessions.json`); only emails in `KEEPSAKE_ALLOWED_EMAILS` may sign in. Never reintroduce a secret that users must copy between server and clients. `KEEPSAKE_API_TOKEN` is an optional static credential for scripts only.
+- Session tokens and `KEEPSAKE_API_TOKEN` grant access to the whole library. Never log them, put them in URLs, or commit `.env`, `data/store.json` or `data/sessions.json`. The extension receives its token via a postMessage bridge, never a URL.
 - Escape or sanitize any scraped page content (titles, descriptions, article HTML) before rendering it.
 - Selected page text must never be saved into a bookmark note automatically; only the explicit "Save Selection as Note" context-menu command may do that.
 - Keep README.md, SETUP.md and the guides in `docs/` accurate when behaviour, configuration or deployment changes.

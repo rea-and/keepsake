@@ -11,6 +11,10 @@ test('authenticated clients can capture and synchronize while unauthorized reque
   const token = 'test-token-' + 'x'.repeat(40);
   process.env.DATA_DIR = dir;
   process.env.KEEPSAKE_API_TOKEN = token;
+  process.env.KEEPSAKE_ALLOWED_EMAILS = 'owner@example.com';
+  // A session as minted by the Google sign-in callback for an allowed account.
+  const { SessionStore } = await import('../dist/sessions.js');
+  const sessionToken = new SessionStore(path.join(dir, 'sessions.json')).create('owner@example.com');
   const { app } = await import('../dist/index.js');
   const server = await new Promise((resolve) => { const instance = app.listen(0, '127.0.0.1', () => resolve(instance)); });
   const base = `http://127.0.0.1:${server.address().port}`;
@@ -20,6 +24,12 @@ test('authenticated clients can capture and synchronize while unauthorized reque
     assert.equal((await fetch(`${base}/api/bookmarks`)).status, 401);
     assert.equal((await fetch(`${base}/api/sync`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' })).status, 401);
     assert.equal((await fetch(`${base}/api/bookmarks`, { headers: { Authorization: 'Bearer wrong' } })).status, 401);
+    // A per-device session token authorizes the API without any shared secret,
+    // and signing out revokes it.
+    const sessionAuth = { Authorization: `Bearer ${sessionToken}` };
+    assert.equal((await fetch(`${base}/api/bookmarks`, { headers: sessionAuth })).status, 200);
+    assert.equal((await fetch(`${base}/api/auth/logout`, { method: 'POST', headers: sessionAuth })).status, 200);
+    assert.equal((await fetch(`${base}/api/bookmarks`, { headers: sessionAuth })).status, 401);
     const collectionRes = await fetch(`${base}/api/collections`, { method: 'POST', headers: auth, body: JSON.stringify({ title: 'Saved from extension' }) });
     assert.equal(collectionRes.status, 201);
     const collection = (await collectionRes.json()).collection;

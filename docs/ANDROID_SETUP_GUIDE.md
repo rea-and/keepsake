@@ -44,7 +44,7 @@ adb install -r app/build/outputs/apk/debug/app-debug.apk
 2. If connecting for the first time or if the server cannot be reached, the app will prompt you for your server URL:
    - Example: `https://keepsake.yourdomain.com` or `http://192.168.1.100:3000`
 3. Tap **Connect**.
-4. Tap **Sign in with Google** to authenticate and sync your bookmarks.
+4. Tap **Sign in with Google** to authenticate and sync your bookmarks. Your account must be listed in the server's `KEEPSAKE_ALLOWED_EMAILS`. The server gives the app its own access token at sign-in, so nothing else needs to be entered.
 
 ---
 

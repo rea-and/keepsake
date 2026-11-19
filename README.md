@@ -13,22 +13,21 @@ A self-hosted bookmark library for the web, Android, Chrome, and Firefox. Save l
 
 ## Getting started
 
-You need Node.js 20.18.1 or newer and Google OAuth credentials. The server also requires a shared API token. Use HTTPS for network access.
+You need Node.js 20.18.1 or newer and Google OAuth credentials. Use HTTPS for network access.
 
 ```bash
 npm install
 npm run build
 cp .env.example .env
-openssl rand -hex 32
 ```
 
-Put the generated value in `.env` as `KEEPSAKE_API_TOKEN`, configure the Google OAuth settings, and start the server:
+In `.env`, configure the Google OAuth settings and set `KEEPSAKE_ALLOWED_EMAILS` to the Google account(s) allowed to sign in, then start the server:
 
 ```bash
 npm --workspace=@keepsake/server run start
 ```
 
-Open `http://localhost:3000`, sign in, and enter the API token when prompted. Configure the same server URL and token in the extension and Android app. The token grants access to the entire library; keep it private.
+Open `http://localhost:3000` and sign in with Google. In the extension and Android app, enter the server URL and tap **Sign in with Google**. The server issues each device its own session token, so there is no secret to copy between devices.
 
 For complete configuration, HTTPS deployment, Android builds, extensions, and upgrades, see **[SETUP.md](SETUP.md)**. Additional guides cover [Google OAuth](docs/GOOGLE_OAUTH_SETUP.md), [Ubuntu deployment](docs/UBUNTU_DEPLOYMENT_GUIDE.md), [Android](docs/ANDROID_SETUP_GUIDE.md), and [extensions](docs/EXTENSIONS_GUIDE.md).
 
@@ -60,7 +59,7 @@ For Android, run `./gradlew assembleDebug` and `./gradlew testDebugUnitTest` fro
 
 ## Data and security
 
-The server stores the library in `data/store.json` by default. Web data is also cached in the browser; Google Drive sync is optional. JSON imports merge with existing data rather than replacing it. Keep independent backups and protect the server and its API token. OAuth sign-in and API token access serve different purposes; all clients using the shared token can access the same library.
+The server stores the library in `data/store.json` by default. Web data is also cached in the browser; Google Drive sync is optional. JSON imports merge with existing data rather than replacing it. Keep independent backups. Only the Google accounts in `KEEPSAKE_ALLOWED_EMAILS` can sign in, and each device gets its own revocable session token (stored hashed in `data/sessions.json`). Signing out revokes that device's token; removing an address from the allow-list ends its sessions on the next restart.
 
 ## License
 

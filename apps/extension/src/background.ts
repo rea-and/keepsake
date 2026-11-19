@@ -218,7 +218,25 @@ chrome.commands.onCommand.addListener(async (command) => {
 });
 
 // Message listener from popup and content scripts
+async function acceptExtensionSignIn(apiToken: unknown, sender: chrome.runtime.MessageSender): Promise<boolean> {
+  if (typeof apiToken !== 'string' || !apiToken || !sender.url) return false;
+  const { serverUrl } = await chrome.storage.local.get('serverUrl');
+  const configured = new URL((serverUrl || 'http://localhost:3000').replace(/\/+$/, ''));
+  const from = new URL(sender.url);
+  // Only the configured server's own Google callback page may hand over a session.
+  if (from.origin !== configured.origin || from.pathname !== `${configured.pathname.replace(/\/$/, '')}/api/auth/google/callback`) return false;
+  await chrome.storage.local.set({ apiToken });
+  const tabId = sender.tab?.id;
+  if (tabId) setTimeout(() => { chrome.tabs.remove(tabId).catch(() => {}); }, 1500);
+  retryCaptures().catch(() => {});
+  return true;
+}
+
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  if (message.action === 'EXTENSION_SIGN_IN') {
+    acceptExtensionSignIn(message.apiToken, sender).then((success) => sendResponse({ success })).catch(() => sendResponse({ success: false }));
+    return true;
+  }
   if (message.action === 'BOOKMARK_SAVED' || message.action === 'BOOKMARK_DELETED') {
     chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
       if (tabs[0]?.id) showSuccessBadge(tabs[0].id);

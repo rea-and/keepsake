@@ -13,6 +13,19 @@ import {
   isValidMediaUrl
 } from '@keepsake/shared';
 
+// Sign-in bridge: the Keepsake server's sign-in page posts the new session
+// token here. The background script only accepts it when it comes from the
+// configured server's Google callback page, so other sites cannot inject one.
+window.addEventListener('message', (event) => {
+  if (event.source !== window || event.origin !== window.location.origin) return;
+  const apiToken = event.data?.type === 'KEEPSAKE_EXTENSION_AUTH' ? event.data.payload?.apiToken : null;
+  if (typeof apiToken !== 'string' || !apiToken) return;
+  chrome.runtime.sendMessage({ action: 'EXTENSION_SIGN_IN', apiToken }, (response) => {
+    if (chrome.runtime.lastError) return;
+    if (response?.success) window.postMessage({ type: 'KEEPSAKE_EXTENSION_AUTH_ACK' }, window.location.origin);
+  });
+});
+
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   if (request.action === 'GET_PAGE_METADATA') {
     const canonicalUrl = document.querySelector('link[rel="canonical"]')?.getAttribute('href');

@@ -82,6 +82,8 @@ export interface AuthTokens {
 export interface AuthSession {
   user: UserProfile;
   tokens: AuthTokens;
+  /** Per-device Keepsake API token minted by the server at sign-in. */
+  apiToken?: string;
 }
 
 export interface SyncTombstone {

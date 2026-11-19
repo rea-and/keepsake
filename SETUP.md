@@ -21,13 +21,15 @@ This guide provides the complete set of instructions to:
 
 ---
 
-## Server API access token
+## Signing in and access control
 
-The server requires `KEEPSAKE_API_TOKEN` (at least 32 characters) and will not start without it. Generate a token with `openssl rand -hex 32`, put it in the server's `.env`, and restart the server. Use HTTPS whenever clients connect over a network; a bearer token sent over plain HTTP can be intercepted. Treat the token as a password.
+Clients authenticate by signing in with Google; there is no shared secret to keep in sync. Set `KEEPSAKE_ALLOWED_EMAILS` in the server's `.env` to a comma-separated list of the Google accounts that may use the server (the server will not start without it). When an allowed account signs in, from the web app, the browser extension or the Android app, the server issues that device its own session token. Tokens are stored hashed in `data/sessions.json`, expire after 90 days without use, and are revoked when you sign out.
 
-Existing installations must configure this token before upgrading. After signing in on the web, use **Enter API token** in the sync warning. In the browser extension, enter it under **Server Settings**. In Android, open the server settings dialog and enter it with the server URL. The same token grants access to the entire library; Google sign-in alone does not authorize API calls. Rotate the token in `.env` and update each client to revoke the old one.
+To give someone access, add their email to `KEEPSAKE_ALLOWED_EMAILS` and restart. To remove access, delete the address and restart; its sessions end immediately. Use HTTPS whenever clients connect over a network, because session tokens travel in the `Authorization` header.
 
-The public health check and Google OAuth endpoints remain accessible without the token. Do not expose the Node server outside your trusted network without HTTPS and an appropriate reverse proxy.
+`KEEPSAKE_API_TOKEN` (minimum 32 characters, `openssl rand -hex 32`) is now optional. Set it only if you have scripts that cannot sign in with Google; it grants access to the entire library. Existing installations keep working with it, but must add `KEEPSAKE_ALLOWED_EMAILS` before upgrading, and each client signs in once with Google (the web app shows **Sign in again** on a 401).
+
+The public health check and Google OAuth endpoints remain accessible without signing in. Do not expose the Node server outside your trusted network without HTTPS and an appropriate reverse proxy.
 
 ---
 

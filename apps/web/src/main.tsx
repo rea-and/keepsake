@@ -9,7 +9,10 @@ window.fetch = (input, init) => {
   const request = new Request(input, init);
   const url = new URL(request.url);
   if (url.origin === window.location.origin && url.pathname.startsWith('/api/') && !url.pathname.startsWith('/api/auth/') && url.pathname !== '/api/health') {
-    const token = localStorage.getItem('keepsake_api_token');
+    let token: string | null = null;
+    try {
+      token = JSON.parse(localStorage.getItem('keepsake_auth_session') || 'null')?.apiToken || null;
+    } catch {}
     if (token) {
       const headers = new Headers(request.headers);
       headers.set('Authorization', `Bearer ${token}`);

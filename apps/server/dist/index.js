@@ -4,9 +4,10 @@ import dotenv from 'dotenv';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import fs from 'fs';
-import { authRouter } from './auth.js';
+import { createAuthRouter } from './auth.js';
 import { scrapeUrl } from './scraper.js';
-import { serverStore } from './store.js';
+import { serverStore, DATA_DIR } from './store.js';
+import { SessionStore, parseAllowedEmails } from './sessions.js';
 import { hasBookmarkConflict } from './conflicts.js';
 import { createApiAuth } from './apiAuth.js';
 import { exportToNetscapeHtml, parseNetscapeHtml, extractDomain, getFaviconUrl, isGenericRedditMedia, isRedditUrl, isSparseTitle, canSetCollectionParent } from '@keepsake/shared';
@@ -31,9 +32,23 @@ app.use(cors({
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With']
 }));
+// Clients authenticate by signing in with Google. The server only accepts the
+// accounts listed in KEEPSAKE_ALLOWED_EMAILS and mints a per-device session
+// token, so there is no shared secret to copy between the server and clients.
+// KEEPSAKE_API_TOKEN is an optional extra credential for scripts.
+const allowedEmails = parseAllowedEmails(process.env.KEEPSAKE_ALLOWED_EMAILS);
+if (allowedEmails.length === 0) {
+    throw new Error('KEEPSAKE_ALLOWED_EMAILS must list the Google account email(s) allowed to use this server');
+}
+if (!process.env.GOOGLE_CLIENT_ID || !process.env.GOOGLE_CLIENT_SECRET) {
+    console.warn('[Server] Google OAuth is not configured, so nobody can sign in yet. Set GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET.');
+}
+const sessions = new SessionStore(path.join(DATA_DIR, 'sessions.json'));
+// Dropping an address from the allow-list ends that account's sessions.
+sessions.revokeWhere((email) => allowedEmails.includes(email));
 // OAuth and the health probe remain public; all library and scraping APIs
-// require the deployment's shared access token.
-app.use('/api', createApiAuth(process.env.KEEPSAKE_API_TOKEN || ''));
+// require a signed-in session.
+app.use('/api', createApiAuth({ sessions, legacyToken: process.env.KEEPSAKE_API_TOKEN || undefined }));
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 // Health Check
@@ -47,7 +62,7 @@ app.get('/api/health', (req, res) => {
     });
 });
 // Authentication Routes
-app.use('/api/auth', authRouter);
+app.use('/api/auth', createAuthRouter({ sessions, allowedEmails }));
 // Scraper Route
 app.get('/api/scrape', async (req, res) => {
     const targetUrl = req.query.url;
