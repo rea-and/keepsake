@@ -82,7 +82,7 @@ Check logs to verify startup:
 docker compose --env-file .env -f deploy/docker-compose.yml logs -f
 ```
 
-Your server will be running on `http://YOUR_SERVER_IP:3000`.
+Your server is now listening on port 3000 of the server (bound to `127.0.0.1`, so it is reached through a reverse proxy). Google sign-in needs HTTPS, so continue with the next section before signing in.
 
 ---
 
@@ -183,6 +183,11 @@ To update a Docker deployment by hand:
 ```bash
 cd /home/ubuntu/keepsake
 git pull
-cd deploy
 docker compose --env-file .env -f deploy/docker-compose.yml up -d --build
 ```
+
+### Troubleshooting a Docker deployment
+
+- **`permission denied ... docker.sock`**: your user is not allowed to use Docker. Run `sudo usermod -aG docker $USER`, then `newgrp docker` (or log out and in). Do not run `./deploy.sh` with `sudo`; that would run `git pull` as root.
+- **"Authentication error" after choosing a Google account**: the server could not save the new session. The container runs as an unprivileged user, and a data volume created by an older (root) image must be handed over to it. The image's entrypoint does this automatically; to do it once by hand: `docker exec -u root keepsake chown -R node:node /app/data`. Then check `docker logs keepsake --tail 30` for the exact error.
+- **Your data is kept** across updates: Compose names the project after the `deploy` folder, so the same `keepsake_data` volume is reused.

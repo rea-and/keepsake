@@ -53,6 +53,14 @@ Keepsake includes browser extensions for Google Chrome (and Chromium-based brows
 
 1. Click the Keepsake extension icon.
 2. Click **⚙ Server Settings** at the bottom of the popup.
-3. Enter your Keepsake server URL (e.g. `https://keepsake.yourdomain.com` or `http://localhost:3000`).
+3. Enter your Keepsake server URL (e.g. `https://keepsake.yourdomain.com` or `http://localhost:3000`). On first run there is no default; the popup opens these settings for you.
 4. Click **Sign in with Google** and sign in with an account listed in the server's `KEEPSAKE_ALLOWED_EMAILS`. The sign-in tab closes itself once the extension is connected; no token needs to be copied.
 5. Reopen the popup and click **Save Settings** to check the connection.
+
+Once signed in, the settings show **Signed in as ...** with a **Sign out** link, which also signs this browser out on the server. Changing the server URL signs you out, so a session is never sent to a different server.
+
+### Everyday use
+
+- **Quick-save** (toolbar menu, `Alt+Shift+S`, or the Reddit button) fills in missing details of a page you already saved but never changes its collection, tags, note or favorite.
+- **Ctrl/Cmd+Enter** saves from the popup. Tag suggestions come from the tags already in your library.
+- **Offline:** saves that cannot reach the server are queued and retried every minute. The toolbar badge shows how many are waiting (amber), or red when one needs attention (a conflict, a save the server rejected, or you are signed out). Open the popup on that page to review it.

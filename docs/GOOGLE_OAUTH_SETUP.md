@@ -54,10 +54,12 @@ Follow these quick steps to get your Google Client ID and Secret in 3 minutes.
 4. Name: `Keepsake Web & Sync Client`.
 5. Under **Authorized JavaScript origins**, add:
    - `http://localhost:3000` (for local development)
-   - `http://your-server-ip:3000` or `https://keepsake.yourdomain.com` (your Ubuntu server)
+   - `https://keepsake.yourdomain.com` (your server)
 6. Under **Authorized redirect URIs**, add:
    - `http://localhost:3000/api/auth/google/callback`
-   - `http://your-server-ip:3000/api/auth/google/callback` or `https://keepsake.yourdomain.com/api/auth/google/callback`
+   - `https://keepsake.yourdomain.com/api/auth/google/callback`
+
+   Google only accepts `http://` addresses for `localhost`, so a server reached from other devices needs HTTPS (see the Caddy and nginx examples in `deploy/`). Do not use a bare IP address.
 7. Click **Create**.
 8. A modal will pop up with your **Client ID** and **Client Secret**.
 

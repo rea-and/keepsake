@@ -44,7 +44,7 @@ adb install -r app/build/outputs/apk/debug/app-debug.apk
 2. If connecting for the first time or if the server cannot be reached, the app will prompt you for your server URL:
    - Example: `https://keepsake.yourdomain.com` or `http://192.168.1.100:3000`
 3. Tap **Connect**.
-4. Tap **Sign in with Google** to authenticate and sync your bookmarks. Your account must be listed in the server's `KEEPSAKE_ALLOWED_EMAILS`. The server gives the app its own access token at sign-in, so nothing else needs to be entered.
+4. Tap **Sign in with Google** to authenticate and sync your bookmarks. Your account must be listed in the server's `KEEPSAKE_ALLOWED_EMAILS`. The server gives the app its own access token at sign-in, so nothing else needs to be entered. Sign-in returns to the app through a one-time code, so only this app can complete it. If the session later expires or is signed out from another device, the app asks you to sign in again. Changing the server address signs you out.
 
 ---
 
@@ -54,3 +54,4 @@ adb install -r app/build/outputs/apk/debug/app-debug.apk
 2. In the Android share sheet, choose **Keepsake** (or "Save to Keepsake").
 3. Keepsake will automatically extract the link and title and open the bookmark saver.
 4. Pick a collection, add tags, and tap **Save**.
+5. With no connection, the link is saved on the device and sent automatically at the next sync. New bookmarks added inside the app work the same way, and the **Add** sheet has an optional note field. Search covers titles, notes, descriptions, domains, URLs and tags.

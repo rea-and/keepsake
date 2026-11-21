@@ -6,10 +6,11 @@ A self-hosted bookmark library for the web, Android, Chrome, and Firefox. Save l
 
 - Browse bookmarks as cards, lists, headlines, or a moodboard; remember view and sort preferences per collection.
 - Organize links with nested collections, tags, favorites, and pending/done status. Select bookmarks for bulk actions and recover deleted items from Trash.
-- Search titles, notes, tags, and saved article text. Use operators such as `#design`, `site:github.com`, `is:pending`, `type:article`, and `has:note`; quotes match phrases and `-word` excludes text. Save searches for later.
+- Search titles, notes, tags, and saved article text. Use operators such as `#design`, `site:github.com`, `is:pending`, `type:article`, and `has:note`; quotes match phrases, `-word` excludes text, and `-tag:name` excludes a tag. Tag filters match whole tags. Save searches for later.
 - Read extracted articles with adjustable typography and reading position. Import browser bookmarks as Netscape HTML and export HTML or JSON backups.
 - Capture links with the Chrome or Firefox extension, or share them from Android. The server fetches page metadata and cover images when available.
-- Use the cached web app offline after an initial online visit. Server synchronization and optional Google Drive sync bring changes together when connections are available.
+- Use the cached web app offline after an initial online visit. Server synchronization and optional Google Drive sync bring changes together when connections are available. Installed as an app, the web version can also receive links from your system's share menu.
+- See and sign out your signed-in devices from **Settings**. The server keeps daily snapshots of your library.
 
 ## Getting started
 
@@ -40,7 +41,8 @@ For complete configuration, HTTPS deployment, Android builds, extensions, and up
 | `apps/android` | Native Android app and share target |
 | `apps/extension` | Chrome and Firefox extensions |
 | `packages/shared` | Models, search, import/export, and sync logic |
-| `deploy` | Docker and reverse-proxy examples |
+| `deploy` | Docker, systemd and reverse-proxy examples |
+| `plans` | Dated analysis and technical plans |
 
 ## Development and checks
 

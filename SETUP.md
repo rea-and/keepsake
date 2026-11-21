@@ -234,10 +234,12 @@ Keepsake uses Google Sign-In for authentication and syncs all bookmarks to the u
 4. Set **Name** to `Keepsake Web & Sync Client`.
 5. Under **Authorized JavaScript origins**, add:
    - `http://localhost:3000` (for local development and testing)
-   - `https://keepsake.yourdomain.com` (or `http://YOUR_SERVER_IP:3000` for your server)
+   - `https://keepsake.yourdomain.com` (your server)
 6. Under **Authorized redirect URIs**, add:
    - `http://localhost:3000/api/auth/google/callback`
-   - `https://keepsake.yourdomain.com/api/auth/google/callback` (or `http://YOUR_SERVER_IP:3000/api/auth/google/callback`)
+   - `https://keepsake.yourdomain.com/api/auth/google/callback`
+
+   Google only accepts `http://` addresses for `localhost`, so a server reached from other devices needs HTTPS (see the Caddy and nginx examples in `deploy/`). Do not use a bare IP address.
 7. Click **Create**.
 8. A modal will display your **Client ID** and **Client Secret**. Keep this window open.
 
@@ -338,6 +340,10 @@ cd /home/ubuntu/keepsake
 docker compose --env-file .env -f deploy/docker-compose.yml --profile caddy up -d --build
 ```
 
+The container runs as an unprivileged user and writes only to its data volume. A volume created by an older image is handed over to that user automatically at start. If you see `permission denied` for the Docker socket, add your user to the `docker` group (`sudo usermod -aG docker $USER`, then log in again); see the troubleshooting list in [docs/UBUNTU_DEPLOYMENT_GUIDE.md](docs/UBUNTU_DEPLOYMENT_GUIDE.md).
+
+To update later, run `./deploy.sh`: with no systemd unit present it rebuilds and restarts the container.
+
 #### 6. Verify Deployment
 Check the status of the containers:
 ```bash
@@ -390,10 +396,15 @@ DATA_DIR=/home/ubuntu/keepsake/data
 GOOGLE_CLIENT_ID=your-client-id.apps.googleusercontent.com
 GOOGLE_CLIENT_SECRET=GOCSPX-your-client-secret
 GOOGLE_REDIRECT_URI=https://keepsake.yourdomain.com/api/auth/google/callback
+# Google accounts allowed to sign in (comma-separated)
+KEEPSAKE_ALLOWED_EMAILS=you@gmail.com
 ```
 
 #### 4. Setup Systemd Service
 ```bash
+# The unit runs /usr/bin/node directly and may only write to /home/ubuntu/keepsake/data;
+# adjust the paths in deploy/keepsake.service first if node or the checkout live elsewhere
+# (check with `which node`).
 sudo cp deploy/keepsake.service /etc/systemd/system/keepsake.service
 sudo systemctl daemon-reload
 sudo systemctl enable keepsake

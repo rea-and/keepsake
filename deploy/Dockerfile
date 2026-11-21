@@ -49,9 +49,12 @@ COPY apps/extension/package.json ./apps/extension/
 # Install only production dependencies
 RUN npm ci --omit=dev
 
-# The server runs as the unprivileged "node" user and writes only to /app/data
-RUN mkdir -p /app/data && chown node:node /app/data
-USER node
+# The server runs as the unprivileged "node" user and writes only to /app/data. The entrypoint starts
+# as root just long enough to fix the ownership of an existing data volume (older images ran as root),
+# then drops privileges.
+RUN apk add --no-cache su-exec && mkdir -p /app/data && chown node:node /app/data
+COPY deploy/docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
+RUN chmod +x /usr/local/bin/docker-entrypoint.sh
 
 EXPOSE 3000
 
@@ -59,4 +62,5 @@ EXPOSE 3000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=5s --retries=3 \
   CMD wget --no-verbose --tries=1 --spider http://localhost:${PORT:-3000}/api/health || exit 1
 
+ENTRYPOINT ["docker-entrypoint.sh"]
 CMD ["node", "apps/server/dist/index.js"]
