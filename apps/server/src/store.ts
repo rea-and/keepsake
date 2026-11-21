@@ -1,6 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { cleanReaderContent } from './sanitize.js';
 import {
   KeepsakeDataStore,
   Bookmark,
@@ -17,7 +18,9 @@ import {
   parseRedditUrl,
   cleanRedditTitle,
   cleanRedditMediaUrl,
-  isGenericRedditMedia
+  isGenericRedditMedia,
+  isSparseTitle,
+  sanitizeStoreInput
 } from '@keepsake/shared';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -55,7 +58,7 @@ class ServerStoreManager {
         const raw = fs.readFileSync(STORE_PATH, 'utf-8');
         const parsed = JSON.parse(raw);
         if (parsed && Array.isArray(parsed.bookmarks) && Array.isArray(parsed.collections)) {
-          return parsed;
+          return this.repairLoadedStore(parsed);
         }
         throw new Error('Store is missing bookmark or collection lists');
       } catch (err) {
@@ -68,12 +71,96 @@ class ServerStoreManager {
     return defaultStore;
   }
 
+  /**
+   * Malformed records (for example a bookmark synced without a URL) would make
+   * searches and saves fail on every start. Keep a copy of the file, then drop them.
+   */
+  private repairLoadedStore(parsed: KeepsakeDataStore): KeepsakeDataStore {
+    const result = sanitizeStoreInput(parsed);
+    if (!result) return parsed;
+    const droppedCount = Object.values(result.dropped).reduce((sum, count) => sum + count, 0);
+    if (droppedCount === 0) return parsed;
+    const copy = `${STORE_PATH}.pre-repair-${Date.now()}`;
+    fs.copyFileSync(STORE_PATH, copy);
+    console.warn(`[ServerStore] Dropped ${droppedCount} malformed record(s) from ${STORE_PATH}; the original was kept at ${copy}`);
+    const repaired = this.withSystemCollections(this.fixOrphans(result.store));
+    this.persist(repaired);
+    return repaired;
+  }
+
+  private withSystemCollections(store: KeepsakeDataStore): KeepsakeDataStore {
+    if (!store.collections.some((c) => c.id === 'unsorted')) {
+      store.collections.unshift(createDefaultStore('server').collections[0]);
+    }
+    return store;
+  }
+
+  /** Points bookmarks and sub-collections at Unsorted/top level when their collection no longer exists. */
+  private fixOrphans(store: KeepsakeDataStore): KeepsakeDataStore {
+    const now = new Date().toISOString();
+    const ids = new Set(store.collections.map((c) => c.id));
+    ids.add('unsorted');
+    store.bookmarks = store.bookmarks.map((b) => (ids.has(b.collectionId) ? b : { ...b, collectionId: 'unsorted', updatedAt: now }));
+    store.collections = store.collections.map((c) => (c.parentId && !ids.has(c.parentId) ? { ...c, parentId: null, updatedAt: now } : c));
+    return store;
+  }
+
+  // Identifies the stored data for conditional requests. A random boot id keeps a restarted
+  // server from ever reusing a revision a client has already seen.
+  private readonly bootId = Math.random().toString(36).slice(2, 8);
+  private revisionCounter = 0;
+
+  public getRevision(): string {
+    return `${this.bootId}-${this.revisionCounter}`;
+  }
+
+  private batchDepth = 0;
+  private dirtyInBatch = false;
+  private lastSnapshotDay = '';
+
+  /** Runs several changes and writes the store to disk once at the end (imports of thousands of items). */
+  public batch<T>(work: () => T): T {
+    this.batchDepth++;
+    try {
+      return work();
+    } finally {
+      this.batchDepth--;
+      if (this.batchDepth === 0 && this.dirtyInBatch) {
+        this.dirtyInBatch = false;
+        this.persist(this.store);
+      }
+    }
+  }
+
+  /** Keeps one copy of the store per day (seven days) so a bad sync or import can be rolled back. */
+  private snapshotDaily(): void {
+    const day = new Date().toISOString().slice(0, 10);
+    if (day === this.lastSnapshotDay || !fs.existsSync(STORE_PATH)) return;
+    try {
+      const dir = path.join(DATA_DIR, 'backups');
+      fs.mkdirSync(dir, { recursive: true });
+      const target = path.join(dir, `store-${day}.json`);
+      if (!fs.existsSync(target)) fs.copyFileSync(STORE_PATH, target);
+      this.lastSnapshotDay = day;
+      const old = fs.readdirSync(dir).filter((name) => /^store-\d{4}-\d{2}-\d{2}\.json$/.test(name)).sort().slice(0, -7);
+      for (const name of old) fs.rmSync(path.join(dir, name), { force: true });
+    } catch (err) {
+      console.warn('[ServerStore] Could not write the daily backup:', err);
+    }
+  }
+
   private persist(newStore: KeepsakeDataStore): void {
+    if (this.batchDepth > 0) {
+      this.dirtyInBatch = true;
+      return;
+    }
     const tmpPath = `${STORE_PATH}.tmp.${process.pid}.${Math.random().toString(36).slice(2)}`;
     try {
       this.ensureDataDir();
-      fs.writeFileSync(tmpPath, JSON.stringify(newStore, null, 2), 'utf-8');
+      this.snapshotDaily();
+      fs.writeFileSync(tmpPath, JSON.stringify(newStore), 'utf-8');
       fs.renameSync(tmpPath, STORE_PATH);
+      this.revisionCounter++;
     } catch (err) {
       console.error('[ServerStore] Failed to persist store to disk:', err);
       try { if (fs.existsSync(tmpPath)) fs.unlinkSync(tmpPath); } catch {}
@@ -100,9 +187,24 @@ class ServerStoreManager {
     return this.store;
   }
 
-  public merge(remoteStore: KeepsakeDataStore): KeepsakeDataStore {
-    const result = mergeStores(this.store, remoteStore, 'server');
-    this.store = result.mergedStore;
+  /**
+   * Merges a client's store. The payload is validated first: malformed records
+   * are dropped, non-web URLs refused, far-future timestamps clamped (a client
+   * with a wrong clock must not win every conflict forever), and tombstones for
+   * system collections ignored. Returns null when the payload is not a store.
+   */
+  public merge(remoteStore: unknown): KeepsakeDataStore | null {
+    const sanitized = sanitizeStoreInput(remoteStore, { requireHttpUrls: true });
+    if (!sanitized) return null;
+    const storedReaders = new Map(this.store.bookmarks.map((b) => [b.id, b.readerContent]));
+    for (const bookmark of sanitized.store.bookmarks) {
+      if (bookmark.readerContent) bookmark.readerContent = cleanReaderContent(bookmark.readerContent, storedReaders.get(bookmark.id));
+      // Clients may leave article text out of what they send (they fetch it on demand); never let that erase it.
+      else if (storedReaders.get(bookmark.id)) bookmark.readerContent = storedReaders.get(bookmark.id);
+      delete bookmark.hasReader;
+    }
+    const result = mergeStores(this.store, sanitized.store, 'server');
+    this.store = this.withSystemCollections(this.fixOrphans(result.mergedStore));
     this.persist(this.store);
     return this.store;
   }
@@ -158,7 +260,13 @@ class ServerStoreManager {
     return this.store.bookmarks.find((b) => b.id === id);
   }
 
-  public addOrUpdateBookmark(data: Partial<Bookmark> & { url: string }): Bookmark {
+  /**
+   * Creates a bookmark or updates the one with the same id or URL.
+   * - Fields that are `undefined` never overwrite stored values.
+   * - mode 'capture' (quick-saves, imports): an existing bookmark only has
+   *   empty metadata filled in; its collection, tags, note and flags are untouched.
+   */
+  public addOrUpdateBookmark(data: Partial<Bookmark> & { url: string }, options: { mode?: 'update' | 'capture' } = {}): Bookmark {
     const now = new Date().toISOString();
     const cleanUrl = normalizeUrl(data.url);
 
@@ -177,13 +285,23 @@ class ServerStoreManager {
     if (existingIndex >= 0) {
       // Update existing - preserve all existing fields unless explicitly updated
       const existing = this.store.bookmarks[existingIndex];
+      if (options.mode === 'capture') {
+        const filled = this.fillMissingMetadata(existing, data, now);
+        if (filled === existing) return existing;
+        this.store.bookmarks[existingIndex] = filled;
+        this.store.lastModified = now;
+        this.persist(this.store);
+        return filled;
+      }
+      const defined = Object.fromEntries(Object.entries(data).filter(([, value]) => value !== undefined)) as Partial<Bookmark>;
       const isVideo = !!getYouTubeVideoId(cleanUrl);
       const updatedCover = data.cover !== undefined ? data.cover : existing.cover;
       const updatedType = data.type !== undefined ? data.type : (isVideo ? 'video' : existing.type);
 
       savedBm = {
         ...existing,
-        ...data,
+        ...defined,
+        readerContent: cleanReaderContent(defined.readerContent ?? existing.readerContent, existing.readerContent),
         id: existing.id,
         url: cleanUrl,
         title: data.title !== undefined ? data.title : existing.title,
@@ -250,7 +368,7 @@ class ServerStoreManager {
         type: bookmarkType,
         createdAt: data.createdAt || now,
         updatedAt: now,
-        readerContent: data.readerContent
+        readerContent: cleanReaderContent(data.readerContent)
       };
       this.store.bookmarks.unshift(savedBm);
     }
@@ -258,6 +376,18 @@ class ServerStoreManager {
     this.store.lastModified = now;
     this.persist(this.store);
     return savedBm;
+  }
+
+  private fillMissingMetadata(existing: Bookmark, data: Partial<Bookmark>, now: string): Bookmark {
+    const updates: Partial<Bookmark> = {};
+    if (data.title && isSparseTitle(existing.title, existing.domain, existing.url) && !isSparseTitle(data.title, existing.domain, existing.url)) updates.title = data.title;
+    if (!existing.description && data.description) updates.description = data.description;
+    if (!existing.excerpt && data.excerpt) updates.excerpt = data.excerpt;
+    if (!existing.favicon && data.favicon) updates.favicon = data.favicon;
+    if ((!existing.cover || isGenericRedditMedia(existing.cover)) && data.cover && !isGenericRedditMedia(data.cover)) updates.cover = data.cover;
+    if (existing.type === 'link' && data.type && data.type !== 'link') updates.type = data.type;
+    if (!existing.readerContent && data.readerContent) updates.readerContent = cleanReaderContent(data.readerContent);
+    return Object.keys(updates).length === 0 ? existing : { ...existing, ...updates, updatedAt: now };
   }
 
   public deleteBookmark(id: string, permanent: boolean = false): boolean {

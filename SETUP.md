@@ -29,6 +29,21 @@ To give someone access, add their email to `KEEPSAKE_ALLOWED_EMAILS` and restart
 
 `KEEPSAKE_API_TOKEN` (minimum 32 characters, `openssl rand -hex 32`) is now optional. Set it only if you have scripts that cannot sign in with Google; it grants access to the entire library. Existing installations keep working with it, but must add `KEEPSAKE_ALLOWED_EMAILS` before upgrading, and each client signs in once with Google (the web app shows **Sign in again** on a 401).
 
+Sign-in details worth knowing:
+
+- Each sign-in is bound to the browser that started it (a one-time state value kept in an httpOnly cookie), so a crafted link cannot complete a sign-in in someone else's browser. The redirect URI always comes from `GOOGLE_REDIRECT_URI` or the request host; clients cannot choose it.
+- The Android app receives only a one-time code in its `keepsake://` link and redeems it with a PKCE verifier that never leaves the device. Other apps that register the same link scheme cannot use it.
+- Google's long-lived refresh token stays on the server (in `data/sessions.json`, readable only by the server user). Browsers and apps hold the Keepsake session token and, in the web app, a short-lived Google access token for Drive sync that the server refreshes on request. After upgrading, sign in again once to reconnect Google Drive.
+- The server sends a Content-Security-Policy and, over HTTPS, Strict-Transport-Security. Article text is cleaned with DOMPurify before it is stored or shown. Sign-in routes are rate limited.
+
+Signed-in devices are listed under **Settings > Sync** in the web app, where any of them can be signed out remotely (a lost phone, for example).
+
+### Data, backups and health
+
+The library lives in `data/store.json` (written compactly and atomically). The server keeps one copy per day for the last seven days in `data/backups/`; to roll back, stop the server and copy a snapshot over `store.json`. If a stored file ever contains malformed records, they are dropped at startup and the original is kept next to it as `store.json.pre-repair-<time>`. `data/sessions.json` holds the hashed session tokens and the Google refresh tokens; keep `data/` readable only by the server user.
+
+`GET /api/health` reports the version, the git commit (when known) and the server's capabilities. The systemd unit in `deploy/keepsake.service` runs `node` directly with a read-only file system except `data/`; if you installed an older copy, `./deploy.sh` tells you when the shipped unit differs from the installed one.
+
 The public health check and Google OAuth endpoints remain accessible without signing in. Do not expose the Node server outside your trusted network without HTTPS and an appropriate reverse proxy.
 
 ---
@@ -300,57 +315,41 @@ GOOGLE_CLIENT_ID=your-client-id.apps.googleusercontent.com
 GOOGLE_CLIENT_SECRET=GOCSPX-your-client-secret
 GOOGLE_REDIRECT_URI=https://keepsake.yourdomain.com/api/auth/google/callback
 
-# Allowed CORS origins
-CORS_ORIGIN=*
+# Google accounts allowed to sign in (comma-separated)
+KEEPSAKE_ALLOWED_EMAILS=you@gmail.com
 ```
+
+Cross-origin browser access is off by default and only needs `CORS_ORIGIN` if a page on another origin must call the API.
 
 #### 4. Configure Automated SSL (Let's Encrypt via Caddy)
-Keepsake includes a pre-configured Caddy configuration.
-
-Edit `deploy/Caddyfile`:
-```caddy
-keepsake.yourdomain.com {
-    reverse_proxy keepsake:3000
-}
+Keepsake includes an optional Caddy service (the `caddy` compose profile) that gets and renews a certificate automatically. Point a DNS record for your domain at the server, make sure ports 80 and 443 are reachable, and add to `.env`:
+```env
+KEEPSAKE_DOMAIN=keepsake.yourdomain.com
+GOOGLE_REDIRECT_URI=https://keepsake.yourdomain.com/api/auth/google/callback
 ```
-
-In `deploy/docker-compose.yml`, uncomment the `caddy` service:
-```yaml
-  caddy:
-    image: caddy:2-alpine
-    container_name: keepsake_caddy
-    restart: unless-stopped
-    ports:
-      - "80:80"
-      - "443:443"
-    volumes:
-      - ./Caddyfile:/etc/caddy/Caddyfile
-      - caddy_data:/data
-      - caddy_config:/config
-    depends_on:
-      - keepsake
-```
+Google only accepts `https://` redirect URIs for anything except `localhost`, so serve Keepsake over HTTPS before signing in.
 
 #### 5. Build and Start Keepsake
+Run Compose from the repository root, so the same `.env` is used by the container and the compose file:
 ```bash
-cd /home/ubuntu/keepsake/deploy
+cd /home/ubuntu/keepsake
 
-# Launch containers in the background
-docker compose up -d --build
+# Launch containers in the background (add --profile caddy for the bundled HTTPS proxy)
+docker compose --env-file .env -f deploy/docker-compose.yml --profile caddy up -d --build
 ```
 
 #### 6. Verify Deployment
 Check the status of the containers:
 ```bash
-docker compose ps
+docker compose --env-file .env -f deploy/docker-compose.yml ps
 ```
 View server startup logs:
 ```bash
-docker compose logs -f keepsake
+docker compose --env-file .env -f deploy/docker-compose.yml logs -f keepsake
 ```
 Test health endpoint:
 ```bash
-curl http://localhost:3000/api/health
+curl http://localhost:3000/api/health   # shows the version and git commit
 # Returns: {"status":"ok","app":"Keepsake Server","version":"1.0.0",...}
 ```
 
@@ -436,13 +435,13 @@ If you ever wish to remove Keepsake from your Ubuntu server, follow the clean un
 #### Step 1: Stop and Remove Containers, Networks, and Volumes
 Navigate to your deployment directory:
 ```bash
-cd /home/ubuntu/keepsake/deploy
+cd /home/ubuntu/keepsake
 
 # Stop and remove containers and networks
-docker compose down
+docker compose --env-file .env -f deploy/docker-compose.yml --profile caddy down
 
-# To also remove all persistent data (store.json, uploaded covers, Caddy SSL certs):
-docker compose down -v
+# To also remove all persistent data (store.json, sessions, backups, Caddy SSL certs):
+docker compose --env-file .env -f deploy/docker-compose.yml --profile caddy down -v
 ```
 
 #### Step 2: Remove Keepsake Docker Images

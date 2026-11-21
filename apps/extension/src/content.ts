@@ -20,9 +20,11 @@ window.addEventListener('message', (event) => {
   if (event.source !== window || event.origin !== window.location.origin) return;
   const apiToken = event.data?.type === 'KEEPSAKE_EXTENSION_AUTH' ? event.data.payload?.apiToken : null;
   if (typeof apiToken !== 'string' || !apiToken) return;
-  chrome.runtime.sendMessage({ action: 'EXTENSION_SIGN_IN', apiToken }, (response) => {
+  const email = typeof event.data.payload?.email === 'string' ? event.data.payload.email : '';
+  chrome.runtime.sendMessage({ action: 'EXTENSION_SIGN_IN', apiToken, email }, (response) => {
     if (chrome.runtime.lastError) return;
     if (response?.success) window.postMessage({ type: 'KEEPSAKE_EXTENSION_AUTH_ACK' }, window.location.origin);
+    else window.postMessage({ type: 'KEEPSAKE_EXTENSION_AUTH_NACK', reason: response?.reason || 'rejected' }, window.location.origin);
   });
 });
 

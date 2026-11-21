@@ -1,5 +1,5 @@
 import React from 'react';
-import { Bookmark } from '@keepsake/shared';
+import { Bookmark, safeHref } from '@keepsake/shared';
 import { Star, ExternalLink, BookOpen, Edit2, Trash2, CheckSquare, Square, CheckCircle2, Check } from 'lucide-react';
 
 interface ListViewProps {
@@ -84,7 +84,7 @@ export const ListView: React.FC<ListViewProps> = ({
               <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-2">
                   <a
-                    href={bm.url}
+                    href={safeHref(bm.url)}
                     target="_blank"
                     rel="noopener noreferrer"
                     className="text-sm font-medium hover:text-sky-600 dark:hover:text-sky-400 truncate text-neutral-900 dark:text-neutral-100"
@@ -92,7 +92,7 @@ export const ListView: React.FC<ListViewProps> = ({
                     {bm.title || bm.url}
                   </a>
 
-                  {bm.readerContent && (
+                  {(bm.readerContent || bm.hasReader) && (
                     <button
                       onClick={() => onOpenReader(bm)}
                       title="Reader Mode Available"
@@ -136,7 +136,7 @@ export const ListView: React.FC<ListViewProps> = ({
                 {new Date(bm.createdAt).toLocaleDateString([], { month: 'short', day: 'numeric' })}
               </span>
 
-              <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+              <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 [@media(hover:none)]:opacity-100 transition-opacity">
                 <button
                   onClick={() => onEdit(bm)}
                   title="Edit"
@@ -145,7 +145,7 @@ export const ListView: React.FC<ListViewProps> = ({
                   <Edit2 className="w-3.5 h-3.5" />
                 </button>
                 <a
-                  href={bm.url}
+                  href={safeHref(bm.url)}
                   target="_blank"
                   rel="noopener noreferrer"
                   title="Open Original"

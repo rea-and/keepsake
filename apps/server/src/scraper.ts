@@ -22,6 +22,8 @@ import {
   RedditPostInfo
 } from '@keepsake/shared';
 
+import { sanitizeReaderHtml } from './sanitize.js';
+
 const USER_AGENT = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36';
 const REDDIT_BOT_UA = 'facebookexternalhit/1.3 (+http://www.facebook.com/externalhit_uatext.php)';
 
@@ -29,8 +31,8 @@ const REDDIT_BOT_UA = 'facebookexternalhit/1.3 (+http://www.facebook.com/externa
 // SSRF Defense: Validate URL & Private IP Checks
 // ==========================================
 const blockedAddresses = new BlockList();
-for (const [address, prefix] of [['0.0.0.0', 8], ['10.0.0.0', 8], ['100.64.0.0', 10], ['127.0.0.0', 8], ['169.254.0.0', 16], ['172.16.0.0', 12], ['192.168.0.0', 16], ['224.0.0.0', 4], ['240.0.0.0', 4]] as const) blockedAddresses.addSubnet(address, prefix, 'ipv4');
-for (const [address, prefix] of [['::', 128], ['::1', 128], ['fc00::', 7], ['fe80::', 10], ['ff00::', 8]] as const) blockedAddresses.addSubnet(address, prefix, 'ipv6');
+for (const [address, prefix] of [['0.0.0.0', 8], ['10.0.0.0', 8], ['100.64.0.0', 10], ['127.0.0.0', 8], ['169.254.0.0', 16], ['172.16.0.0', 12], ['192.168.0.0', 16], ['192.0.0.0', 24], ['192.0.2.0', 24], ['198.18.0.0', 15], ['198.51.100.0', 24], ['203.0.113.0', 24], ['224.0.0.0', 4], ['240.0.0.0', 4]] as const) blockedAddresses.addSubnet(address, prefix, 'ipv4');
+for (const [address, prefix] of [['::', 128], ['::1', 128], ['fc00::', 7], ['fe80::', 10], ['ff00::', 8], ['64:ff9b::', 96], ['64:ff9b:1::', 48], ['2002::', 16], ['2001:db8::', 32]] as const) blockedAddresses.addSubnet(address, prefix, 'ipv6');
 function isPrivateOrLoopbackIP(ip: string): boolean {
   const family = isIP(ip);
   return family === 0 || blockedAddresses.check(ip, family === 4 ? 'ipv4' : 'ipv6');
@@ -199,44 +201,7 @@ export function extractRedditPreview(data: any): string | undefined {
 // HTML Sanitizer for Reader Mode
 // ==========================================
 function sanitizeHtmlContent(dirtyHtml: string): string {
-  try {
-    const dom = new JSDOM(`<!DOCTYPE html><html><body>${dirtyHtml}</body></html>`);
-    const doc = dom.window.document;
-
-    // Disallowed elements
-    const dangerousTags = ['script', 'style', 'iframe', 'object', 'embed', 'applet', 'base', 'form', 'input', 'button', 'link'];
-    dangerousTags.forEach((tag) => {
-      doc.querySelectorAll(tag).forEach((el) => el.remove());
-    });
-
-    // Remove event handlers and javascript: URIs from all remaining elements
-    const allElements = doc.querySelectorAll('*');
-    allElements.forEach((el) => {
-      // Clean attributes
-      const attrs = Array.from(el.attributes);
-      for (const attr of attrs) {
-        const name = attr.name.toLowerCase();
-        const val = attr.value.trim().toLowerCase();
-
-        // Remove on* event handlers (e.g. onerror, onload, onclick)
-        if (name.startsWith('on')) {
-          el.removeAttribute(attr.name);
-          continue;
-        }
-
-        // Remove javascript: or vbscript: or data: (except data:image)
-        if (name === 'href' || name === 'src' || name === 'action' || name === 'formaction') {
-          if (val.startsWith('javascript:') || val.startsWith('vbscript:') || (val.startsWith('data:') && !val.startsWith('data:image/'))) {
-            el.removeAttribute(attr.name);
-          }
-        }
-      }
-    });
-
-    return doc.body.innerHTML;
-  } catch {
-    return dirtyHtml;
-  }
+  return sanitizeReaderHtml(dirtyHtml);
 }
 
 export async function scrapeUrl(rawUrl: string): Promise<ScrapedMetadata> {

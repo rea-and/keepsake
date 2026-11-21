@@ -11,6 +11,8 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.io.*
 import java.net.HttpURLConnection
+import io.keepsake.app.utils.OperationOutcome
+import io.keepsake.app.utils.classifyStatus
 import java.net.URL
 import java.text.SimpleDateFormat
 import java.util.*
@@ -20,6 +22,12 @@ class KeepsakeRepository(private val context: Context) {
     private val cacheFileName = "keepsake_store_cache.json"
     private val pendingFileName = "keepsake_pending_operations.json"
 
+    /** Called (on any thread) when the server rejected this device's session. */
+    var onSessionExpired: (() -> Unit)? = null
+
+    /** Called (on any thread) with how many queued edits the server can never accept and were discarded. */
+    var onOperationsDropped: ((Int) -> Unit)? = null
+
     var bookmarks: MutableList<Bookmark> = mutableListOf()
         private set
 
@@ -28,6 +36,37 @@ class KeepsakeRepository(private val context: Context) {
 
     init {
         loadFromCache()
+    }
+
+    /**
+     * Redeems the one-time code from the sign-in link. The request is unauthenticated by design:
+     * the PKCE verifier is the proof. Returns the session JSON, or null if the server refused.
+     */
+    suspend fun exchangeLoginCode(serverUrl: String, code: String, verifier: String): String? = withContext(Dispatchers.IO) {
+        try {
+            val url = URL("${serverUrl.removeSuffix("/")}/api/auth/exchange")
+            val conn = (url.openConnection() as HttpURLConnection).apply {
+                requestMethod = "POST"
+                instanceFollowRedirects = false
+                connectTimeout = 8000
+                readTimeout = 8000
+                doOutput = true
+                setRequestProperty("Content-Type", "application/json")
+            }
+            conn.outputStream.bufferedWriter().use { it.write(JSONObject().put("code", code).put("verifier", verifier).toString()) }
+            if (conn.responseCode in 200..299) conn.inputStream.bufferedReader().use { it.readText() } else null
+        } catch (e: Exception) {
+            null
+        }
+    }
+
+    /** Forgets this account's library and any edits still waiting to be sent. */
+    @Synchronized
+    fun clearLocalData() {
+        File(context.filesDir, cacheFileName).delete()
+        File(context.filesDir, pendingFileName).delete()
+        bookmarks = mutableListOf()
+        collections = mutableListOf()
     }
 
     private fun loadFromCache() {
@@ -93,7 +132,11 @@ class KeepsakeRepository(private val context: Context) {
                 setRequestProperty("Accept", "application/json")
             }
 
-            if (conn.responseCode in 200..299) {
+            val statusCode = conn.responseCode
+            if (statusCode == 401) {
+                onSessionExpired?.invoke()
+                false
+            } else if (statusCode in 200..299) {
                 val responseText = conn.inputStream.bufferedReader().use { it.readText() }
                 val root = JSONObject(responseText)
                 val store = root.optJSONObject("store") ?: root
@@ -253,16 +296,52 @@ class KeepsakeRepository(private val context: Context) {
             }
         }
 
-        val res = httpPost("${serverUrl.removeSuffix("/")}/api/bookmarks", payload.toString())
-        if (res != null) {
-            val bmObj = res.optJSONObject("bookmark") ?: res
-            val created = Bookmark.fromJson(bmObj)
-            bookmarks.add(0, created)
-            saveToCache()
-            true
-        } else {
-            false
+        // A stable id makes a queued replay idempotent: the server matches the same bookmark again.
+        val id = "bm_" + UUID.randomUUID().toString().replace("-", "").take(12)
+        payload.put("id", id)
+        val endpoint = "${serverUrl.removeSuffix("/")}/api/bookmarks"
+
+        // Earlier queued edits go first so changes reach the server in the order they were made.
+        retryPendingOperations()
+        val (outcome, res) = postWithOutcome(endpoint, payload.toString())
+        when (outcome) {
+            OperationOutcome.SUCCESS -> {
+                val created = Bookmark.fromJson(res?.optJSONObject("bookmark") ?: res ?: payload)
+                bookmarks.add(0, created)
+                saveToCache()
+                true
+            }
+            OperationOutcome.RETRY_LATER -> {
+                // Offline or server trouble: keep the bookmark on the device and send it when sync resumes.
+                queueCreate(serverUrl, payload.toString())
+                true
+            }
+            OperationOutcome.SIGN_IN_REQUIRED -> {
+                onSessionExpired?.invoke()
+                false
+            }
+            OperationOutcome.DROP -> false
         }
+    }
+
+    /**
+     * Saves a new bookmark on the device and queues its request, for when the server cannot be
+     * reached (also used by the share sheet). The queue is sent, in order, at the next sync.
+     */
+    @Synchronized
+    fun queueCreate(serverUrl: String, payloadJson: String) {
+        val payload = JSONObject(payloadJson)
+        if (payload.optString("id").isEmpty()) payload.put("id", "bm_" + UUID.randomUUID().toString().replace("-", "").take(12))
+        enqueueOperation("POST", "${serverUrl.removeSuffix("/")}/api/bookmarks", payload.toString())
+        val now = nowIso()
+        val local = JSONObject(payload.toString()).apply {
+            put("createdAt", now)
+            put("updatedAt", now)
+            if (!has("description")) put("description", "")
+            put("isTrash", false)
+        }
+        bookmarks.add(0, Bookmark.fromJson(local))
+        saveToCache()
     }
 
     suspend fun createCollection(
@@ -479,7 +558,7 @@ class KeepsakeRepository(private val context: Context) {
             url = url.trim(),
             title = title.trim(),
             description = description?.trim()?.ifEmpty { null },
-            note = note?.trim()?.ifEmpty { null } ?: current.note,
+            note = note?.trim()?.ifEmpty { null },
             collectionId = collectionId,
             tags = cleanTags,
             isFavorite = isFavorite,
@@ -495,7 +574,7 @@ class KeepsakeRepository(private val context: Context) {
             put("url", updated.url)
             put("title", updated.title)
             put("description", updated.description ?: JSONObject.NULL)
-            put("note", updated.note ?: JSONObject.NULL)
+            put("note", updated.note ?: "")
             put("collectionId", updated.collectionId ?: JSONObject.NULL)
             put("tags", tagsArr)
             put("isFavorite", updated.isFavorite)
@@ -505,7 +584,7 @@ class KeepsakeRepository(private val context: Context) {
         true
     }
 
-    private fun sendOperation(method: String, urlString: String, body: String?): Boolean {
+    private fun sendOperation(method: String, urlString: String, body: String?): OperationOutcome {
         return try {
             val url = URL(urlString)
             val conn = (url.openConnection() as HttpURLConnection).apply {
@@ -519,10 +598,9 @@ class KeepsakeRepository(private val context: Context) {
                 }
             }
             if (body != null) conn.outputStream.bufferedWriter().use { it.write(body) }
-            val status = conn.responseCode
-            status in 200..299 || (method == "DELETE" && status == 404)
+            classifyStatus(method, conn.responseCode)
         } catch (e: Exception) {
-            false
+            OperationOutcome.RETRY_LATER
         }
     }
 
@@ -545,14 +623,28 @@ class KeepsakeRepository(private val context: Context) {
         val file = File(context.filesDir, pendingFileName)
         if (!file.exists()) return true
         val queue = try { JSONArray(file.readText()) } catch (e: Exception) { return false }
-        for (i in 0 until queue.length()) {
-            val item = queue.optJSONObject(i) ?: return false
-            val body = if (item.has("body")) item.optString("body") else null
-            if (!sendOperation(item.optString("method"), item.optString("url"), body)) return false
-            // Persist progress after each successful operation so retries are ordered.
-            val remaining = JSONArray()
-            for (j in i + 1 until queue.length()) remaining.put(queue.get(j))
-            writePendingQueue(file, remaining)
+        var dropped = 0
+        try {
+            for (i in 0 until queue.length()) {
+                val item = queue.optJSONObject(i) ?: return false
+                val body = if (item.has("body")) item.optString("body") else null
+                when (sendOperation(item.optString("method"), item.optString("url"), body)) {
+                    OperationOutcome.SUCCESS -> {}
+                    // A request the server will never accept must not block every later edit.
+                    OperationOutcome.DROP -> dropped++
+                    OperationOutcome.RETRY_LATER -> return false
+                    OperationOutcome.SIGN_IN_REQUIRED -> {
+                        onSessionExpired?.invoke()
+                        return false
+                    }
+                }
+                // Persist progress after each handled operation so retries are ordered.
+                val remaining = JSONArray()
+                for (j in i + 1 until queue.length()) remaining.put(queue.get(j))
+                writePendingQueue(file, remaining)
+            }
+        } finally {
+            if (dropped > 0) onOperationsDropped?.invoke(dropped)
         }
         return true
     }
@@ -565,6 +657,29 @@ class KeepsakeRepository(private val context: Context) {
     private fun httpPut(urlString: String, jsonBody: String) {
         enqueueOperation("PUT", urlString, jsonBody)
         retryPendingOperations()
+    }
+
+    private fun postWithOutcome(urlString: String, jsonBody: String): Pair<OperationOutcome, JSONObject?> {
+        return try {
+            val url = URL(urlString)
+            val conn = (url.openConnection() as HttpURLConnection).apply {
+                applyApiToken(context, this, url)
+                requestMethod = "POST"
+                connectTimeout = 8000
+                readTimeout = 8000
+                doOutput = true
+                setRequestProperty("Content-Type", "application/json")
+            }
+            conn.outputStream.bufferedWriter().use { it.write(jsonBody) }
+            val outcome = classifyStatus("POST", conn.responseCode)
+            if (outcome == OperationOutcome.SUCCESS) {
+                Pair(outcome, JSONObject(conn.inputStream.bufferedReader().use { it.readText() }))
+            } else {
+                Pair(outcome, null)
+            }
+        } catch (e: Exception) {
+            Pair(OperationOutcome.RETRY_LATER, null)
+        }
     }
 
     private fun httpPost(urlString: String, jsonBody: String): JSONObject? {

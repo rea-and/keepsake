@@ -1,5 +1,9 @@
-# Replace with your actual domain or leave :80 for local network
-# example: keepsake.yourdomain.com {
-:80 {
-    reverse_proxy keepsake:3000
+# Reverse proxy with automatic HTTPS. Used by the optional `caddy` profile in docker-compose.yml
+# (KEEPSAKE_DOMAIN and PORT come from .env), or run Caddy yourself and replace the address with
+# your domain, for example: keepsake.yourdomain.com { reverse_proxy 127.0.0.1:3000 }
+#
+# A real domain gets a Let's Encrypt certificate automatically; "localhost" gets a local one.
+{$KEEPSAKE_DOMAIN:localhost} {
+    encode gzip
+    reverse_proxy keepsake:{$PORT:3000}
 }

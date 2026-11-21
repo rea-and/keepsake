@@ -72,3 +72,14 @@ test('the optional static token still works for scripts', () => {
   assert.equal(run(middleware, { authorization: `Bearer ${legacy}` }).nexted, true);
   assert.equal(run(middleware, { authorization: `Bearer ${'m'.repeat(40)}` }).status, 401);
 });
+
+test('an unreadable sessions file is moved aside instead of overwritten', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'keepsake-sessions-'));
+  const file = path.join(dir, 'sessions.json');
+  fs.writeFileSync(file, '{not json');
+  const sessions = new SessionStore(file, () => 5_000);
+  assert.equal(fs.existsSync(file), false);
+  assert.equal(fs.readFileSync(path.join(dir, 'sessions.json.corrupt-5000'), 'utf8'), '{not json');
+  const token = sessions.create('owner@example.com');
+  assert.equal(sessions.verify(token)?.email, 'owner@example.com');
+});

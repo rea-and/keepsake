@@ -1,21 +1,48 @@
+# Run from the repository root so the server's .env is used for both the container and this file:
+#   docker compose --env-file .env -f deploy/docker-compose.yml up -d --build
+# Add the bundled Caddy reverse proxy (automatic HTTPS) with:  --profile caddy
 services:
   keepsake:
     build:
       context: ..
       dockerfile: deploy/Dockerfile
+      args:
+        GIT_COMMIT: ${GIT_COMMIT:-}
     container_name: keepsake
     restart: unless-stopped
     ports:
-      - "127.0.0.1:3000:3000"
+      - "127.0.0.1:${PORT:-3000}:${PORT:-3000}"
     env_file:
       - ../.env
     volumes:
       - keepsake_data:/app/data
     healthcheck:
-      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3000/api/health"]
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:$${PORT:-3000}/api/health"]
       interval: 30s
       timeout: 5s
       retries: 3
 
+  # Optional: terminates HTTPS in front of Keepsake. Set KEEPSAKE_DOMAIN in .env to a domain that
+  # points at this server (ports 80 and 443 must be reachable) and Caddy obtains the certificate.
+  caddy:
+    image: caddy:2
+    profiles: ["caddy"]
+    container_name: keepsake-caddy
+    restart: unless-stopped
+    depends_on:
+      - keepsake
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      KEEPSAKE_DOMAIN: ${KEEPSAKE_DOMAIN:-localhost}
+      PORT: ${PORT:-3000}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+
 volumes:
   keepsake_data:
+  caddy_data:
+  caddy_config:

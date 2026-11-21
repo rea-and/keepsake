@@ -22,7 +22,13 @@ function parseSearchQuery(query) {
     const tokens = query.trim().match(/-?"[^"]*"|\S+/g) || [];
     const textWords = [];
     const excludedTerms = [];
+    const excludedTags = [];
     for (const token of tokens) {
+        // -tag:name and -#name exclude an exact tag
+        if (/^-(tag:|#)./i.test(token)) {
+            excludedTags.push(token.replace(/^-(tag:|#)/i, '').toLowerCase());
+            continue;
+        }
         if (token.startsWith('-') && token.length > 1) {
             excludedTerms.push(token.slice(1).replace(/^"|"$/g, '').toLowerCase());
             continue;
@@ -91,6 +97,7 @@ function parseSearchQuery(query) {
     result.text = textWords.join(' ').toLowerCase();
     result.terms = textWords.map((word) => word.toLowerCase()).filter(Boolean);
     result.excludedTerms = excludedTerms.filter(Boolean);
+    result.excludedTags = excludedTags;
     return result;
 }
 /**
@@ -123,12 +130,18 @@ function matchesSearch(bookmark, parsed) {
     if (parsed.collectionId && bookmark.collectionId !== parsed.collectionId) {
         return false;
     }
-    // Filter tags (must match all specified tags)
+    // Excluded tags (-tag:name): exact match, so -tag:dev keeps "devops"
+    if (parsed.excludedTags?.length) {
+        const present = bookmark.tags.map((t) => t.toLowerCase());
+        if (parsed.excludedTags.some((tag) => present.includes(tag)))
+            return false;
+    }
+    // Filter tags (must match all specified tags). Exact match: tag:dev must not find "devops".
     if (parsed.tags.length > 0) {
         const bookmarkTagsLower = bookmark.tags.map((t) => t.toLowerCase());
         for (const tag of parsed.tags) {
             const tagLower = tag.toLowerCase();
-            if (!bookmarkTagsLower.some((t) => t.includes(tagLower))) {
+            if (!bookmarkTagsLower.some((t) => t === tagLower)) {
                 return false;
             }
         }
@@ -136,15 +149,7 @@ function matchesSearch(bookmark, parsed) {
     // Filter free text
     if (parsed.text || parsed.excludedTerms?.length) {
         const searchTerms = parsed.terms || parsed.text.split(' ').filter(Boolean);
-        const searchableContent = [
-            bookmark.title,
-            bookmark.description,
-            bookmark.domain,
-            bookmark.url,
-            bookmark.note || '',
-            bookmark.readerContent?.textContent || '',
-            ...bookmark.tags
-        ].join(' ').toLowerCase();
+        const searchableContent = searchableText(bookmark);
         for (const term of searchTerms) {
             if (!searchableContent.includes(term)) {
                 return false;
@@ -154,5 +159,24 @@ function matchesSearch(bookmark, parsed) {
             return false;
     }
     return true;
+}
+// Lowercasing every bookmark's title, notes and article text on every keystroke is slow for
+// large libraries. Bookmarks are replaced (not mutated) when edited, so the text is cached per object.
+const searchableTextCache = new WeakMap();
+function searchableText(bookmark) {
+    let text = searchableTextCache.get(bookmark);
+    if (text === undefined) {
+        text = [
+            bookmark.title,
+            bookmark.description,
+            bookmark.domain,
+            bookmark.url,
+            bookmark.note || '',
+            bookmark.readerContent?.textContent || '',
+            ...bookmark.tags
+        ].join(' ').toLowerCase();
+        searchableTextCache.set(bookmark, text);
+    }
+    return text;
 }
 //# sourceMappingURL=search.js.map

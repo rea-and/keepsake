@@ -68,16 +68,18 @@ KEEPSAKE_ALLOWED_EMAILS=you@gmail.com
 
 ### 3. Launch Keepsake
 
+Run Compose from the repository root, so the same `.env` configures both the container and the compose file:
+
 ```bash
-cd /home/ubuntu/keepsake/deploy
+cd /home/ubuntu/keepsake
 
 # Build and start the container in the background
-docker compose up -d --build
+docker compose --env-file .env -f deploy/docker-compose.yml up -d --build
 ```
 
 Check logs to verify startup:
 ```bash
-docker compose logs -f
+docker compose --env-file .env -f deploy/docker-compose.yml logs -f
 ```
 
 Your server will be running on `http://YOUR_SERVER_IP:3000`.
@@ -90,17 +92,15 @@ Your server will be running on `http://YOUR_SERVER_IP:3000`.
 
 Caddy automatically obtains and renews free SSL certificates from Let's Encrypt with 0 manual steps.
 
-1. Open `deploy/Caddyfile`:
-```caddy
-keepsake.yourdomain.com {
-    reverse_proxy keepsake:3000
-}
+1. Point a DNS record for your domain at this server, and make sure ports 80 and 443 are reachable.
+2. Add the domain to `.env` (Docker only), and set the matching Google redirect URI:
+```env
+KEEPSAKE_DOMAIN=keepsake.yourdomain.com
+GOOGLE_REDIRECT_URI=https://keepsake.yourdomain.com/api/auth/google/callback
 ```
-
-2. Uncomment the `caddy` service in `deploy/docker-compose.yml`.
-3. Restart:
+3. Start with the bundled Caddy service (it is a compose profile, so nothing to uncomment):
 ```bash
-docker compose up -d
+docker compose --env-file .env -f deploy/docker-compose.yml --profile caddy up -d --build
 ```
 
 ---
@@ -184,6 +184,5 @@ To update a Docker deployment by hand:
 cd /home/ubuntu/keepsake
 git pull
 cd deploy
-docker compose down
-docker compose up -d --build
+docker compose --env-file .env -f deploy/docker-compose.yml up -d --build
 ```

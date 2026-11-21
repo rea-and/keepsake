@@ -41,3 +41,19 @@ test('failed atomic replacement throws and restores the last committed data', ()
     assert.deepEqual(JSON.parse(fs.readFileSync(path.join(dir, 'store.json'), 'utf8')).collections.map((c) => c.title), ['Unsorted']);
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
+
+test('malformed records in an existing store are dropped after a copy is kept', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'keepsake-repair-'));
+  try {
+    const now = new Date().toISOString();
+    const good = { id: 'a', url: 'https://example.com', title: 'A', description: '', domain: 'example.com', tags: [], collectionId: 'unsorted', isFavorite: false, isTrash: false, type: 'link', createdAt: now, updatedAt: now };
+    const original = JSON.stringify({ version: 1, schemaVersion: 1, lastModified: now, deviceId: 'x', collections: [{ id: 'unsorted', title: 'Unsorted', sortOrder: 0, createdAt: now, updatedAt: now }], bookmarks: [good, { id: 'broken' }], tombstones: [] });
+    fs.writeFileSync(path.join(dir, 'store.json'), original);
+    const result = run(dir, `const { serverStore } = await import(${JSON.stringify(moduleUrl)}); console.log(JSON.stringify(serverStore.getStore().bookmarks.map((b) => b.id)));`);
+    assert.equal(result.status, 0, result.stderr);
+    assert.deepEqual(JSON.parse(result.stdout.trim().split('\n').pop()), ['a']);
+    const copy = fs.readdirSync(dir).find((name) => name.startsWith('store.json.pre-repair-'));
+    assert.ok(copy, 'the original file is kept');
+    assert.equal(fs.readFileSync(path.join(dir, copy), 'utf8'), original);
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});

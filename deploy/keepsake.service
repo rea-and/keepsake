@@ -1,19 +1,28 @@
 [Unit]
-Description=Keepsake Server (Raindrop.io clone with Google Drive sync)
+Description=Keepsake Server (self-hosted bookmark manager)
 After=network.target
 
 [Service]
 Type=simple
 User=ubuntu
 WorkingDirectory=/home/ubuntu/keepsake
-ExecStart=/usr/bin/npm --workspace=@keepsake/server run start
+# Run node directly (not through npm) so the service needs no writable home directory
+ExecStart=/usr/bin/node apps/server/dist/index.js
 Restart=always
 RestartSec=10
-StandardOutput=syslog
-StandardError=syslog
+# Logs go to the journal:  journalctl -u keepsake -f
 SyslogIdentifier=keepsake
 Environment=NODE_ENV=production
 EnvironmentFile=/home/ubuntu/keepsake/.env
+
+# Hardening: the server only needs to write its data directory
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ReadWritePaths=/home/ubuntu/keepsake/data
+ProtectKernelTunables=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
 
 [Install]
 WantedBy=multi-user.target

@@ -35,6 +35,8 @@ export interface Bookmark {
     updatedAt: string;
     deletedAt?: string | null;
     readerContent?: ReaderContent;
+    /** Set by the server when article text exists but was left out of a response (`?readers=0`). */
+    hasReader?: boolean;
 }
 export interface Collection {
     id: string;
@@ -119,6 +121,7 @@ export interface ParsedSearchQuery {
     text: string;
     terms?: string[];
     excludedTerms?: string[];
+    excludedTags?: string[];
     tags: string[];
     domain?: string;
     isFavorite?: boolean;

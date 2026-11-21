@@ -59,7 +59,7 @@ For Android, run `./gradlew assembleDebug` and `./gradlew testDebugUnitTest` fro
 
 ## Data and security
 
-The server stores the library in `data/store.json` by default. Web data is also cached in the browser; Google Drive sync is optional. JSON imports merge with existing data rather than replacing it. Keep independent backups. Only the Google accounts in `KEEPSAKE_ALLOWED_EMAILS` can sign in, and each device gets its own revocable session token (stored hashed in `data/sessions.json`). Signing out revokes that device's token; removing an address from the allow-list ends its sessions on the next restart.
+The server stores the library in `data/store.json` by default. Web data is also cached in the browser; Google Drive sync is optional. JSON imports merge with existing data rather than replacing it. Daily snapshots of the store are kept in `data/backups/`; keep independent backups as well. Only the Google accounts in `KEEPSAKE_ALLOWED_EMAILS` can sign in, and each device gets its own revocable session token (stored hashed in `data/sessions.json`). Signing out revokes that device's token; removing an address from the allow-list ends its sessions on the next restart.
 
 ## License
 

@@ -40,6 +40,8 @@ const TRACKING_PARAMS = new Set([
  * Normalizes a URL by removing common tracking parameters and canonicalizing protocol
  */
 function normalizeUrl(rawUrl) {
+    if (typeof rawUrl !== 'string')
+        return '';
     try {
         const trimmed = rawUrl.trim();
         const url = new URL(trimmed.startsWith('http') ? trimmed : `https://${trimmed}`);
@@ -364,6 +366,17 @@ function exportToNetscapeHtml(bookmarks, collections) {
     html += `</DL><p>\n`;
     return html;
 }
+/** Reverses escapeHtml so an export/import round trip returns the original text. */
+function decodeHtmlEntities(str) {
+    return str
+        .replace(/&#(\d+);/g, (_, code) => String.fromCodePoint(Number(code)))
+        .replace(/&#x([0-9a-f]+);/gi, (_, code) => String.fromCodePoint(parseInt(code, 16)))
+        .replace(/&quot;/g, '"')
+        .replace(/&apos;/g, "'")
+        .replace(/&lt;/g, '<')
+        .replace(/&gt;/g, '>')
+        .replace(/&amp;/g, '&');
+}
 function escapeHtml(str) {
     return str
         .replace(/&/g, '&amp;')
@@ -386,7 +399,7 @@ function parseNetscapeHtml(html) {
     for (const part of tokens) {
         const h3Match = part.match(/<H3[^>]*>(.*?)<\/H3>/i);
         if (h3Match) {
-            currentFolder = h3Match[1].replace(/<[^>]+>/g, '').trim();
+            currentFolder = decodeHtmlEntities(h3Match[1].replace(/<[^>]+>/g, '')).trim();
             folderStack.push(currentFolder);
         }
         else if (part.toUpperCase().startsWith('</DL>')) {
@@ -397,14 +410,17 @@ function parseNetscapeHtml(html) {
         let match;
         while ((match = linkRegex.exec(part)) !== null) {
             const attrsStr = match[1];
-            const title = match[2].replace(/<[^>]+>/g, '').trim();
-            const ddContent = match[3] ? match[3].replace(/<[^>]+>/g, '').trim() : '';
+            const title = decodeHtmlEntities(match[2].replace(/<[^>]+>/g, '')).trim();
+            const ddContent = match[3] ? decodeHtmlEntities(match[3].replace(/<[^>]+>/g, '')).trim() : '';
             const hrefMatch = attrsStr.match(/HREF="([^"]*)"/i);
             if (!hrefMatch)
                 continue;
-            const url = hrefMatch[1];
+            const url = decodeHtmlEntities(hrefMatch[1]).trim();
+            // Browser exports also contain place:, javascript: and file: entries; only web links are bookmarks.
+            if (!/^https?:\/\//i.test(url))
+                continue;
             const tagsMatch = attrsStr.match(/TAGS="([^"]*)"/i);
-            const tags = tagsMatch ? tagsMatch[1].split(',').map((t) => t.trim()).filter(Boolean) : [];
+            const tags = tagsMatch ? decodeHtmlEntities(tagsMatch[1]).split(',').map((t) => t.trim()).filter(Boolean) : [];
             const dateMatch = attrsStr.match(/ADD_DATE="([^"]*)"/i);
             let createdAt;
             if (dateMatch) {

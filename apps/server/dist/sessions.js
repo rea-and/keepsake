@@ -37,14 +37,20 @@ export class SessionStore {
                 this.sessions = parsed;
         }
         catch (err) {
-            // Never overwrite a file we could not read; signing in again is the safe fallback.
-            console.error(`[Server] Unable to read ${filePath}; existing sessions are ignored:`, err);
+            // Keep the unreadable file for inspection instead of overwriting it; signing in again is the safe fallback.
+            const aside = `${filePath}.corrupt-${this.now()}`;
+            try {
+                fs.renameSync(filePath, aside);
+            }
+            catch { }
+            console.error(`[Server] Unable to read ${filePath}; moved it to ${aside} and starting with no sessions:`, err);
         }
+        this.prune();
     }
-    create(email) {
+    create(email, extra = {}) {
         const token = TOKEN_PREFIX + randomBytes(32).toString('base64url');
         const now = this.now();
-        this.sessions[hashToken(token)] = { email: email.trim().toLowerCase(), createdAt: now, lastUsedAt: now };
+        this.sessions[hashToken(token)] = { email: email.trim().toLowerCase(), createdAt: now, lastUsedAt: now, ...(extra.googleRefreshToken ? { googleRefreshToken: extra.googleRefreshToken } : {}), ...(extra.label ? { label: extra.label.slice(0, 100) } : {}) };
         this.prune();
         this.persist();
         return token;
@@ -67,6 +73,28 @@ export class SessionStore {
             this.persist();
         }
         return { email: record.email };
+    }
+    /** Public identifier of a session (a prefix of its hash); it cannot be used to sign in. */
+    idOf(token) {
+        return hashToken(token).slice(0, 16);
+    }
+    /** Sessions of one account (or every account when `email` is omitted), newest activity first. */
+    list(email) {
+        return Object.entries(this.sessions)
+            .filter(([, record]) => !email || record.email === email)
+            .map(([key, record]) => ({ id: key.slice(0, 16), label: record.label || 'Unknown device', email: record.email, createdAt: record.createdAt, lastUsedAt: record.lastUsedAt }))
+            .sort((a, b) => b.lastUsedAt - a.lastUsedAt);
+    }
+    revokeById(id, email) {
+        const key = Object.keys(this.sessions).find((candidate) => candidate.slice(0, 16) === id && (!email || this.sessions[candidate].email === email));
+        if (!key)
+            return false;
+        delete this.sessions[key];
+        this.persist();
+        return true;
+    }
+    getGoogleRefreshToken(token) {
+        return this.sessions[hashToken(token)]?.googleRefreshToken;
     }
     revoke(token) {
         const key = hashToken(token);

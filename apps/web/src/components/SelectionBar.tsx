@@ -159,7 +159,7 @@ export const SelectionBar: React.FC<SelectionBarProps> = ({
         </button>
       </div>
 
-      <button
+      <button aria-label="Clear selection"
         onClick={onDeselectAll}
         className="p-1 rounded-md text-neutral-400 hover:text-white border-l border-neutral-700 pl-2 ml-1"
       >

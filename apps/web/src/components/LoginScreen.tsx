@@ -37,7 +37,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
       const raw = localStorage.getItem('keepsake_auth_session');
       if (raw) {
         const parsed = JSON.parse(raw);
-        if (parsed?.user && parsed?.tokens) {
+        if (parsed?.user && parsed?.tokens && parsed?.apiToken) {
           onLoginSuccess(parsed);
         }
       }
@@ -92,6 +92,11 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
         setTimeout(() => {
           checkStored();
           setIsAuthenticating(false);
+          try {
+            if (!JSON.parse(localStorage.getItem('keepsake_auth_session') || 'null')?.apiToken) {
+              setAuthError('Sign-in was not completed. If Google showed a message that your account is not allowed, ask the server owner to add your email to KEEPSAKE_ALLOWED_EMAILS.');
+            }
+          } catch {}
         }, 500);
       }
     }, 500);

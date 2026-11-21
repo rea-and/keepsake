@@ -22,7 +22,7 @@ export function createApiAuth({ sessions, legacyToken }: ApiAuthOptions) {
   const legacy = legacyToken ? Buffer.from(legacyToken, 'utf8') : null;
 
   return (req: Request, res: Response, next: NextFunction) => {
-    const publicRoute = (req.method === 'GET' && ['/health', '/auth/config', '/auth/google/url', '/auth/google/callback'].includes(req.path)) || (req.method === 'POST' && req.path === '/auth/refresh');
+    const publicRoute = (req.method === 'GET' && ['/health', '/auth/config', '/auth/google/url', '/auth/google/callback'].includes(req.path)) || (req.method === 'POST' && req.path === '/auth/exchange');
     if (req.method === 'OPTIONS' || publicRoute) return next();
     const header = req.get('authorization') || '';
     const bearer = header.startsWith('Bearer ') ? header.slice(7) : '';

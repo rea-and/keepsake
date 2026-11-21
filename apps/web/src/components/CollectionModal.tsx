@@ -98,7 +98,7 @@ export const CollectionModal: React.FC<CollectionModalProps> = ({
             />
             {collectionToEdit ? 'Edit Collection' : 'New Collection'}
           </h2>
-          <button
+          <button aria-label="Close"
             onClick={onClose}
             className="p-1 rounded-lg text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-200"
           >

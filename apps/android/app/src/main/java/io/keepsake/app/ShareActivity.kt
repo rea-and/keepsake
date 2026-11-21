@@ -15,6 +15,7 @@ import androidx.lifecycle.lifecycleScope
 import io.keepsake.app.databinding.ActivityShareBinding
 import io.keepsake.app.models.Collection
 import io.keepsake.app.utils.flattenCollections
+import io.keepsake.app.data.KeepsakeRepository
 import io.keepsake.app.utils.applyApiToken
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -392,7 +393,15 @@ class ShareActivity : AppCompatActivity() {
                     binding.btnCancel.isEnabled = true
                     binding.btnSave.setText(R.string.save)
                     binding.pbSaving.visibility = View.GONE
-                    Toast.makeText(this@ShareActivity, getString(R.string.save_failed), Toast.LENGTH_LONG).show()
+                    if (status == -1 || status >= 500 || status == 408 || status == 429) {
+                        // Offline or the server is having trouble: keep the link and send it at the next sync.
+                        KeepsakeRepository(this@ShareActivity).queueCreate(serverUrl, payload.toString())
+                        Toast.makeText(this@ShareActivity, getString(R.string.saved_offline), Toast.LENGTH_LONG).show()
+                        finish()
+                        return@withContext
+                    }
+                    val message = if (status == 401) getString(R.string.session_expired) else getString(R.string.save_failed)
+                    Toast.makeText(this@ShareActivity, message, Toast.LENGTH_LONG).show()
                 }
             }
         }

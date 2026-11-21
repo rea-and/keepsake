@@ -29,6 +29,7 @@ import io.keepsake.app.adapters.BookmarkAdapter
 import io.keepsake.app.data.KeepsakeRepository
 import io.keepsake.app.databinding.ActivityMainBinding
 import io.keepsake.app.models.AuthSession
+import io.keepsake.app.utils.Pkce
 import io.keepsake.app.models.Bookmark
 import io.keepsake.app.models.Collection
 import io.keepsake.app.utils.ImageLoader
@@ -57,6 +58,9 @@ class MainActivity : AppCompatActivity() {
         const val KEY_SERVER_URL = "server_url"
         const val KEY_API_TOKEN = "api_token"
         const val KEY_AUTH_SESSION = "auth_session"
+        const val KEY_PENDING_VERIFIER = "pending_sign_in_verifier"
+        const val KEY_PENDING_AT = "pending_sign_in_at"
+        const val PENDING_SIGN_IN_MAX_AGE_MS = 10 * 60 * 1000L
         const val KEY_VIEW_MODE = "is_grid_view"
         const val DEFAULT_SERVER_URL = "http://10.0.2.2:3000"
     }
@@ -67,6 +71,12 @@ class MainActivity : AppCompatActivity() {
         setContentView(binding.root)
 
         repository = KeepsakeRepository(this)
+        repository.onSessionExpired = { runOnUiThread { handleSessionExpired() } }
+        repository.onOperationsDropped = { count ->
+            runOnUiThread {
+                Toast.makeText(this, "$count change(s) could not be applied because the bookmark no longer exists.", Toast.LENGTH_LONG).show()
+            }
+        }
         isGridMode = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).getBoolean(KEY_VIEW_MODE, true)
 
         setupLoginUI()
@@ -100,23 +110,23 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun checkAuthAndRoute(intent: Intent?) {
-        // 1. Handle deep link from Google OAuth (keepsake://auth?session=...)
+        // 1. Handle the sign-in link (keepsake://auth?code=...). The link carries a one-time code
+        // only; it is honoured solely while this app has a sign-in in progress, and is redeemed
+        // with the PKCE verifier that never left the device.
         val data = intent?.data
         if (data != null && data.scheme == "keepsake") {
-            val sessionJson = data.getQueryParameter("session")
-            if (!sessionJson.isNullOrEmpty()) {
-                // The server mints a per-device API token at sign-in; nothing is typed in by hand.
-                val apiToken = AuthSession.fromJsonString(sessionJson)?.apiToken
-                val editor = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).edit()
-                editor.putString(KEY_AUTH_SESSION, sessionJson)
-                if (apiToken.isNullOrEmpty()) editor.remove(KEY_API_TOKEN) else editor.putString(KEY_API_TOKEN, apiToken)
-                editor.apply()
-
-                Toast.makeText(this, "Signed in successfully!", Toast.LENGTH_SHORT).show()
-                showNativeApp()
-                syncBookmarks()
+            val code = data.getQueryParameter("code")
+            val prefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            val verifier = prefs.getString(KEY_PENDING_VERIFIER, null)
+            val startedAt = prefs.getLong(KEY_PENDING_AT, 0L)
+            prefs.edit().remove(KEY_PENDING_VERIFIER).remove(KEY_PENDING_AT).apply()
+            if (!code.isNullOrEmpty() && !verifier.isNullOrEmpty() && System.currentTimeMillis() - startedAt <= PENDING_SIGN_IN_MAX_AGE_MS) {
+                completeSignIn(code, verifier)
                 return
             }
+            Toast.makeText(this, "Ignored a sign-in link that this app did not start.", Toast.LENGTH_LONG).show()
+            if (getStoredSession().isNullOrEmpty()) showLoginView() else showNativeApp()
+            return
         }
 
         // 2. Check stored session
@@ -298,6 +308,9 @@ class MainActivity : AppCompatActivity() {
                     bm.title.lowercase().contains(query) ||
                     bm.url.lowercase().contains(query) ||
                     bm.domain.lowercase().contains(query) ||
+                    // Same fields the web app and the server search
+                    (bm.description?.lowercase()?.contains(query) == true) ||
+                    (bm.note?.lowercase()?.contains(query) == true) ||
                     bm.tags.any { it.lowercase().contains(query) }
 
             matchesCollection && matchesTag && matchesSearch
@@ -563,7 +576,7 @@ class MainActivity : AppCompatActivity() {
         etTitle.setText(bm.title)
         etUrl.setText(bm.url)
         etTags.setText(bm.tags.joinToString(", "))
-        etNotes.setText(bm.note ?: bm.description ?: "")
+        etNotes.setText(bm.note ?: "")
 
         var isFav = bm.isFavorite
         fun updateFavIcon() {
@@ -630,8 +643,10 @@ class MainActivity : AppCompatActivity() {
                     bookmarkId = bm.id,
                     url = url,
                     title = title.ifEmpty { extractDomain(url) },
-                    description = notes ?: bm.description,
-                    note = notes ?: bm.note,
+                    // The field edits the personal note only; the scraped description is left alone, and
+                    // emptying the field clears the note.
+                    description = bm.description,
+                    note = notes,
                     collectionId = selectedCol,
                     tags = tagsList,
                     isFavorite = isFav,
@@ -1251,6 +1266,7 @@ class MainActivity : AppCompatActivity() {
         val etUrl = sheetView.findViewById<EditText>(R.id.etAddUrl)
         val etTitle = sheetView.findViewById<EditText>(R.id.etAddTitle)
         val etTags = sheetView.findViewById<EditText>(R.id.etAddTags)
+        val etNote = sheetView.findViewById<EditText>(R.id.etAddNote)
         val spinnerCol = sheetView.findViewById<Spinner>(R.id.spinnerAddCollection)
         val btnQuickAddCol = sheetView.findViewById<Button>(R.id.btnQuickAddCollection)
         val btnFavorite = sheetView.findViewById<ImageButton>(R.id.btnAddFavorite)
@@ -1332,7 +1348,7 @@ class MainActivity : AppCompatActivity() {
                 val success = repository.createBookmark(
                     url = url,
                     title = title,
-                    notes = null,
+                    notes = etNote.text.toString().trim().ifEmpty { null },
                     collectionId = selectedCol,
                     tags = tagsList,
                     isFavorite = isFavorite,
@@ -1397,6 +1413,7 @@ class MainActivity : AppCompatActivity() {
                 .remove(KEY_AUTH_SESSION)
                 .remove(KEY_API_TOKEN)
                 .apply()
+            repository.clearLocalData()
             showLoginView()
             Toast.makeText(this, "Signed out of Keepsake", Toast.LENGTH_SHORT).show()
         }
@@ -1435,6 +1452,28 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    private fun completeSignIn(code: String, verifier: String) {
+        lifecycleScope.launch {
+            val sessionJson = repository.exchangeLoginCode(getServerUrl(), code, verifier)
+            val session = sessionJson?.let { AuthSession.fromJsonString(it) }
+            val apiToken = session?.apiToken
+            if (sessionJson == null || session == null || apiToken.isNullOrEmpty()) {
+                showLoginView()
+                binding.tvLoginStatus.text = "Sign-in failed or expired. Please try again."
+                binding.tvLoginStatus.visibility = View.VISIBLE
+                return@launch
+            }
+            getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+                .edit()
+                .putString(KEY_AUTH_SESSION, sessionJson)
+                .putString(KEY_API_TOKEN, apiToken)
+                .apply()
+            Toast.makeText(this@MainActivity, "Signed in successfully!", Toast.LENGTH_SHORT).show()
+            showNativeApp()
+            syncBookmarks()
+        }
+    }
+
     private fun startGoogleSignIn() {
         val inputUrl = binding.etServerUrl.text.toString().trim().removeSuffix("/")
         if (inputUrl.isEmpty()) {
@@ -1453,7 +1492,14 @@ class MainActivity : AppCompatActivity() {
         binding.pbGoogleSignIn.visibility = View.VISIBLE
         binding.btnGoogleSignIn.isEnabled = false
 
-        val authUrl = "$inputUrl/api/auth/google/url?state=android"
+        // PKCE: the server only ever sees the challenge; the verifier stays here until the code comes back.
+        val verifier = Pkce.newVerifier()
+        getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            .edit()
+            .putString(KEY_PENDING_VERIFIER, verifier)
+            .putLong(KEY_PENDING_AT, System.currentTimeMillis())
+            .apply()
+        val authUrl = "$inputUrl/api/auth/google/url?state=android&challenge=${Pkce.challengeFor(verifier)}"
 
         try {
             val customTabsIntent = CustomTabsIntent.Builder()
@@ -1487,6 +1533,18 @@ class MainActivity : AppCompatActivity() {
     private fun showNativeApp() {
         binding.loginContainer.visibility = View.GONE
         binding.nativeAppContainer.visibility = View.VISIBLE
+    }
+
+    /** The server no longer accepts this device's token (expired after 90 idle days, or revoked). */
+    private fun handleSessionExpired() {
+        if (isFinishing || binding.loginContainer.visibility == View.VISIBLE) return
+        getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            .edit()
+            .remove(KEY_AUTH_SESSION)
+            .remove(KEY_API_TOKEN)
+            .apply()
+        showLoginView()
+        Toast.makeText(this, "Your Keepsake session expired. Sign in again to keep syncing.", Toast.LENGTH_LONG).show()
     }
 
     /** Tells the server to forget this device's API token; failures are harmless. */
@@ -1536,12 +1594,19 @@ class MainActivity : AppCompatActivity() {
             .setPositiveButton("Connect") { _, _ ->
                 val newUrl = input.text.toString().trim().removeSuffix("/")
                 if (newUrl.isNotEmpty()) {
-                    getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-                        .edit()
-                        .putString(KEY_SERVER_URL, newUrl)
-                        .apply()
+                    val serverChanged = !newUrl.equals(current.removeSuffix("/"), ignoreCase = true)
+                    val editor = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).edit()
+                    editor.putString(KEY_SERVER_URL, newUrl)
+                    // A session belongs to one server; never send its token to a different host.
+                    if (serverChanged) {
+                        editor.remove(KEY_AUTH_SESSION).remove(KEY_API_TOKEN)
+                    }
+                    editor.apply()
                     binding.etServerUrl.setText(newUrl)
-                    if (binding.nativeAppContainer.visibility == View.VISIBLE) {
+                    if (serverChanged) {
+                        repository.clearLocalData()
+                        showLoginView()
+                    } else if (binding.nativeAppContainer.visibility == View.VISIBLE) {
                         syncBookmarks()
                     }
                 }

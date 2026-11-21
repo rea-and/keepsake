@@ -1,5 +1,5 @@
 import React from 'react';
-import { Bookmark } from '@keepsake/shared';
+import { Bookmark, safeHref } from '@keepsake/shared';
 import { Star, ExternalLink, BookOpen, Edit2, Trash2, CheckSquare, Square, Check } from 'lucide-react';
 
 interface CardsViewProps {
@@ -181,7 +181,7 @@ export const CardsView: React.FC<CardsViewProps> = ({
 
                 {/* Title */}
                 <a
-                  href={bm.url}
+                  href={safeHref(bm.url)}
                   target="_blank"
                   rel="noopener noreferrer"
                   className={`block ${titleClass} text-neutral-900 dark:text-neutral-100 hover:text-sky-600 dark:hover:text-sky-400`}
@@ -223,8 +223,8 @@ export const CardsView: React.FC<CardsViewProps> = ({
                 <div className="pt-2 border-t border-neutral-100 dark:border-neutral-800/60 flex items-center justify-between text-xs text-neutral-400">
                   <span className="text-[11px]">{new Date(bm.createdAt).toLocaleDateString([], { month: 'short', day: 'numeric' })}</span>
 
-                  <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                    {bm.readerContent && (
+                  <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 [@media(hover:none)]:opacity-100 transition-opacity">
+                    {(bm.readerContent || bm.hasReader) && (
                       <button
                         onClick={() => onOpenReader(bm)}
                         title="Reader Mode"
@@ -241,7 +241,7 @@ export const CardsView: React.FC<CardsViewProps> = ({
                       <Edit2 className="w-3.5 h-3.5" />
                     </button>
                     <a
-                      href={bm.url}
+                      href={safeHref(bm.url)}
                       target="_blank"
                       rel="noopener noreferrer"
                       title="Open Original"

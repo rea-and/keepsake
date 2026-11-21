@@ -1,7 +1,10 @@
+import './env.js';
 import express, { Request, Response, NextFunction } from 'express';
 import cors from 'cors';
-import dotenv from 'dotenv';
 import path from 'path';
+import { randomBytes } from 'node:crypto';
+import { createRequire } from 'node:module';
+import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'url';
 import fs from 'fs';
 import { createAuthRouter } from './auth.js';
@@ -10,6 +13,7 @@ import { serverStore, DATA_DIR } from './store.js';
 import { SessionStore, parseAllowedEmails } from './sessions.js';
 import { hasBookmarkConflict } from './conflicts.js';
 import { createApiAuth } from './apiAuth.js';
+import { createRateLimiter } from './rateLimit.js';
 import {
   exportToNetscapeHtml,
   parseNetscapeHtml,
@@ -21,11 +25,13 @@ import {
   isSparseTitle,
   Bookmark,
   Collection,
+  CollectionInput,
+  BookmarkInput,
   KeepsakeDataStore,
-  canSetCollectionParent
+  canSetCollectionParent,
+  sanitizeBookmarkInput,
+  sanitizeCollectionInput
 } from '@keepsake/shared';
-
-dotenv.config();
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -33,25 +39,49 @@ const __dirname = path.dirname(__filename);
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// Security Headers Middleware
+// Security headers. The web app is served from this origin, so scripts are limited to it; the
+// sign-in result pages use a per-response nonce for their one inline script. Styles allow
+// inline attributes because React sets some. Google Drive sync runs in the browser, hence googleapis.com.
 app.use((req: Request, res: Response, next: NextFunction) => {
+  const nonce = randomBytes(16).toString('base64');
+  res.locals.cspNonce = nonce;
+  res.setHeader('Content-Security-Policy', [
+    "default-src 'self'",
+    `script-src 'self' 'nonce-${nonce}'`,
+    "style-src 'self' 'unsafe-inline'",
+    "img-src 'self' https: http: data: blob:",
+    "font-src 'self' data:",
+    "connect-src 'self' https://*.googleapis.com https://oauth2.googleapis.com",
+    "frame-ancestors 'self'",
+    "base-uri 'self'",
+    "object-src 'none'",
+    "form-action 'self'"
+  ].join('; '));
+  if (req.secure || req.get('x-forwarded-proto') === 'https') {
+    res.setHeader('Strict-Transport-Security', 'max-age=15552000');
+  }
   res.setHeader('X-Content-Type-Options', 'nosniff');
   res.setHeader('X-Frame-Options', 'SAMEORIGIN');
   res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
-  res.setHeader('X-XSS-Protection', '1; mode=block');
   next();
 });
 
-// Allow deployments to restrict browser origins, while preserving the existing
-// permissive default for self-hosted installations and extensions.
-const configuredOrigins = (process.env.CORS_ORIGIN || '*').split(',').map((origin) => origin.trim()).filter(Boolean);
-app.use(
-  cors({
-    origin: configuredOrigins.includes('*') ? '*' : configuredOrigins,
-    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With']
-  })
-);
+// Browsers only need CORS when a page on another origin calls the API. The web app is served
+// from this server, and the extension and Android app are not subject to CORS, so it is off
+// unless CORS_ORIGIN lists the origins to allow ("*" allows any; requests still need a session).
+const configuredOrigins = (process.env.CORS_ORIGIN || '').split(',').map((origin) => origin.trim()).filter(Boolean);
+if (configuredOrigins.length > 0) {
+  app.use(
+    cors({
+      origin: configuredOrigins.includes('*') ? '*' : configuredOrigins,
+      methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+      allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With']
+    })
+  );
+}
+
+// The public sign-in routes are rate limited.
+app.use('/api/auth', createRateLimiter({ windowMs: 60_000, max: 60 }));
 
 // Clients authenticate by signing in with Google. The server only accepts the
 // accounts listed in KEEPSAKE_ALLOWED_EMAILS and mints a per-device session
@@ -75,13 +105,29 @@ app.use('/api', createApiAuth({ sessions, legacyToken: process.env.KEEPSAKE_API_
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
+// Express 4 does not catch rejections from async handlers; route them to the error handler
+// instead of letting an unexpected throw take the process down.
+const asyncRoute = (handler: (req: Request, res: Response) => Promise<unknown>) => (req: Request, res: Response, next: NextFunction) => {
+  handler(req, res).catch(next);
+};
+
+// Version and build, read once at startup. The commit comes from GIT_COMMIT (Docker builds) or the
+// checkout the server runs from; it is simply omitted when neither is available.
+const require = createRequire(import.meta.url);
+const packageVersion: string = (() => { try { return require('../package.json').version; } catch { return 'unknown'; } })();
+const buildCommit: string | undefined = (() => {
+  if (process.env.GIT_COMMIT) return process.env.GIT_COMMIT.slice(0, 12);
+  try { return execFileSync('git', ['rev-parse', '--short', 'HEAD'], { cwd: __dirname, stdio: ['ignore', 'pipe', 'ignore'] }).toString().trim() || undefined; } catch { return undefined; }
+})();
+
 // Health Check
 app.get('/api/health', (req: Request, res: Response) => {
   res.json({
     status: 'ok',
     app: 'Keepsake Server',
-    version: '1.0.0',
-    capabilities: { conditionalBookmarkWrites: true },
+    version: packageVersion,
+    commit: buildCommit,
+    capabilities: { conditionalBookmarkWrites: true, captureMode: true, syncRevisions: true, readerOnDemand: true, devices: true },
     timestamp: new Date().toISOString()
   });
 });
@@ -110,23 +156,43 @@ app.get('/api/scrape', async (req: Request, res: Response) => {
 // ==========================================
 // Full Store Sync Endpoints (CRDT LWW)
 // ==========================================
+// `?readers=0` leaves article text out (bookmarks get `hasReader` instead); it is fetched per
+// bookmark from /api/bookmarks/:id/reader. The revision lets clients skip unchanged downloads.
+const withoutReaders = (store: KeepsakeDataStore): KeepsakeDataStore => ({
+  ...store,
+  bookmarks: store.bookmarks.map((bookmark) => {
+    if (!bookmark.readerContent) return bookmark;
+    const { readerContent, ...rest } = bookmark;
+    return { ...rest, hasReader: true };
+  })
+});
+const syncEtag = (req: Request) => `W/"${serverStore.getRevision()}${req.query.readers === '0' ? '-r0' : ''}"`;
+
 app.get('/api/sync', (req: Request, res: Response) => {
-  res.json({
+  const etag = syncEtag(req);
+  res.setHeader('ETag', etag);
+  res.setHeader('Cache-Control', 'no-cache');
+  if (req.get('if-none-match') === etag) {
+    return res.status(304).end();
+  }
+  const store = serverStore.getStore();
+  return res.json({
     success: true,
-    store: serverStore.getStore()
+    store: req.query.readers === '0' ? withoutReaders(store) : store
   });
 });
 
 app.post('/api/sync', (req: Request, res: Response) => {
-  const incomingStore: KeepsakeDataStore = req.body.store || req.body;
-  if (!incomingStore || !Array.isArray(incomingStore.bookmarks)) {
+  const incomingStore: unknown = req.body?.store || req.body;
+  const merged = serverStore.merge(incomingStore);
+  if (!merged) {
     return res.status(400).json({ error: 'Invalid store payload for sync' });
   }
-
-  const merged = serverStore.merge(incomingStore);
+  res.setHeader('ETag', syncEtag(req));
+  res.setHeader('Cache-Control', 'no-cache');
   return res.json({
     success: true,
-    store: merged
+    store: req.query.readers === '0' ? withoutReaders(merged) : merged
   });
 });
 
@@ -143,10 +209,30 @@ app.get('/api/bookmarks', (req: Request, res: Response) => {
     url: url as string
   });
 
+  // Article text is large; list responses omit it unless asked (?include=reader).
+  const includeReader = req.query.include === 'reader';
   res.json({
-    bookmarks,
+    bookmarks: includeReader ? bookmarks : withoutReaders({ ...serverStore.getStore(), bookmarks }).bookmarks,
     total: bookmarks.length
   });
+});
+
+// Tags in use (not counting the trash), most used first. Powers tag suggestions in the clients.
+app.get('/api/tags', (req: Request, res: Response) => {
+  const counts = new Map<string, number>();
+  for (const bookmark of serverStore.getStore().bookmarks) {
+    if (bookmark.isTrash) continue;
+    for (const tag of bookmark.tags) counts.set(tag, (counts.get(tag) || 0) + 1);
+  }
+  res.json({ tags: [...counts.entries()].map(([name, count]) => ({ name, count })).sort((a, b) => b.count - a.count || a.name.localeCompare(b.name)) });
+});
+
+app.get('/api/bookmarks/:id/reader', (req: Request, res: Response) => {
+  const bookmark = serverStore.getBookmark(req.params.id);
+  if (!bookmark?.readerContent) {
+    return res.status(404).json({ error: 'No saved article for this bookmark' });
+  }
+  return res.json({ readerContent: bookmark.readerContent });
 });
 
 app.get('/api/bookmarks/:id', (req: Request, res: Response) => {
@@ -157,31 +243,17 @@ app.get('/api/bookmarks/:id', (req: Request, res: Response) => {
   return res.json({ bookmark });
 });
 
-app.post('/api/bookmarks', async (req: Request, res: Response) => {
-  const {
-    id,
-    url,
-    title,
-    description,
-    excerpt,
-    note,
-    domain,
-    favicon,
-    cover,
-    collectionId,
-    tags,
-    isFavorite,
-    isTrash,
-    isDone,
-    type,
-    createdAt,
-    readerContent,
-    ifUnmodifiedSince
-  } = req.body;
-
-  if (!url) {
-    return res.status(400).json({ error: 'Missing required field: "url"' });
+app.post('/api/bookmarks', asyncRoute(async (req: Request, res: Response) => {
+  const parsed = sanitizeBookmarkInput(req.body);
+  if (!parsed.ok) {
+    return res.status(400).json({ error: parsed.error });
   }
+  const input = parsed.value as BookmarkInput & { url: string };
+  const { id, url } = input;
+  const ifUnmodifiedSince = req.body.ifUnmodifiedSince;
+  // 'capture' (quick-saves) fills in missing metadata of an existing bookmark
+  // without touching its collection, tags, note or flags.
+  const mode = req.body.mode === 'capture' ? 'capture' : 'update';
 
   // Queued offline captures must not overwrite changes made since the client
   // last saw this bookmark. The comparison and write run synchronously.
@@ -193,25 +265,7 @@ app.post('/api/bookmarks', async (req: Request, res: Response) => {
     }
   }
 
-  const saved = serverStore.addOrUpdateBookmark({
-    id,
-    url,
-    title,
-    description,
-    excerpt,
-    note,
-    domain,
-    favicon,
-    cover,
-    collectionId,
-    tags,
-    isFavorite,
-    isTrash,
-    isDone,
-    type,
-    createdAt,
-    readerContent
-  });
+  const saved = serverStore.addOrUpdateBookmark(input, { mode });
 
   // Background auto-enrichment if metadata is sparse or cover is missing/generic
   const sparseTitle = isSparseTitle(saved.title, saved.domain, saved.url);
@@ -268,7 +322,7 @@ app.post('/api/bookmarks', async (req: Request, res: Response) => {
     success: true,
     bookmark: saved
   });
-});
+}));
 
 app.put('/api/bookmarks/:id', (req: Request, res: Response) => {
   const existing = serverStore.getBookmark(req.params.id);
@@ -276,11 +330,15 @@ app.put('/api/bookmarks/:id', (req: Request, res: Response) => {
     return res.status(404).json({ error: 'Bookmark not found' });
   }
 
+  const parsed = sanitizeBookmarkInput(req.body, { partial: true });
+  if (!parsed.ok) {
+    return res.status(400).json({ error: parsed.error });
+  }
   const updated = serverStore.addOrUpdateBookmark({
     ...existing,
-    ...req.body,
+    ...parsed.value,
     id: req.params.id,
-    url: req.body.url || existing.url
+    url: parsed.value.url || existing.url
   });
 
   return res.json({
@@ -317,10 +375,11 @@ app.get('/api/collections/:id', (req: Request, res: Response) => {
 });
 
 app.post('/api/collections', (req: Request, res: Response) => {
-  const { title, description, icon, color, defaultViewMode, sortOrder, isSystem, id, parentId } = req.body;
-  if (!title) {
-    return res.status(400).json({ error: 'Missing required field: "title"' });
+  const parsed = sanitizeCollectionInput(req.body);
+  if (!parsed.ok) {
+    return res.status(400).json({ error: parsed.error });
   }
+  const { title, description, icon, color, defaultViewMode, sortOrder, isSystem, id, parentId } = parsed.value as CollectionInput & { title: string };
   if (parentId !== undefined && parentId !== null && (typeof parentId !== 'string' || !canSetCollectionParent(serverStore.listCollections(), id, parentId))) return res.status(400).json({ error: 'Invalid parent collection' });
 
   const collection = serverStore.addOrUpdateCollection({
@@ -356,12 +415,17 @@ app.put('/api/collections/:id', (req: Request, res: Response) => {
     return res.status(404).json({ error: 'Collection not found' });
   }
 
-  if (req.body.parentId !== undefined && req.body.parentId !== null && (typeof req.body.parentId !== 'string' || !canSetCollectionParent(serverStore.listCollections(), req.params.id, req.body.parentId))) return res.status(400).json({ error: 'Invalid parent collection' });
+  const parsed = sanitizeCollectionInput(req.body, { partial: true });
+  if (!parsed.ok) {
+    return res.status(400).json({ error: parsed.error });
+  }
+  const changes = parsed.value;
+  if (changes.parentId !== undefined && changes.parentId !== null && !canSetCollectionParent(serverStore.listCollections(), req.params.id, changes.parentId)) return res.status(400).json({ error: 'Invalid parent collection' });
 
   const updated = serverStore.addOrUpdateCollection({
-    ...req.body,
+    ...changes,
     id: req.params.id,
-    title: req.body.title || existing.title
+    title: changes.title || existing.title
   });
 
   return res.json({
@@ -388,16 +452,16 @@ app.post('/api/import', (req: Request, res: Response) => {
   try {
     if (format === 'json') {
       const parsed = typeof content === 'string' ? JSON.parse(content) : content;
-      if (parsed.bookmarks || parsed.collections) {
-        const merged = serverStore.merge(parsed);
-        return res.json({
-          success: true,
-          bookmarks: merged.bookmarks,
-          collections: merged.collections,
-          importedCount: parsed.bookmarks ? parsed.bookmarks.length : 0
-        });
+      const merged = serverStore.merge(parsed);
+      if (!merged) {
+        return res.status(400).json({ error: 'Invalid JSON backup format' });
       }
-      return res.status(400).json({ error: 'Invalid JSON backup format' });
+      return res.json({
+        success: true,
+        bookmarks: merged.bookmarks,
+        collections: merged.collections,
+        importedCount: Array.isArray(parsed.bookmarks) ? parsed.bookmarks.length : 0
+      });
     }
 
     // Default to Netscape HTML format
@@ -409,6 +473,10 @@ app.post('/api/import', (req: Request, res: Response) => {
     const bookmarks: Bookmark[] = [];
     const now = new Date().toISOString();
 
+    // One write to disk for the whole import instead of one per bookmark. Existing
+    // bookmarks are only enriched: re-importing an export must not reset their
+    // collection, tags or favorites.
+    serverStore.batch(() => {
     for (const item of parsedItems) {
       const colName = item.collectionName || 'Unsorted';
       const lower = colName.toLowerCase();
@@ -436,13 +504,12 @@ app.post('/api/import', (req: Request, res: Response) => {
         favicon: getFaviconUrl(domain),
         collectionId: targetColId,
         tags: item.tags || [],
-        isFavorite: false,
-        isTrash: false,
         type: 'link',
         createdAt: item.createdAt || now
-      });
+      }, { mode: 'capture' });
       bookmarks.push(savedBm);
     }
+    });
 
     return res.json({
       success: true,
@@ -494,8 +561,12 @@ if (fs.existsSync(webDistPath)) {
 
 // Error handling middleware
 app.use((err: any, req: Request, res: Response, next: NextFunction) => {
+  // Body-parser problems are the client's fault; everything else is logged
+  // here and answered without internal details.
+  if (err?.type === 'entity.too.large') return res.status(413).json({ error: 'Request body is too large' });
+  if (err?.type === 'entity.parse.failed' || err?.type === 'encoding.unsupported' || err?.type === 'charset.unsupported') return res.status(400).json({ error: 'Request body could not be parsed' });
   console.error('Server error:', err);
-  res.status(500).json({ error: 'Internal Server Error', message: err.message });
+  return res.status(500).json({ error: 'Internal Server Error' });
 });
 
 export { app };

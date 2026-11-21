@@ -1,5 +1,5 @@
 import React from 'react';
-import { Bookmark } from '@keepsake/shared';
+import { Bookmark, safeHref } from '@keepsake/shared';
 import { Star, ExternalLink, BookOpen, Edit2, Trash2, CheckCircle2, Check } from 'lucide-react';
 
 interface MoodboardViewProps {
@@ -63,7 +63,7 @@ export const MoodboardView: React.FC<MoodboardViewProps> = ({
               className={`p-1.5 rounded-full backdrop-blur shadow transition-all ${
                 bm.isDone
                   ? 'opacity-100 bg-emerald-500 text-white shadow-emerald-500/20'
-                  : 'opacity-0 group-hover:opacity-100 bg-black/50 text-white hover:text-emerald-400'
+                  : 'opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 [@media(hover:none)]:opacity-100 bg-black/50 text-white hover:text-emerald-400'
               }`}
             >
               <Check className="w-3.5 h-3.5 stroke-[2.8]" />
@@ -73,7 +73,7 @@ export const MoodboardView: React.FC<MoodboardViewProps> = ({
               onClick={() => onToggleFavorite(bm.id)}
               title={bm.isFavorite ? 'Starred' : 'Favorite'}
               className={`p-1.5 rounded-full bg-black/50 backdrop-blur shadow text-white transition-opacity ${
-                bm.isFavorite ? 'opacity-100 text-yellow-400' : 'opacity-0 group-hover:opacity-100 hover:text-yellow-400'
+                bm.isFavorite ? 'opacity-100 text-yellow-400' : 'opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 [@media(hover:none)]:opacity-100 hover:text-yellow-400'
               }`}
             >
               <Star className={`w-3.5 h-3.5 ${bm.isFavorite ? 'fill-yellow-400' : ''}`} />
@@ -93,7 +93,7 @@ export const MoodboardView: React.FC<MoodboardViewProps> = ({
             </div>
 
             <a
-              href={bm.url}
+              href={safeHref(bm.url)}
               target="_blank"
               rel="noopener noreferrer"
               className="block text-xs font-semibold hover:text-sky-500 line-clamp-2 break-words mb-2 leading-tight text-neutral-900 dark:text-neutral-100"
@@ -105,8 +105,8 @@ export const MoodboardView: React.FC<MoodboardViewProps> = ({
             <div className="pt-2 border-t border-neutral-100 dark:border-neutral-800 flex items-center justify-between text-xs text-neutral-400">
               <span>{new Date(bm.createdAt).toLocaleDateString([], { month: 'short', day: 'numeric' })}</span>
 
-              <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                {bm.readerContent && (
+              <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 [@media(hover:none)]:opacity-100 transition-opacity">
+                {(bm.readerContent || bm.hasReader) && (
                   <button
                     onClick={() => onOpenReader(bm)}
                     title="Reader View"
@@ -123,7 +123,7 @@ export const MoodboardView: React.FC<MoodboardViewProps> = ({
                   <Edit2 className="w-3 h-3" />
                 </button>
                 <a
-                  href={bm.url}
+                  href={safeHref(bm.url)}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="p-1 rounded hover:bg-neutral-100 dark:hover:bg-neutral-800 text-neutral-500 hover:text-neutral-200"

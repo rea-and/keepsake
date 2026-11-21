@@ -44,3 +44,8 @@ data/*.json
 !apps/web/dist/
 !apps/server/dist/
 !apps/extension/dist/
+
+# Server data: backups and repair copies
+data/backups/
+data/*.pre-repair-*
+data/*.corrupt-*

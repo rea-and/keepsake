@@ -9,7 +9,11 @@ export function useDialog(open: boolean, onClose: () => void) {
     const previous = document.activeElement as HTMLElement | null;
     const dialog = ref.current;
     const focusable = () => Array.from(dialog?.querySelectorAll<HTMLElement>('button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), a[href], [tabindex]:not([tabindex="-1"])') || []).filter((el) => el.getClientRects().length > 0);
-    const timer = window.setTimeout(() => (focusable()[0] || dialog)?.focus(), 0);
+    // Start in the first form field (so "press n, type a URL" works); fall back to the first control, then the dialog.
+    const timer = window.setTimeout(() => {
+      const items = focusable();
+      (items.find((el) => /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName) && (el as HTMLInputElement).type !== 'hidden') || items[0] || dialog)?.focus();
+    }, 0);
     const handleKey = (event: KeyboardEvent) => {
       if (event.key === 'Escape') { event.preventDefault(); closeRef.current(); return; }
       if (event.key !== 'Tab') return;

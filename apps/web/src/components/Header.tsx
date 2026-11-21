@@ -64,6 +64,7 @@ export const Header: React.FC<HeaderProps> = ({
         {/* Left: Mobile Menu + Title */}
         <div className="flex items-center gap-3 shrink-0">
           <button
+            aria-label="Open menu"
             onClick={onToggleMobileMenu}
             className="lg:hidden p-1.5 rounded-lg text-neutral-500 hover:text-neutral-800 dark:text-neutral-400 dark:hover:text-neutral-200 hover:bg-neutral-100 dark:hover:bg-neutral-800"
           >
@@ -101,7 +102,7 @@ export const Header: React.FC<HeaderProps> = ({
 
             <div className="absolute right-2 flex items-center gap-1">
               {searchQuery && (
-                <button
+                <button aria-label="Clear search"
                   onClick={() => onSearchChange('')}
                   className="p-1 text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-200"
                 >
@@ -364,7 +365,7 @@ export const Header: React.FC<HeaderProps> = ({
             }`}>
               <span>Status: {statusFilter === 'done' ? 'Only Done' : 'Only Pending'}</span>
               {onSelectStatusFilter && (
-                <button
+                <button aria-label="Clear status filter"
                   onClick={() => onSelectStatusFilter('all')}
                   className="hover:opacity-75"
                   title="Clear status filter"
@@ -378,7 +379,7 @@ export const Header: React.FC<HeaderProps> = ({
           {activeTag && (
             <div className="flex items-center gap-1.5 bg-sky-100 dark:bg-sky-950/60 text-sky-700 dark:text-sky-300 px-2 py-0.5 rounded-full text-xs font-medium">
               <span>#{activeTag}</span>
-              <button onClick={onClearTag} className="hover:text-sky-900 dark:hover:text-white">
+              <button aria-label="Clear tag filter" onClick={onClearTag} className="hover:text-sky-900 dark:hover:text-white">
                 <X className="w-3 h-3" />
               </button>
             </div>

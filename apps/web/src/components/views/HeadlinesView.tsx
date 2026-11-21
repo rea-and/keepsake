@@ -1,5 +1,5 @@
 import React from 'react';
-import { Bookmark } from '@keepsake/shared';
+import { Bookmark, safeHref } from '@keepsake/shared';
 import { Star, ExternalLink, BookOpen, Trash2, Edit2, CheckCircle2, Check } from 'lucide-react';
 
 interface HeadlinesViewProps {
@@ -63,7 +63,7 @@ export const HeadlinesView: React.FC<HeadlinesViewProps> = ({
             </span>
 
             <a
-              href={bm.url}
+              href={safeHref(bm.url)}
               target="_blank"
               rel="noopener noreferrer"
               className="font-medium truncate text-neutral-900 dark:text-neutral-100 hover:text-sky-600 dark:hover:text-sky-400"
@@ -77,8 +77,8 @@ export const HeadlinesView: React.FC<HeadlinesViewProps> = ({
               {new Date(bm.createdAt).toLocaleDateString([], { month: 'short', day: 'numeric' })}
             </span>
 
-            <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-              {bm.readerContent && (
+            <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 [@media(hover:none)]:opacity-100 transition-opacity">
+              {(bm.readerContent || bm.hasReader) && (
                 <button
                   onClick={() => onOpenReader(bm)}
                   title="Reader Mode"
@@ -95,7 +95,7 @@ export const HeadlinesView: React.FC<HeadlinesViewProps> = ({
                 <Edit2 className="w-3.5 h-3.5" />
               </button>
               <a
-                href={bm.url}
+                href={safeHref(bm.url)}
                 target="_blank"
                 rel="noopener noreferrer"
                 title="Open Original"

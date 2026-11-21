@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef, useDeferredValue } from 'react';
 import {
   Bookmark,
   Collection,
@@ -56,6 +56,13 @@ function getOrCreateDeviceId(): string {
   return id;
 }
 
+/** Cheap summary of a library that changes whenever the user edits it (every edit stamps updatedAt). */
+function libraryFingerprint(store: KeepsakeDataStore): string {
+  const newest = (items: { updatedAt: string }[]) => items.reduce((max, item) => (item.updatedAt > max ? item.updatedAt : max), '');
+  const searches = store.savedSearches || [];
+  return [store.bookmarks.length, newest(store.bookmarks), store.collections.length, newest(store.collections), (store.tombstones || []).length, searches.length, newest(searches)].join('|');
+}
+
 export function useKeepsakeStore() {
   const deviceId = useMemo(() => getOrCreateDeviceId(), []);
 
@@ -84,7 +91,7 @@ export function useKeepsakeStore() {
       const raw = localStorage.getItem(AUTH_STORAGE_KEY);
       if (raw) {
         const parsed = JSON.parse(raw);
-        if (parsed?.user?.email && parsed?.tokens?.accessToken) {
+        if (parsed?.user?.email && parsed?.tokens?.accessToken && parsed?.apiToken) {
           return parsed;
         }
       }
@@ -293,65 +300,90 @@ export function useKeepsakeStore() {
   }, []);
 
   // Server Sync Engine (Keepsake Backend Persistence)
+  // Server sync keeps three pieces of state so an idle library costs one tiny request:
+  // the fingerprint of what the server last received, the server's revision tag, and a guard
+  // against overlapping requests.
+  const lastSyncedFingerprint = useRef('');
+  const serverEtag = useRef<string | null>(null);
+  const syncInFlight = useRef(false);
+  const signedIn = Boolean(authSession?.apiToken);
+
   const syncWithServer = useCallback(async (options?: { silent?: boolean }) => {
+    if (syncInFlight.current || !authSessionRef.current?.apiToken) return;
+    syncInFlight.current = true;
     try {
       const storeToSend = storeRef.current;
+      const fingerprint = libraryFingerprint(storeToSend);
+      const dirty = fingerprint !== lastSyncedFingerprint.current;
 
-      const res = await fetch('/api/sync', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ store: storeToSend })
-      });
+      // Article text is fetched on demand (see ReaderModal), so it stays out of every sync.
+      const res = dirty
+        ? await fetch('/api/sync?readers=0', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ store: storeToSend })
+          })
+        : await fetch('/api/sync?readers=0', { headers: serverEtag.current ? { 'If-None-Match': serverEtag.current } : {} });
 
-      if (!res.ok) throw new Error(`Server returned ${res.status}`);
-      if (res.ok) {
-        const data = await res.json();
-        if (!data.store || !Array.isArray(data.store.bookmarks) || !Array.isArray(data.store.collections)) {
-          throw new Error('Invalid server sync response');
-        }
-        if (data.store) {
-          setStore((prev) => {
-            const merged = mergeStores(prev, data.store, deviceId).mergedStore;
-            if (
-              JSON.stringify(merged.bookmarks) !== JSON.stringify(prev.bookmarks) ||
-              JSON.stringify(merged.collections) !== JSON.stringify(prev.collections) ||
-              JSON.stringify(merged.tombstones) !== JSON.stringify(prev.tombstones) ||
-              JSON.stringify(merged.savedSearches || []) !== JSON.stringify(prev.savedSearches || [])
-            ) {
-              storeRef.current = merged;
-              return merged;
-            }
-            return prev;
-          });
-        }
+      if (res.status === 304) {
+        setServerSyncError(null);
+        return;
       }
+      if (!res.ok) throw new Error(`Server returned ${res.status}`);
+
+      const data = await res.json();
+      if (!data.store || !Array.isArray(data.store.bookmarks) || !Array.isArray(data.store.collections)) {
+        throw new Error('Invalid server sync response');
+      }
+      setStore((prev) => {
+        const merged = mergeStores(prev, data.store, deviceId).mergedStore;
+        if (
+          JSON.stringify(merged.bookmarks) !== JSON.stringify(prev.bookmarks) ||
+          JSON.stringify(merged.collections) !== JSON.stringify(prev.collections) ||
+          JSON.stringify(merged.tombstones) !== JSON.stringify(prev.tombstones) ||
+          JSON.stringify(merged.savedSearches || []) !== JSON.stringify(prev.savedSearches || [])
+        ) {
+          storeRef.current = merged;
+          return merged;
+        }
+        return prev;
+      });
+      // What was sent is now on the server. Anything merged in or edited since shows up as a new
+      // difference and is pushed on the next tick.
+      if (dirty) lastSyncedFingerprint.current = fingerprint;
+      serverEtag.current = res.headers.get('ETag');
       setServerSyncError(null);
     } catch (err) {
       setServerSyncError(err instanceof Error ? err.message : 'Server unavailable');
       if (!options?.silent) {
         console.warn('[Keepsake Web] Server sync offline or unavailable:', err);
       }
+    } finally {
+      syncInFlight.current = false;
     }
   }, [deviceId]);
 
-  // Initial sync with server on mount
+  // Sync once signed in, and again whenever the tab comes back into view
   useEffect(() => {
-    syncWithServer({ silent: true });
-  }, [syncWithServer]);
+    if (signedIn) syncWithServer({ silent: true });
+  }, [signedIn, syncWithServer]);
 
-  // Sync with server on window focus
   useEffect(() => {
-    const handleFocus = () => {
-      syncWithServer({ silent: true });
+    const handleVisible = () => {
+      if (document.visibilityState === 'visible') syncWithServer({ silent: true });
     };
-    window.addEventListener('focus', handleFocus);
-    return () => window.removeEventListener('focus', handleFocus);
+    window.addEventListener('focus', handleVisible);
+    document.addEventListener('visibilitychange', handleVisible);
+    return () => {
+      window.removeEventListener('focus', handleVisible);
+      document.removeEventListener('visibilitychange', handleVisible);
+    };
   }, [syncWithServer]);
 
-  // Fast periodic sync with server (every 5 seconds) to catch extension/mobile saves instantly
+  // Poll every 5 seconds to catch extension and phone saves quickly, only while the tab is visible.
   useEffect(() => {
     const interval = setInterval(() => {
-      syncWithServer({ silent: true });
+      if (document.visibilityState === 'visible') syncWithServer({ silent: true });
     }, 5000);
     return () => clearInterval(interval);
   }, [syncWithServer]);
@@ -373,8 +405,16 @@ export function useKeepsakeStore() {
       localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(store));
       setLocalPersistenceError(false);
     } catch (e) {
-      console.error('Failed to save to localStorage:', e);
-      setLocalPersistenceError(true);
+      // Saved article text is what fills the browser's ~5 MB quota. Keep the library itself
+      // (it is on the server too) and let articles be fetched again when opened.
+      try {
+        const slim = { ...store, bookmarks: store.bookmarks.map(({ readerContent, ...rest }) => (readerContent ? { ...rest, hasReader: true } : rest)) };
+        localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(slim));
+        setLocalPersistenceError(false);
+      } catch (error) {
+        console.error('Failed to save to localStorage:', error);
+        setLocalPersistenceError(true);
+      }
     }
   }, [store]);
 
@@ -387,6 +427,21 @@ export function useKeepsakeStore() {
     }
   }, [authSession]);
 
+  // Forgets this account's library on this device so the next person or account does not see it.
+  const resetLocalLibrary = useCallback(() => {
+    const fresh = createDefaultStore(deviceId);
+    storeRef.current = fresh;
+    setStore(fresh);
+    lastSyncedFingerprint.current = '';
+    serverEtag.current = null;
+    setDriveSyncEnabled(false);
+    try {
+      for (const key of Object.keys(localStorage)) {
+        if (key.startsWith('keepsake_reader_position_') || key === LOCAL_STORAGE_KEY) localStorage.removeItem(key);
+      }
+    } catch {}
+  }, [deviceId, setDriveSyncEnabled]);
+
   const logout = useCallback(() => {
     // Revoke this device's server session; failures (offline, already expired) are harmless.
     const apiToken = authSessionRef.current?.apiToken;
@@ -395,11 +450,35 @@ export function useKeepsakeStore() {
     }
     setAuthSession(null);
     localStorage.removeItem(AUTH_STORAGE_KEY);
+    resetLocalLibrary();
     setSyncStatus({ isSyncing: false, lastSyncedAt: null, error: null });
     try {
       (window as any).KeepsakeAndroid?.onLogout();
     } catch {}
+  }, [resetLocalLibrary]);
+
+  // The server rejected this device's session (expired, or revoked from another device): ask for a new sign-in.
+  useEffect(() => {
+    const onExpired = () => setServerSyncError('Server returned 401');
+    window.addEventListener('keepsake:session-expired', onExpired);
+    return () => window.removeEventListener('keepsake:session-expired', onExpired);
   }, []);
+
+  // Signing out in one tab signs out the others, and a Drive token refresh in a stale tab can no longer
+  // write an old session back.
+  useEffect(() => {
+    const onStorage = (event: StorageEvent) => {
+      if (event.key !== AUTH_STORAGE_KEY) return;
+      if (!event.newValue) {
+        setAuthSession(null);
+        resetLocalLibrary();
+      } else {
+        try { setAuthSession(JSON.parse(event.newValue)); } catch {}
+      }
+    };
+    window.addEventListener('storage', onStorage);
+    return () => window.removeEventListener('storage', onStorage);
+  }, [resetLocalLibrary]);
 
   // Synchronize browser URL bar and document title when activeCollectionId changes
   useEffect(() => {
@@ -491,35 +570,33 @@ export function useKeepsakeStore() {
       let currentAccessToken = session.tokens.accessToken;
       const driveClient = new GoogleDriveClient(currentAccessToken);
 
-      // Check if token expired and attempt refresh
+      // The short-lived Google access token is refreshed by the server, which keeps the
+      // long-lived refresh token; the browser only sends its Keepsake session.
       if (session.tokens.expiresAt && Date.now() > session.tokens.expiresAt - 60000) {
-        if (session.tokens.refreshToken) {
-          try {
-            const refreshRes = await fetch('/api/auth/refresh', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ refreshToken: session.tokens.refreshToken })
-            });
-            if (refreshRes.ok) {
-              const fresh = await refreshRes.json();
-              currentAccessToken = fresh.accessToken;
-              setAuthSession((prev) =>
-                prev
-                  ? {
-                      ...prev,
-                      tokens: {
-                        ...prev.tokens,
-                        accessToken: fresh.accessToken,
-                        expiresAt: fresh.expiresAt
-                      }
+        try {
+          const refreshRes = await fetch('/api/auth/refresh', { method: 'POST' });
+          if (refreshRes.ok) {
+            const fresh = await refreshRes.json();
+            currentAccessToken = fresh.accessToken;
+            setAuthSession((prev) =>
+              prev
+                ? {
+                    ...prev,
+                    tokens: {
+                      ...prev.tokens,
+                      accessToken: fresh.accessToken,
+                      expiresAt: fresh.expiresAt
                     }
-                  : null
-              );
-              driveClient.setAccessToken(fresh.accessToken);
-            }
-          } catch (e) {
-            console.warn('[Keepsake Web] Failed to refresh Google OAuth token:', e);
+                  }
+                : null
+            );
+            driveClient.setAccessToken(fresh.accessToken);
+          } else if (refreshRes.status === 409) {
+            throw new Error('Google Drive needs you to sign in again.');
           }
+        } catch (e) {
+          if (e instanceof Error && e.message.includes('sign in again')) throw e;
+          console.warn('[Keepsake Web] Failed to refresh Google OAuth token:', e);
         }
       }
 
@@ -545,8 +622,12 @@ export function useKeepsakeStore() {
 
       // 4. Update local store if remote changes exist
       if (mergeResult.hasRemoteChanges || JSON.stringify(currentStore) !== JSON.stringify(mergeResult.mergedStore)) {
-        setStore(mergeResult.mergedStore);
-        storeRef.current = mergeResult.mergedStore;
+        // The Drive round trip is slow; merge into the latest state so edits made meanwhile survive.
+        setStore((prev) => {
+          const merged = mergeStores(prev, mergeResult.mergedStore, deviceId).mergedStore;
+          storeRef.current = merged;
+          return merged;
+        });
       }
 
       const now = new Date().toISOString();
@@ -598,7 +679,9 @@ export function useKeepsakeStore() {
   }, [Boolean(authSession?.tokens?.accessToken), isDriveSyncEnabled, syncWithGoogleDrive]);
 
   // Bookmark Actions
-  const updateBookmark = useCallback((id: string, updates: Partial<Bookmark>) => {
+  const updateBookmark = useCallback((id: string, changes: Partial<Bookmark>) => {
+    // A field left undefined (the article text, when it was never loaded) must not erase the saved value.
+    const updates = Object.fromEntries(Object.entries(changes).filter(([, value]) => value !== undefined)) as Partial<Bookmark>;
     const now = new Date().toISOString();
     setStore((prev) => ({
       ...prev,
@@ -814,49 +897,39 @@ export function useKeepsakeStore() {
   );
 
   const toggleFavorite = useCallback((id: string) => {
+    const current = storeRef.current.bookmarks.find((b) => b.id === id);
+    if (!current) return;
     const now = new Date().toISOString();
-    let updatedBm: Bookmark | null = null;
-    setStore((prev) => {
-      const bm = prev.bookmarks.find((b) => b.id === id);
-      if (!bm) return prev;
-      updatedBm = { ...bm, isFavorite: !bm.isFavorite, updatedAt: now };
-      return {
-        ...prev,
-        lastModified: now,
-        bookmarks: prev.bookmarks.map((b) => (b.id === id ? updatedBm! : b))
-      };
-    });
-
-    if (updatedBm) {
-      fetch(`/api/bookmarks/${id}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(updatedBm)
-      }).catch((e) => console.warn('[Keepsake Web] toggleFavorite server persist error:', e));
-    }
+    const next = !current.isFavorite;
+    setStore((prev) => ({
+      ...prev,
+      lastModified: now,
+      bookmarks: prev.bookmarks.map((b) => (b.id === id ? { ...b, isFavorite: next, updatedAt: now } : b))
+    }));
+    // Send only the changed field; the request must not happen inside the state updater.
+    fetch(`/api/bookmarks/${id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ isFavorite: next })
+    }).catch((e) => console.warn('[Keepsake Web] toggleFavorite server persist error:', e));
   }, []);
 
   const toggleDone = useCallback((id: string) => {
+    const current = storeRef.current.bookmarks.find((b) => b.id === id);
+    if (!current) return;
     const now = new Date().toISOString();
-    let updatedBm: Bookmark | null = null;
-    setStore((prev) => {
-      const bm = prev.bookmarks.find((b) => b.id === id);
-      if (!bm) return prev;
-      updatedBm = { ...bm, isDone: !bm.isDone, updatedAt: now };
-      return {
-        ...prev,
-        lastModified: now,
-        bookmarks: prev.bookmarks.map((b) => (b.id === id ? updatedBm! : b))
-      };
-    });
-
-    if (updatedBm) {
-      fetch(`/api/bookmarks/${id}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(updatedBm)
-      }).catch((e) => console.warn('[Keepsake Web] toggleDone server persist error:', e));
-    }
+    const next = !current.isDone;
+    setStore((prev) => ({
+      ...prev,
+      lastModified: now,
+      bookmarks: prev.bookmarks.map((b) => (b.id === id ? { ...b, isDone: next, updatedAt: now } : b))
+    }));
+    // Send only the changed field; the request must not happen inside the state updater.
+    fetch(`/api/bookmarks/${id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ isDone: next })
+    }).catch((e) => console.warn('[Keepsake Web] toggleDone server persist error:', e));
   }, []);
 
   const moveToTrash = useCallback((id: string) => {
@@ -913,28 +986,29 @@ export function useKeepsakeStore() {
   }, []);
 
   const emptyTrash = useCallback(() => {
+    const prev = storeRef.current;
+    const trashed = prev.bookmarks.filter((bm) => bm.isTrash);
+    if (trashed.length === 0) return;
     const now = new Date().toISOString();
-    setStore((prev) => {
-      const trashed = prev.bookmarks.filter((bm) => bm.isTrash);
-      const newTombstones: SyncTombstone[] = trashed.map((bm) => ({
-        id: bm.id,
-        type: 'bookmark',
-        deletedAt: now
-      }));
-      const nextStore = {
-        ...prev,
-        lastModified: now,
-        bookmarks: prev.bookmarks.filter((bm) => !bm.isTrash),
-        tombstones: [...(prev.tombstones || []), ...newTombstones]
-      };
-      // Full sync to server
-      fetch('/api/sync', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ store: nextStore })
-      }).catch(() => {});
-      return nextStore;
-    });
+    const newTombstones: SyncTombstone[] = trashed.map((bm) => ({
+      id: bm.id,
+      type: 'bookmark',
+      deletedAt: now
+    }));
+    const nextStore: KeepsakeDataStore = {
+      ...prev,
+      lastModified: now,
+      bookmarks: prev.bookmarks.filter((bm) => !bm.isTrash),
+      tombstones: [...(prev.tombstones || []), ...newTombstones]
+    };
+    storeRef.current = nextStore;
+    setStore(nextStore);
+    // Full sync to server
+    fetch('/api/sync', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ store: nextStore })
+    }).catch(() => {});
   }, []);
 
   // Bulk Actions
@@ -1085,21 +1159,22 @@ export function useKeepsakeStore() {
 
       const now = new Date().toISOString();
 
+      // Requests are sent outside the state updater, which React may run more than once.
+      for (const bm of storeRef.current.bookmarks) {
+        if (ids.includes(bm.id) && !bm.tags.includes(cleanTag)) {
+          fetch(`/api/bookmarks/${bm.id}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ tags: [...bm.tags, cleanTag] })
+          }).catch((e) => console.warn('[Keepsake Web] addTagToBookmark persist error:', e));
+        }
+      }
       setStore((prev) => ({
         ...prev,
         lastModified: now,
-        bookmarks: prev.bookmarks.map((bm) => {
-          if (ids.includes(bm.id) && !bm.tags.includes(cleanTag)) {
-            const nextTags = [...bm.tags, cleanTag];
-            fetch(`/api/bookmarks/${bm.id}`, {
-              method: 'PUT',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ tags: nextTags })
-            }).catch((e) => console.warn('[Keepsake Web] addTagToBookmark persist error:', e));
-            return { ...bm, tags: nextTags, updatedAt: now };
-          }
-          return bm;
-        })
+        bookmarks: prev.bookmarks.map((bm) =>
+          ids.includes(bm.id) && !bm.tags.includes(cleanTag) ? { ...bm, tags: [...bm.tags, cleanTag], updatedAt: now } : bm
+        )
       }));
     },
     [selectedBookmarkIds]
@@ -1257,8 +1332,10 @@ export function useKeepsakeStore() {
   }, []);
 
   // Filtered and Sorted Bookmarks for current active view
+  // Typing stays responsive in big libraries: filtering follows the input at a lower priority.
+  const deferredSearch = useDeferredValue(searchQuery);
   const filteredBookmarks = useMemo(() => {
-    const parsedSearch = parseSearchQuery(searchQuery);
+    const parsedSearch = parseSearchQuery(deferredSearch);
 
     return store.bookmarks
       .filter((bm) => {
@@ -1295,32 +1372,33 @@ export function useKeepsakeStore() {
         }
 
         // Search criteria
-        if (searchQuery.trim() && !matchesSearch(bm, parsedSearch)) {
+        if (deferredSearch.trim() && !matchesSearch(bm, parsedSearch)) {
           return false;
         }
 
         return true;
       })
+      // Dates are parsed once per bookmark, not once per comparison.
+      .map((bm) => ({ bm, time: sortField === 'createdAt' ? Date.parse(bm.createdAt) : sortField === 'updatedAt' ? Date.parse(bm.updatedAt) : 0 }))
       .sort((a, b) => {
         let cmp = 0;
-        if (sortField === 'createdAt') {
-          cmp = new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
-        } else if (sortField === 'updatedAt') {
-          cmp = new Date(a.updatedAt).getTime() - new Date(b.updatedAt).getTime();
+        if (sortField === 'createdAt' || sortField === 'updatedAt') {
+          cmp = a.time - b.time;
         } else if (sortField === 'title') {
-          cmp = (a.title || '').localeCompare(b.title || '');
+          cmp = (a.bm.title || '').localeCompare(b.bm.title || '');
         } else if (sortField === 'domain') {
-          cmp = (a.domain || '').localeCompare(b.domain || '');
+          cmp = (a.bm.domain || '').localeCompare(b.bm.domain || '');
         }
         return sortOrder === 'asc' ? cmp : -cmp;
-      });
+      })
+      .map((entry) => entry.bm);
   }, [
     store.bookmarks,
     activeCollectionId,
     activeTag,
     statusFilter,
     selectedType,
-    searchQuery,
+    deferredSearch,
     sortField,
     sortOrder
   ]);
@@ -1380,17 +1458,22 @@ export function useKeepsakeStore() {
       const now = new Date().toISOString();
       if (format === 'json') {
         const parsed = parseBackup(content);
-        const mergeResult = mergeStores(store, parsed, deviceId);
-        setStore(mergeResult.mergedStore);
+        const mergeResult = mergeStores(storeRef.current, parsed, deviceId);
+        // Merge into the latest state so changes that arrived since this render are kept.
+        setStore((prev) => {
+          const merged = mergeStores(prev, mergeResult.mergedStore, deviceId).mergedStore;
+          storeRef.current = merged;
+          return merged;
+        });
         return { importedCount: mergeResult.bookmarksUpdated, skippedCount: Math.max(0, parsed.bookmarks.length - mergeResult.bookmarksUpdated) };
       } else {
         const parsedItems = parseNetscapeHtml(content);
         const colMap = new Map<string, Collection>();
-        store.collections.forEach((c) => colMap.set(c.title.toLowerCase(), c));
+        storeRef.current.collections.forEach((c) => colMap.set(c.title.toLowerCase(), c));
 
         const newBookmarks: Bookmark[] = [];
         const newCols: Collection[] = [];
-        const knownUrls = new Set(store.bookmarks.filter((bm) => !bm.isTrash).map((bm) => normalizeUrl(bm.url)));
+        const knownUrls = new Set(storeRef.current.bookmarks.filter((bm) => !bm.isTrash).map((bm) => normalizeUrl(bm.url)));
 
         for (const item of parsedItems) {
           const cleanUrl = normalizeUrl(item.url);
@@ -1407,7 +1490,7 @@ export function useKeepsakeStore() {
               const newCol: Collection = {
                 id: 'col_' + Math.random().toString(36).substring(2, 9),
                 title: colName,
-                sortOrder: store.collections.length + newCols.length,
+                sortOrder: storeRef.current.collections.length + newCols.length,
                 createdAt: now,
                 updatedAt: now
               };
@@ -1448,7 +1531,7 @@ export function useKeepsakeStore() {
       }
       return { importedCount: 0 };
     },
-    [store, deviceId, enrichImportedCovers]
+    [deviceId, enrichImportedCovers]
   );
 
   return {

@@ -261,7 +261,8 @@
     <!-- Tags -->
     <div>
       <label for="tagInput">Tags (Press Enter or Comma)</label>
-      <input type="text" id="tagInput" placeholder="reading, dev, design" />
+      <input type="text" id="tagInput" list="tagSuggestions" placeholder="reading, dev, design" />
+      <datalist id="tagSuggestions"></datalist>
       <div id="tagsContainer" class="tags-container"></div>
     </div>
 
@@ -282,6 +283,10 @@
   <div id="settingsPanel">
     <label for="serverUrlInput">Keepsake Server API URL</label>
     <input type="text" id="serverUrlInput" placeholder="http://your-ubuntu-server:3000" style="margin-bottom: 8px;" />
+    <div id="accountRow" style="display:none; margin-bottom: 8px; font-size: 12px;">
+      <span id="accountLabel"></span>
+      <a id="signOutLink" class="settings-link" style="margin-left: 8px;">Sign out</a>
+    </div>
     <button type="button" id="signInBtn" class="btn btn-primary" style="width:100%; margin-bottom: 8px;">Sign in with Google</button>
     <button type="button" id="saveSettingsBtn" class="btn btn-primary" style="width:100%;">Save Settings</button>
   </div>

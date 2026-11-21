@@ -227,7 +227,7 @@ export const BookmarkModal: React.FC<BookmarkModalProps> = ({
             <LinkIcon className="w-4 h-4 text-sky-500" />
             {bookmarkToEdit?.id ? 'Edit Bookmark' : 'Add New Bookmark'}
           </h2>
-          <button
+          <button aria-label="Close"
             onClick={onClose}
             className="p-1 rounded-lg text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-200 transition-colors"
           >
@@ -359,7 +359,7 @@ export const BookmarkModal: React.FC<BookmarkModalProps> = ({
                   className="px-2 py-0.5 rounded-md text-xs bg-sky-100 dark:bg-sky-950/40 text-sky-700 dark:text-sky-300 font-medium flex items-center gap-1"
                 >
                   #{t}
-                  <button
+                  <button aria-label="Remove tag"
                     type="button"
                     onClick={() => handleRemoveTag(t)}
                     className="hover:text-rose-500"
@@ -404,7 +404,7 @@ export const BookmarkModal: React.FC<BookmarkModalProps> = ({
           {/* Personal Note */}
           <div>
             <label className="block text-xs font-semibold text-neutral-600 dark:text-neutral-400 mb-1">
-              Personal Note (Markdown)
+              Personal Note
             </label>
             <textarea
               rows={2}

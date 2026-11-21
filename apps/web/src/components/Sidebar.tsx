@@ -559,7 +559,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                             e.preventDefault();
                             setCollectionMenuId(collectionMenuId === col.id ? null : col.id);
                           }}
-                          className="opacity-0 group-hover:opacity-100 p-1 rounded hover:bg-neutral-200 dark:hover:bg-neutral-700 text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-200 transition-all"
+                          className="opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 [@media(hover:none)]:opacity-100 p-1 rounded hover:bg-neutral-200 dark:hover:bg-neutral-700 text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-200 transition-all"
                         >
                           <MoreVertical className="w-3.5 h-3.5" />
                         </button>

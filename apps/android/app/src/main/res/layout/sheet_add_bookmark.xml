@@ -167,6 +167,31 @@
         android:textColorHint="#475569"
         android:textSize="13sp" />
 
+    <!-- Note Input -->
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginBottom="6dp"
+        android:text="NOTE (OPTIONAL)"
+        android:textColor="#64748B"
+        android:textSize="11sp"
+        android:textStyle="bold" />
+
+    <EditText
+        android:id="@+id/etAddNote"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginBottom="20dp"
+        android:background="@drawable/bg_input"
+        android:gravity="top|start"
+        android:hint="Why are you saving this?"
+        android:inputType="textMultiLine|textCapSentences"
+        android:minHeight="72dp"
+        android:padding="14dp"
+        android:textColor="#F8FAFC"
+        android:textColorHint="#475569"
+        android:textSize="13sp" />
+
     <!-- Action Buttons -->
     <LinearLayout
         android:layout_width="match_parent"

@@ -21,6 +21,7 @@ interface ExtensionStorage {
   authSession?: any;
   lastCollectionId?: string;
   apiToken?: string;
+  accountEmail?: string;
 }
 
 let currentBookmark: Bookmark | null = null;
@@ -32,7 +33,8 @@ let currentCover = '';
 let currentTags: string[] = [];
 let isStarred = false;
 let collections: Collection[] = [];
-let activeServerUrl = 'http://localhost:3000';
+// Empty until the user has entered their server (first run shows the settings instead of guessing an address).
+let activeServerUrl = '';
 let serverAuthRequired = false;
 
 // DOM Elements
@@ -59,6 +61,15 @@ const toggleSettings = document.getElementById('toggleSettings') as HTMLAnchorEl
 const settingsPanel = document.getElementById('settingsPanel') as HTMLDivElement;
 const serverUrlInput = document.getElementById('serverUrlInput') as HTMLInputElement;
 const signInBtn = document.getElementById('signInBtn') as HTMLButtonElement;
+const accountRow = document.getElementById('accountRow') as HTMLDivElement;
+const accountLabel = document.getElementById('accountLabel') as HTMLSpanElement;
+const signOutLink = document.getElementById('signOutLink') as HTMLAnchorElement;
+
+function renderAccount(apiToken?: string, email?: string) {
+  signInBtn.textContent = apiToken ? 'Sign in again' : 'Sign in with Google';
+  accountRow.style.display = apiToken ? 'block' : 'none';
+  accountLabel.textContent = apiToken ? `Signed in${email ? ` as ${email}` : ''}` : '';
+}
 const saveSettingsBtn = document.getElementById('saveSettingsBtn') as HTMLButtonElement;
 
 function revealServerSettings() {
@@ -72,13 +83,34 @@ function renderTags() {
   currentTags.forEach((tag) => {
     const chip = document.createElement('div');
     chip.className = 'tag-chip';
-    chip.innerHTML = `#${tag} <span data-tag="${tag}">×</span>`;
-    chip.querySelector('span')?.addEventListener('click', () => {
+    // Tags can come from the page (a subreddit name, for example): never parse them as HTML.
+    const remove = document.createElement('span');
+    remove.textContent = '×';
+    remove.setAttribute('role', 'button');
+    remove.setAttribute('aria-label', `Remove tag ${tag}`);
+    remove.addEventListener('click', () => {
       currentTags = currentTags.filter((t) => t !== tag);
       renderTags();
     });
+    chip.append(`#${tag} `, remove);
     tagsContainer.appendChild(chip);
   });
+}
+
+// Suggest tags already used in the library while typing
+async function loadTagSuggestions() {
+  if (!activeServerUrl) return;
+  try {
+    const response = await apiFetch(`${activeServerUrl}/api/tags`);
+    if (!response.ok) return;
+    const list = document.getElementById('tagSuggestions');
+    if (!list) return;
+    for (const tag of ((await response.json()).tags || []).slice(0, 50)) {
+      const option = document.createElement('option');
+      option.value = tag.name;
+      list.appendChild(option);
+    }
+  } catch { /* suggestions are optional */ }
 }
 
 // Add Tag
@@ -119,6 +151,14 @@ function populateBookmarkUI(bm: Bookmark) {
     pageTitle.textContent = bm.title;
   }
   if (bm.collectionId) {
+    // Offline, the collection list may not be cached; keep the bookmark's own collection selectable
+    // so saving does not silently move it to Unsorted.
+    if (!Array.from(collectionSelect.options).some((o) => o.value === bm.collectionId)) {
+      const opt = document.createElement('option');
+      opt.value = bm.collectionId;
+      opt.textContent = `📁 ${collections.find((c) => c.id === bm.collectionId)?.title || bm.collectionId}`;
+      collectionSelect.appendChild(opt);
+    }
     collectionSelect.value = bm.collectionId;
   }
   if (bm.tags) {
@@ -196,12 +236,16 @@ async function init() {
   }
 
   // Load storage
-  chrome.storage.local.get(['serverUrl', 'apiToken', 'bookmarks', 'collections', 'lastCollectionId'], async (res: ExtensionStorage) => {
+  chrome.storage.local.get(['serverUrl', 'apiToken', 'accountEmail', 'bookmarks', 'collections', 'lastCollectionId'], async (res: ExtensionStorage) => {
     if (res.serverUrl) {
       activeServerUrl = res.serverUrl.replace(/\/+$/, '');
+    } else {
+      revealServerSettings();
+      collectionMessage.textContent = 'Welcome! Enter your Keepsake server URL below, then sign in with Google.';
     }
     serverUrlInput.value = activeServerUrl;
-    signInBtn.textContent = res.apiToken ? 'Sign in again' : 'Sign in with Google';
+    renderAccount(res.apiToken, res.accountEmail);
+    void loadTagSuggestions();
 
     const savedLastCollectionId = res.lastCollectionId;
 
@@ -391,10 +435,37 @@ toggleSettings.addEventListener('click', () => {
   settingsPanel.style.display = settingsPanel.style.display === 'block' ? 'none' : 'block';
 });
 
-signInBtn.addEventListener('click', async () => {
-  const url = serverUrlInput.value.trim().replace(/\/+$/, '') || 'http://localhost:3000';
-  activeServerUrl = url;
+// A session belongs to one server. Switching servers drops it so the old
+// token is never sent to a different host.
+async function saveServerUrl(url: string) {
+  const previous = (await chrome.storage.local.get('serverUrl')).serverUrl as string | undefined;
+  const origin = (value: string) => { try { return new URL(value).origin; } catch { return value; } };
+  if (previous && origin(previous) !== origin(url)) {
+    await chrome.storage.local.remove(['apiToken', 'accountEmail']);
+    renderAccount();
+  }
   await chrome.storage.local.set({ serverUrl: url });
+}
+
+signOutLink.addEventListener('click', async () => {
+  try { await apiFetch(`${activeServerUrl}/api/auth/logout`, { method: 'POST' }); } catch {}
+  await chrome.storage.local.remove(['apiToken', 'accountEmail']);
+  renderAccount();
+});
+
+chrome.storage.onChanged.addListener((changes, area) => {
+  if (area !== 'local' || !('apiToken' in changes || 'accountEmail' in changes)) return;
+  chrome.storage.local.get(['apiToken', 'accountEmail'], (res: ExtensionStorage) => renderAccount(res.apiToken, res.accountEmail));
+});
+
+signInBtn.addEventListener('click', async () => {
+  const url = serverUrlInput.value.trim().replace(/\/+$/, '');
+  if (!url) {
+    collectionMessage.textContent = 'Enter your Keepsake server URL first.';
+    return;
+  }
+  activeServerUrl = url;
+  await saveServerUrl(url);
   // The server's sign-in page hands the new session back through the content script.
   await chrome.tabs.create({ url: `${url}/api/auth/google/url?state=extension` });
   window.close();
@@ -402,10 +473,14 @@ signInBtn.addEventListener('click', async () => {
 
 saveSettingsBtn.addEventListener('click', async () => {
   const url = serverUrlInput.value.trim().replace(/\/+$/, '');
-  activeServerUrl = url || 'http://localhost:3000';
+  if (!url) {
+    collectionMessage.textContent = 'Enter your Keepsake server URL first.';
+    return;
+  }
+  activeServerUrl = url;
   saveSettingsBtn.disabled = true;
   saveSettingsBtn.textContent = 'Checking…';
-  await chrome.storage.local.set({ serverUrl: activeServerUrl });
+  await saveServerUrl(activeServerUrl);
   try {
     const response = await apiFetch(`${activeServerUrl}/api/collections`);
     if (response.status === 401) throw new Error('Not signed in (401). Use Sign in with Google in these settings.');
@@ -447,13 +522,14 @@ saveBtn.addEventListener('click', async () => {
   let newBm: Bookmark = {
     id: currentBookmark ? currentBookmark.id : 'bm_' + Math.random().toString(36).substring(2, 9) + Date.now().toString(36),
     url: currentUrl,
-    title: currentTitle || currentDomain,
+    // Updating keeps the title and cover already saved (they may have been edited elsewhere).
+    title: currentBookmark?.title || currentTitle || currentDomain,
     description: currentBookmark?.description || '',
     note: noteInput.value.trim(),
     domain: currentDomain,
     favicon: currentFavicon,
-    cover: finalCover,
-    collectionId: collectionSelect.value || 'unsorted',
+    cover: currentBookmark?.cover || finalCover,
+    collectionId: collectionSelect.value || currentBookmark?.collectionId || 'unsorted',
     tags: currentTags,
     isFavorite: isStarred,
     isTrash: false,
@@ -556,3 +632,11 @@ deleteBtn.addEventListener('click', async () => {
 });
 
 init();
+
+// Ctrl/Cmd+Enter saves from anywhere in the popup
+document.addEventListener('keydown', (event) => {
+  if ((event.ctrlKey || event.metaKey) && event.key === 'Enter' && !saveBtn.disabled) {
+    event.preventDefault();
+    saveBtn.click();
+  }
+});

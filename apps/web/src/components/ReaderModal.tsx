@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useLayoutEffect, useRef } from 'react';
 import { useDialog } from './useDialog';
-import { Bookmark } from '@keepsake/shared';
+import DOMPurify from 'dompurify';
+import { Bookmark, ReaderContent, READER_PURIFY_CONFIG } from '@keepsake/shared';
 import { X, ExternalLink, Type, Clock, BookOpen } from 'lucide-react';
 
 interface ReaderModalProps {
@@ -8,46 +9,53 @@ interface ReaderModalProps {
   onClose: () => void;
 }
 
+// Scraped article HTML is untrusted. DOMPurify (with the shared allow-list settings) removes scripts,
+// event handlers and unsafe URL schemes however they are obfuscated; a hand-written filter cannot.
+DOMPurify.addHook('afterSanitizeAttributes', (node) => {
+  if (node.tagName === 'A') {
+    node.setAttribute('target', '_blank');
+    node.setAttribute('rel', 'noopener noreferrer');
+  }
+});
+
+// The reader re-renders on every scroll tick; only clean (and measure) an article once.
+let lastRawHtml = '';
+let lastCleanHtml = '';
+let lastPlainText = '';
+
 function sanitizeReaderHtml(html: string): string {
   if (!html) return '';
+  if (html === lastRawHtml) return lastCleanHtml;
+  let clean = '';
   try {
-    const parser = new DOMParser();
-    const doc = parser.parseFromString(html, 'text/html');
-
-    // Remove dangerous executable or layout breaking tags
-    const dangerousTags = ['script', 'style', 'iframe', 'object', 'embed', 'applet', 'base', 'form', 'input', 'button', 'link', 'meta'];
-    dangerousTags.forEach((tag) => {
-      doc.querySelectorAll(tag).forEach((el) => el.remove());
-    });
-
-    // Strip on* event handlers and javascript: URIs from all remaining elements
-    doc.querySelectorAll('*').forEach((el) => {
-      const attrs = Array.from(el.attributes);
-      for (const attr of attrs) {
-        const name = attr.name.toLowerCase();
-        const val = attr.value.trim().toLowerCase();
-
-        if (name.startsWith('on')) {
-          el.removeAttribute(attr.name);
-          continue;
-        }
-
-        if (name === 'href' || name === 'src' || name === 'action') {
-          if (val.startsWith('javascript:') || val.startsWith('vbscript:') || (val.startsWith('data:') && !val.startsWith('data:image/'))) {
-            el.removeAttribute(attr.name);
-          }
-        }
-      }
-    });
-
-    return doc.body.innerHTML;
+    clean = DOMPurify.sanitize(html, READER_PURIFY_CONFIG) as unknown as string;
   } catch {
-    return '';
+    clean = '';
   }
+  lastRawHtml = html;
+  lastCleanHtml = clean;
+  lastPlainText = clean ? new DOMParser().parseFromString(clean, 'text/html').body.textContent || '' : '';
+  return clean;
 }
 
 export const ReaderModal: React.FC<ReaderModalProps> = ({ bookmark, onClose }) => {
-  const dialogRef = useDialog(Boolean(bookmark?.readerContent), onClose);
+  // The library sync leaves article text out; it is fetched when an article is opened.
+  const [fetched, setFetched] = useState<{ id: string; content: ReaderContent | null } | null>(null);
+  const reader = bookmark?.readerContent || (fetched && fetched.id === bookmark?.id ? fetched.content : undefined) || undefined;
+  const loading = Boolean(bookmark && !bookmark.readerContent && bookmark.hasReader && fetched?.id !== bookmark.id);
+  const loadFailed = Boolean(bookmark && !bookmark.readerContent && bookmark.hasReader && fetched?.id === bookmark.id && !fetched.content);
+  useEffect(() => {
+    if (!bookmark || bookmark.readerContent || !bookmark.hasReader) return;
+    const id = bookmark.id;
+    let cancelled = false;
+    fetch(`/api/bookmarks/${encodeURIComponent(id)}/reader`)
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => { if (!cancelled) setFetched({ id, content: data?.readerContent || null }); })
+      .catch(() => { if (!cancelled) setFetched({ id, content: null }); });
+    return () => { cancelled = true; };
+  }, [bookmark?.id, bookmark?.readerContent, bookmark?.hasReader]);
+  useEffect(() => { if (!bookmark) setFetched(null); }, [bookmark]);
+  const dialogRef = useDialog(Boolean(reader) || loading || loadFailed, onClose);
   const scrollRef = useRef<HTMLDivElement>(null);
   const positionTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [progress, setProgress] = useState(0);
@@ -77,7 +85,7 @@ export const ReaderModal: React.FC<ReaderModalProps> = ({ bookmark, onClose }) =
   useEffect(() => { localStorage.setItem('keepsake_reader_width', readingWidth); }, [readingWidth]);
   useEffect(() => { localStorage.setItem('keepsake_reader_spacing', lineSpacing); }, [lineSpacing]);
   useLayoutEffect(() => {
-    if (!bookmark?.readerContent || !scrollRef.current) return;
+    if (!bookmark || !reader || !scrollRef.current) return;
     const position = Number(localStorage.getItem(`keepsake_reader_position_${bookmark.id}`));
     scrollRef.current.scrollTop = Number.isFinite(position) && position > 0 ? position : 0;
     const el = scrollRef.current;
@@ -86,12 +94,24 @@ export const ReaderModal: React.FC<ReaderModalProps> = ({ bookmark, onClose }) =
       if (positionTimer.current) clearTimeout(positionTimer.current);
       try { localStorage.setItem(`keepsake_reader_position_${bookmark.id}`, String(el.scrollTop)); } catch {}
     };
-  }, [bookmark?.id, Boolean(bookmark?.readerContent)]);
+  }, [bookmark?.id, Boolean(reader)]);
 
-  if (!bookmark || !bookmark.readerContent) return null;
+  if (bookmark && (loading || loadFailed)) {
+    return (
+      <div ref={dialogRef} role="dialog" aria-modal="true" aria-label="Reader" tabIndex={-1} className="fixed inset-0 z-50 flex items-center justify-center p-6 bg-slate-900/80 backdrop-blur-md">
+        <div className="bg-white dark:bg-neutral-900 dark:text-white rounded-2xl p-6 max-w-sm text-center space-y-4">
+          <p role="status">{loading ? 'Loading article…' : 'Could not load this article. Check your connection and try again.'}</p>
+          <button type="button" onClick={onClose} className="px-4 py-2 rounded-lg bg-sky-600 text-white text-sm">Close</button>
+        </div>
+      </div>
+    );
+  }
 
-  const { title, byline, content, textContent, siteName } = bookmark.readerContent;
-  const plainText = textContent || (content ? new DOMParser().parseFromString(content, 'text/html').body.textContent || '' : '');
+  if (!bookmark || !reader) return null;
+
+  const { title, byline, content, textContent, siteName } = reader;
+  const cleanContent = sanitizeReaderHtml(content || '');
+  const plainText = textContent || (content ? lastPlainText : '');
   const wordCount = plainText.trim() ? plainText.trim().split(/\s+/).length : 0;
   const readingTime = Math.max(1, Math.ceil(wordCount / 200));
 
@@ -260,7 +280,7 @@ export const ReaderModal: React.FC<ReaderModalProps> = ({ bookmark, onClose }) =
             {/* Sanitized Article HTML Content */}
             <div
               className={`reader-content ${fontClasses} ${sizeClasses} ${lineSpacing === 'compact' ? 'leading-normal' : lineSpacing === 'relaxed' ? 'leading-loose' : 'leading-relaxed'}`}
-              dangerouslySetInnerHTML={{ __html: sanitizeReaderHtml(content || '') }}
+              dangerouslySetInnerHTML={{ __html: cleanContent }}
             />
             {!content && textContent && <p className={`${fontClasses} ${sizeClasses} whitespace-pre-wrap`}>{textContent}</p>}
           </div>

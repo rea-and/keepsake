@@ -6,7 +6,7 @@ export function createApiAuth({ sessions, legacyToken }) {
         throw new Error('API authentication needs a session verifier or KEEPSAKE_API_TOKEN');
     const legacy = legacyToken ? Buffer.from(legacyToken, 'utf8') : null;
     return (req, res, next) => {
-        const publicRoute = (req.method === 'GET' && ['/health', '/auth/config', '/auth/google/url', '/auth/google/callback'].includes(req.path)) || (req.method === 'POST' && req.path === '/auth/refresh');
+        const publicRoute = (req.method === 'GET' && ['/health', '/auth/config', '/auth/google/url', '/auth/google/callback'].includes(req.path)) || (req.method === 'POST' && req.path === '/auth/exchange');
         if (req.method === 'OPTIONS' || publicRoute)
             return next();
         const header = req.get('authorization') || '';

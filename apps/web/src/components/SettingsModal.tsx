@@ -1,3 +1,4 @@
+import { DevicesList } from './DevicesList';
 import React, { useState, useRef } from 'react';
 import { useDialog } from './useDialog';
 import { AuthSession, SyncStatus, Bookmark, Collection, KeepsakeDataStore, exportToNetscapeHtml } from '@keepsake/shared';
@@ -74,28 +75,6 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   if (!isOpen) return null;
-
-  const handleGoogleLogin = () => {
-    // Open OAuth popup window
-    const width = 500;
-    const height = 650;
-    const left = window.screen.width / 2 - width / 2;
-    const top = window.screen.height / 2 - height / 2;
-
-    const popup = window.open(
-      '/api/auth/google/url',
-      'KeepsakeGoogleAuth',
-      `width=${width},height=${height},top=${top},left=${left}`
-    );
-
-    const handleMessage = (event: MessageEvent) => {
-      if (event.data?.type === 'KEEPSAKE_AUTH_SUCCESS' && event.data.payload) {
-        onSetAuthSession(event.data.payload);
-        window.removeEventListener('message', handleMessage);
-      }
-    };
-    window.addEventListener('message', handleMessage);
-  };
 
   const handleExportHtml = () => {
     const html = exportToNetscapeHtml(bookmarks, collections);
@@ -446,6 +425,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 </button>
               </div>
 
+              <DevicesList onCurrentRevoked={() => { onLogout?.(); onClose(); }} />
+
               {/* Optional Google Drive Sync Toggle */}
               <div className="p-4 rounded-xl border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-[#161619] space-y-4">
                 <div className="flex items-start justify-between gap-4">
@@ -618,9 +599,9 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   <span>Keepsake Architecture</span>
                 </div>
                 <p className="text-xs text-neutral-600 dark:text-neutral-400 leading-relaxed">
-                  Keepsake is an open, self-hosted, Google Drive-synchronized Raindrop.io clone.
-                  Your bookmarks and collections are stored privately in your own Google Drive
-                  account using CRDT conflict resolution.
+                  Keepsake is an open, self-hosted bookmark manager.
+                  Your bookmarks and collections live on your own server, with optional Google Drive
+                  backup, and are merged across devices with last-write-wins conflict resolution.
                 </p>
               </div>
 
